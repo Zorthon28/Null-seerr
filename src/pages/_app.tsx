@@ -178,7 +178,7 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
     };
   }, [hasPermission, router.pathname]);
 
-  if (router.pathname.match(/(login|setup|resetpassword)/)) {
+  if (router.pathname.match(/(login|setup|resetpassword|watch)/)) {
     component = <Component {...pageProps} />;
   } else {
     component = (

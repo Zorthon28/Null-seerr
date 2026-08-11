@@ -227,6 +227,9 @@ app
       OpenApiValidator.middleware({
         apiSpec: API_SPEC_PATH,
         validateRequests: true,
+        ignorePaths: (path: string) => {
+          return path.endsWith('/media/queue') || path.includes('/stream');
+        },
       })
     );
     /**

@@ -4,6 +4,7 @@ import useClickOutside from '@app/hooks/useClickOutside';
 import { Permission, useUser } from '@app/hooks/useUser';
 import { Transition } from '@headlessui/react';
 import {
+  ArrowDownTrayIcon,
   ClockIcon,
   CogIcon,
   EllipsisHorizontalIcon,
@@ -15,6 +16,7 @@ import {
   UsersIcon,
 } from '@heroicons/react/24/outline';
 import {
+  ArrowDownTrayIcon as FilledArrowDownTrayIcon,
   ClockIcon as FilledClockIcon,
   CogIcon as FilledCogIcon,
   ExclamationTriangleIcon as FilledExclamationTriangleIcon,
@@ -98,6 +100,13 @@ const MobileMenu = ({
       svgIcon: <ClockIcon className="h-6 w-6" />,
       svgIconSelected: <FilledClockIcon className="h-6 w-6" />,
       activeRegExp: /^\/requests/,
+    },
+    {
+      href: '/downloads',
+      content: intl.formatMessage(menuMessages.downloads),
+      svgIcon: <ArrowDownTrayIcon className="h-6 w-6" />,
+      svgIconSelected: <FilledArrowDownTrayIcon className="h-6 w-6" />,
+      activeRegExp: /^\/downloads/,
     },
     {
       href: '/blocklist',

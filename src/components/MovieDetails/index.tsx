@@ -196,7 +196,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
   ) {
     mediaLinks.push({
       text: getAvailableMediaServerName(),
-      url: plexUrl,
+      url: `/watch/${data.id}?type=movie`,
       svg: <PlayIcon />,
     });
   }
@@ -210,7 +210,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
   ) {
     mediaLinks.push({
       text: getAvailable4kMediaServerName(),
-      url: plexUrl4k,
+      url: `/watch/${data.id}?type=movie&is4k=true`,
       svg: <PlayIcon />,
     });
   }

@@ -1,4 +1,5 @@
 import ButtonWithDropdown from '@app/components/Common/ButtonWithDropdown';
+import { useRouter } from 'next/router';
 
 interface PlayButtonProps {
   links: PlayButtonLink[];
@@ -11,9 +12,13 @@ export interface PlayButtonLink {
 }
 
 const PlayButton = ({ links }: PlayButtonProps) => {
+  const router = useRouter();
+
   if (!links || !links.length) {
     return null;
   }
+
+  const isLocal = (url: string) => url.startsWith('/');
 
   return (
     <ButtonWithDropdown
@@ -26,7 +31,17 @@ const PlayButton = ({ links }: PlayButtonProps) => {
         </>
       }
       href={links[0].url}
-      target="_blank"
+      {...(isLocal(links[0].url)
+        ? {
+            onClick: (e: any) => {
+              e.preventDefault();
+              router.push(links[0].url);
+            },
+          }
+        : {
+            target: '_blank',
+            rel: 'noreferrer',
+          })}
     >
       {links.length > 1 &&
         links.slice(1).map((link, i) => {
@@ -35,7 +50,17 @@ const PlayButton = ({ links }: PlayButtonProps) => {
               key={`play-button-dropdown-item-${i}`}
               buttonType="ghost"
               href={link.url}
-              target="_blank"
+              {...(isLocal(link.url)
+                ? {
+                    onClick: (e: any) => {
+                      e.preventDefault();
+                      router.push(link.url);
+                    },
+                  }
+                : {
+                    target: '_blank',
+                    rel: 'noreferrer',
+                  })}
             >
               {link.svg}
               <span>{link.text}</span>

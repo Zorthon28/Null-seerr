@@ -1,0 +1,411 @@
+import Badge from '@app/components/Common/Badge';
+import CachedImage from '@app/components/Common/CachedImage';
+import Header from '@app/components/Common/Header';
+import PageTitle from '@app/components/Common/PageTitle';
+import useSWR from 'swr';
+import type { NextPage } from 'next';
+import { useIntl } from 'react-intl';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  ArrowDownTrayIcon,
+  ArrowPathIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  ExclamationCircleIcon,
+  MagnifyingGlassIcon,
+  PauseIcon,
+  ServerIcon,
+} from '@heroicons/react/24/outline';
+import type { MovieDetails } from '@server/models/Movie';
+import type { TvDetails } from '@server/models/Tv';
+
+interface QueueItem {
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  status: 'searching' | 'downloading' | 'processing' | 'paused' | 'queued' | 'failed';
+  progress: number;
+  timeLeft: string;
+  estimatedCompletionTime: string | null;
+  title: string;
+  size: string;
+  sizeLeft: string;
+  downloadClient: string;
+  downloadSpeed?: string;
+  protocol: string;
+  is4k: boolean;
+}
+
+const DownloadCard = ({ item }: { item: QueueItem }) => {
+  const url = item.mediaType === 'movie' ? `/api/v1/movie/${item.tmdbId}` : `/api/v1/tv/${item.tmdbId}`;
+  const { data: details } = useSWR<MovieDetails | TvDetails>(url);
+
+  const { data: retentionData, mutate: mutateRetention } = useSWR<{ policy: string }>(
+    `/api/v1/media/${item.mediaType}/${item.tmdbId}/retention`
+  );
+  const policy = retentionData?.policy || 'dont_delete';
+
+  const handlePolicyChange = async (newPolicy: string) => {
+    try {
+      await fetch(`/api/v1/media/${item.mediaType}/${item.tmdbId}/retention`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policy: newPolicy }),
+      });
+      mutateRetention({ policy: newPolicy });
+    } catch {
+      // ignore
+    }
+  };
+
+  const displayTitle = details
+    ? ('title' in details ? details.title : details.name)
+    : (item.mediaType === 'movie' ? 'Movie' : 'Series');
+
+  const releaseDate = details
+    ? ('releaseDate' in details ? details.releaseDate : details.firstAirDate)
+    : '';
+  const year = releaseDate ? `(${new Date(releaseDate).getFullYear()})` : '';
+  const poster = details?.posterPath;
+
+  // Status rendering properties
+  let statusColor = 'bg-gray-600/20 text-gray-400 border-gray-500/30';
+  let statusText = 'Unknown';
+  let StatusIcon = ClockIcon;
+
+  switch (item.status) {
+    case 'searching':
+      statusColor = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+      statusText = 'Searching Indexers...';
+      StatusIcon = MagnifyingGlassIcon;
+      break;
+    case 'downloading':
+      statusColor = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+      statusText = `Downloading (${item.progress}%)`;
+      StatusIcon = ArrowDownTrayIcon;
+      break;
+    case 'processing':
+      statusColor = 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+      statusText = 'Importing & Renaming...';
+      StatusIcon = CheckCircleIcon;
+      break;
+    case 'paused':
+      statusColor = 'bg-gray-500/10 text-gray-400 border-gray-500/20';
+      statusText = 'Paused';
+      StatusIcon = PauseIcon;
+      break;
+    case 'queued':
+      statusColor = 'bg-teal-500/10 text-teal-400 border-teal-500/20';
+      statusText = 'Queued';
+      StatusIcon = ClockIcon;
+      break;
+    case 'failed':
+      statusColor = 'bg-red-500/10 text-red-400 border-red-500/20';
+      statusText = 'Stalled / Failed';
+      StatusIcon = ExclamationCircleIcon;
+      break;
+  }
+
+  return (
+    <div className="flex flex-col md:flex-row bg-gray-800/40 backdrop-blur-md rounded-2xl border border-gray-700/50 p-4 gap-4 shadow-xl hover:border-gray-600/70 hover:bg-gray-800/60 transition duration-300">
+      {/* Poster */}
+      <div className="relative w-24 h-36 flex-shrink-0 rounded-xl overflow-hidden shadow-lg bg-gray-900 border border-gray-700/50">
+        <CachedImage
+          type="tmdb"
+          src={poster ? `https://image.tmdb.org/t/p/w300_and_h450_face${poster}` : '/images/seerr_poster_not_found_logo_top.png'}
+          alt=""
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          fill
+        />
+      </div>
+
+      {/* Info & Stats */}
+      <div className="flex flex-col justify-between flex-grow min-w-0">
+        <div>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <h2 className="text-lg font-bold text-white truncate max-w-md">
+                  {displayTitle} <span className="text-gray-400 font-normal text-sm">{year}</span>
+                </h2>
+                <Badge badgeType={item.is4k ? 'warning' : 'primary'}>
+                  {item.is4k ? '4K' : 'HD'}
+                </Badge>
+                <Badge badgeType={item.mediaType === 'movie' ? 'success' : 'danger'}>
+                  {item.mediaType === 'movie' ? 'Movie' : 'Series'}
+                </Badge>
+              </div>
+
+              {/* Status Badge */}
+              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColor}`}>
+                <StatusIcon className="w-3.5 h-3.5" />
+                <span>{statusText}</span>
+              </div>
+            </div>
+
+            {/* Retention Selector */}
+            <div className="flex flex-col gap-1 items-start sm:items-end">
+              <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Retention Policy</span>
+              <select
+                value={policy}
+                onChange={(e) => handlePolicyChange(e.target.value)}
+                className="text-xs bg-gray-900 border border-gray-700/60 hover:border-gray-600 text-gray-300 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 transition duration-200 cursor-pointer"
+              >
+                <option value="dont_delete">💾 Keep Indefinitely</option>
+                <option value="delete_after_watched">🗑️ Delete After Watched</option>
+                <option value="delete_after_7_days">🕒 Delete After 7 Days</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Release Title (torrent filename) */}
+          {item.title && (
+            <div className="text-xs font-mono text-gray-400/80 line-clamp-1 break-all mb-2" title={item.title}>
+              {item.title}
+            </div>
+          )}
+        </div>
+
+        {/* Progress details */}
+        <div>
+          {item.status !== 'searching' && (
+            <>
+              {/* Progress Bar */}
+              <div className="relative w-full h-2.5 bg-gray-900/60 rounded-full overflow-hidden mb-2">
+                <div
+                  className={`h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-500 ${
+                    item.status === 'downloading' ? 'animate-pulse' : ''
+                  }`}
+                  style={{ width: `${item.progress}%` }}
+                />
+              </div>
+
+              {/* Stats Footer */}
+              <div className="flex flex-wrap justify-between text-xs text-gray-400 gap-y-1">
+                <div className="flex flex-wrap gap-4">
+                  {item.size && (
+                    <span>
+                      Size: <strong className="text-gray-200">{item.sizeLeft}</strong> left of <strong className="text-gray-200">{item.size}</strong>
+                    </span>
+                  )}
+                  {item.downloadSpeed && (
+                    <span className="text-green-400 font-semibold">
+                      ↓ {item.downloadSpeed}
+                    </span>
+                  )}
+                  {item.downloadClient && (
+                    <span>
+                      Client: <strong className="text-gray-200">{item.downloadClient}</strong>
+                    </span>
+                  )}
+                </div>
+                {item.timeLeft && (
+                  <span className="text-blue-400 font-semibold">
+                    ETA: {item.timeLeft}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+
+          {item.status === 'searching' && (
+            <div className="text-xs text-amber-400/90 font-medium">
+              Null-seerr has submitted the request. Radarr/Sonarr is searching trackers for a matching release...
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const DownloadsPage: NextPage = () => {
+  const [searchFilter, setSearchFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState('');
+  const [onlyDownload, setOnlyDownload] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/v1/media/qbittorrent-seeding')
+      .then((res) => res.json())
+      .then((data) => setOnlyDownload(data.onlyDownload))
+      .catch(() => {});
+  }, []);
+
+  const handleSeedingToggle = async (val: boolean) => {
+    setOnlyDownload(val);
+    try {
+      await fetch('/api/v1/media/qbittorrent-seeding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ onlyDownload: val }),
+      });
+    } catch {
+      // ignore error
+    }
+  };
+
+  const { data, mutate, isValidating } = useSWR<{
+    queue: Record<number, any>;
+    items: QueueItem[];
+    completedIds?: number[];
+  }>('/api/v1/media/queue', {
+    refreshInterval: 3000,
+    revalidateOnMount: true,
+    revalidateOnFocus: true,
+  });
+
+  // When a download completes, trigger an extra immediate re-fetch so UI updates fast
+  useEffect(() => {
+    if (data?.completedIds && data.completedIds.length > 0) {
+      // Re-fetch a couple times to catch the status update
+      const t1 = setTimeout(() => mutate(), 3000);
+      const t2 = setTimeout(() => mutate(), 8000);
+      return () => { clearTimeout(t1); clearTimeout(t2); };
+    }
+  }, [data?.completedIds?.join(','), mutate]);
+
+  const handleScanNow = useCallback(async () => {
+    setIsScanning(true);
+    setScanMessage('');
+    try {
+      const res = await fetch('/api/v1/media/scan-now', { method: 'POST' });
+      const body = await res.json();
+      setScanMessage(res.status === 429 ? '⏳ Scan triggered recently, please wait.' : '✅ Plex scan started!');
+      // Re-fetch after scan has had time to run
+      setTimeout(() => mutate(), 5000);
+      setTimeout(() => mutate(), 12000);
+    } catch {
+      setScanMessage('❌ Failed to trigger scan.');
+    } finally {
+      setIsScanning(false);
+      setTimeout(() => setScanMessage(''), 6000);
+    }
+  }, [mutate]);
+
+  const items = data?.items || [];
+
+  // Filter items
+  const filteredItems = items.filter((item) => {
+    // Status Filter
+    if (statusFilter !== 'all' && item.status !== statusFilter) {
+      return false;
+    }
+    // Search filter
+    if (searchFilter) {
+      const term = searchFilter.toLowerCase();
+      return (
+        item.title.toLowerCase().includes(term) ||
+        item.downloadClient.toLowerCase().includes(term) ||
+        item.tmdbId.toString().includes(term)
+      );
+    }
+    return true;
+  });
+
+  return (
+    <>
+      <PageTitle title={['Downloads & Queue']} />
+      <div className="mb-6 flex flex-col justify-between md:flex-row md:items-end gap-4">
+        <div>
+          <Header>Downloads & Queue</Header>
+          <p className="text-sm text-gray-400 mt-1">
+            Monitor active torrent client downloads, renaming tasks, and release searches.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 bg-gray-800/80 text-gray-200 border border-gray-700/60 rounded-xl px-4 py-2 hover:bg-gray-700 hover:text-white transition duration-200 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={onlyDownload}
+              onChange={(e) => handleSeedingToggle(e.target.checked)}
+              className="w-4 h-4 text-indigo-600 bg-gray-900 border-gray-700 rounded focus:ring-indigo-500 focus:ring-2 focus:ring-offset-gray-800 focus:outline-none cursor-pointer"
+            />
+            <span className="text-xs font-semibold select-none">Only Download (No Seeding)</span>
+          </label>
+
+          <button
+            onClick={() => mutate()}
+            disabled={isValidating}
+            className="flex items-center gap-1.5 bg-gray-800 text-gray-200 border border-gray-700/60 rounded-xl px-4 py-2 hover:bg-gray-700 hover:text-white transition duration-200 disabled:opacity-50"
+          >
+            <ArrowPathIcon className={`w-4 h-4 ${isValidating ? 'animate-spin' : ''}`} />
+            <span>{isValidating ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+
+          <button
+            onClick={handleScanNow}
+            disabled={isScanning}
+            className="flex items-center gap-1.5 bg-indigo-700/80 text-white border border-indigo-600/60 rounded-xl px-4 py-2 hover:bg-indigo-600 transition duration-200 disabled:opacity-50"
+            title="Force a Plex recently-added scan and Seerr availability sync"
+          >
+            <ServerIcon className={`w-4 h-4 ${isScanning ? 'animate-pulse' : ''}`} />
+            <span>{isScanning ? 'Scanning...' : 'Scan Library'}</span>
+          </button>
+
+          {scanMessage && (
+            <span className="text-xs text-gray-300 animate-pulse">{scanMessage}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Controls: Search, Filter */}
+      <div className="flex flex-col lg:flex-row gap-4 mb-6">
+        {/* Search */}
+        <div className="flex flex-grow relative">
+          <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+            <MagnifyingGlassIcon className="w-5 h-5" />
+          </span>
+          <input
+            type="text"
+            placeholder="Search release file names..."
+            value={searchFilter}
+            onChange={(e) => setSearchFilter(e.target.value)}
+            className="w-full bg-gray-900 border border-gray-700/50 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition duration-200"
+          />
+        </div>
+
+        {/* Filter Status */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-xl bg-gray-900 border border-gray-700/50 p-1">
+            {['all', 'searching', 'downloading', 'processing', 'failed'].map((status) => (
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`text-xs px-3 py-1.5 rounded-lg font-semibold uppercase tracking-wider transition duration-200 ${
+                  statusFilter === status
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {status === 'all' ? 'All' : status === 'processing' ? 'Importing' : status}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Grid List */}
+      {filteredItems.length === 0 ? (
+        <div className="flex flex-col items-center justify-center bg-gray-800/10 border border-dashed border-gray-700/60 rounded-2xl p-12 text-center text-gray-400">
+          <ArrowDownTrayIcon className="w-12 h-12 text-gray-500 mb-3" />
+          <h3 className="text-lg font-bold text-gray-300 mb-1">No active downloads or searches found</h3>
+          <p className="text-sm text-gray-500 max-w-sm">
+            {searchFilter || statusFilter !== 'all'
+              ? 'Try modifying your search query or status filter criteria.'
+              : 'Requests that are currently downloading or searching indexers will show up here.'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {filteredItems.map((item, idx) => (
+            <DownloadCard key={`${item.tmdbId}-${item.status}-${idx}`} item={item} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+};
+
+export default DownloadsPage;

@@ -193,7 +193,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   ) {
     mediaLinks.push({
       text: getAvailableMediaServerName(),
-      url: plexUrl,
+      url: `/watch/${data.id}?type=tv`,
       svg: <PlayIcon />,
     });
   }
@@ -207,7 +207,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   ) {
     mediaLinks.push({
       text: getAvailable4kMediaServerName(),
-      url: plexUrl4k,
+      url: `/watch/${data.id}?type=tv&is4k=true`,
       svg: <PlayIcon />,
     });
   }

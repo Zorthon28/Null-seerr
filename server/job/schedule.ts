@@ -259,5 +259,19 @@ export const startJobs = (): void => {
     cancelFn: () => blocklistedTagsProcessor.cancel(),
   });
 
+  scheduledJobs.push({
+    id: 'media-retention-sync',
+    name: 'Media Retention Sync',
+    type: 'process',
+    interval: 'hours',
+    cronSchedule: jobs['media-retention-sync'].schedule,
+    job: schedule.scheduleJob(jobs['media-retention-sync'].schedule, () => {
+      logger.info('Starting scheduled job: Media Retention Sync', {
+        label: 'Jobs',
+      });
+      import('@server/lib/retention').then((r) => r.runRetentionSync());
+    }),
+  });
+
   logger.info('Scheduled jobs loaded', { label: 'Jobs' });
 };

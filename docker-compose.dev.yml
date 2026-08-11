@@ -1,0 +1,14 @@
+services:
+  seerr-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: null-seerr-dev
+    ports:
+      - 5056:5055
+    volumes:
+      - C:/arr-stack-dev/config/overseerr:/app/config
+    environment:
+      - TZ=Etc/UTC
+      - NODE_ENV=development
+    restart: unless-stopped
