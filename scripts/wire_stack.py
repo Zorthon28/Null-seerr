@@ -143,14 +143,18 @@ def configure_qbittorrent_auth(admin_user, admin_password):
                 break
 
         webui_settings = [
-            "WebUI\\Address=*\n",
+            "WebUI\\Address=0.0.0.0\n",
             "WebUI\\ServerDomains=*\n",
             "WebUI\\HostHeaderValidation=false\n",
             "WebUI\\CSRFProtection=false\n",
             "WebUI\\ClickjackingProtection=false\n",
             "WebUI\\AuthSubnetWhitelist=0.0.0.0/0, ::/0\n",
             "WebUI\\AuthSubnetWhitelistEnabled=true\n",
-            "WebUI\\LocalHostAuth=false\n"
+            "WebUI\\LocalHostAuth=false\n",
+            "Session\\DefaultSavePath=/data/torrents/\n",
+            "Session\\TempPath=/data/torrents/incomplete/\n",
+            "Downloads\\SavePath=/data/torrents/\n",
+            "Downloads\\TempPath=/data/torrents/incomplete/\n"
         ]
 
         if pref_idx != -1:
