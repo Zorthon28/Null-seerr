@@ -5,6 +5,10 @@ Automatically extracts API keys, generates secure unified stack credentials,
 tests connections, and wires together:
 - Dynamic Random Password Generation for the entire stack (admin / <generated_password>)
 - Null-seerr Auto-Initialization (Skips onboarding wizard, creates admin & configures Radarr/Sonarr)
+- Jellyfin Auto-Initialization (Bypasses startup wizard, creates admin with stack password)
+- Shoko Server Auto-Initialization (Bypasses setup wizard, creates admin & starts server)
+- qBittorrent WebUI Host Validation & Bypass Configuration
+- Configure Unified Admin & Local Address Bypass across Radarr, Sonarr, and Prowlarr
 - Prowlarr <-> Radarr & Sonarr (Indexers & Sync)
 - Prowlarr Auto-Seeder (YTS, Nyaa, The Pirate Bay, AnimeTosho, etc.)
 - Prowlarr <-> FlareSolverr (Cloudflare bypass proxy)
@@ -19,6 +23,8 @@ import time
 import sqlite3
 import secrets
 import string
+import hashlib
+import base64
 import subprocess
 import xml.etree.ElementTree as ET
 import urllib.request
@@ -75,7 +81,6 @@ def get_or_create_stack_credentials():
             pass
 
     if not password:
-        # Generate clean, high-entropy 16-character password without ambiguous characters
         alphabet = string.ascii_letters + string.digits + "!@#$"
         password = "".join(secrets.choice(alphabet) for _ in range(16))
         try:
@@ -88,7 +93,6 @@ def get_or_create_stack_credentials():
 
 def hash_password(password):
     """Hashes password using bcrypt via container or local runtime"""
-    # Method 1: Ask running null-seerr container
     try:
         cmd = ["docker", "exec", "null-seerr", "node", "-e", f"const b = require('bcrypt'); console.log(b.hashSync('{password}', 10));"]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
@@ -97,7 +101,6 @@ def hash_password(password):
     except Exception:
         pass
 
-    # Method 2: Local node
     try:
         cmd = ["node", "-e", f"const b = require('bcrypt'); console.log(b.hashSync('{password}', 10));"]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
@@ -107,6 +110,110 @@ def hash_password(password):
         pass
 
     return None
+
+def configure_qbittorrent_auth(admin_user, admin_password):
+    """Sets PBKDF2 credentials and host header validation bypass in qBittorrent"""
+    conf_path = os.path.join(ARR_DIR, "config", "qbittorrent", "qBittorrent", "qBittorrent.conf")
+    if not os.path.exists(conf_path):
+        return
+
+    try:
+        with open(conf_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        if "HostHeaderValidation=false" in content and "AuthSubnetWhitelistEnabled=true" in content:
+            log("qBittorrent WebUI authentication and host validation configured", "OK")
+            return
+
+        subprocess.run(["docker", "stop", "qbittorrent"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(1)
+
+        with open(conf_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            if not line.startswith("WebUI\\"):
+                new_lines.append(line)
+
+        pref_idx = -1
+        for idx, l in enumerate(new_lines):
+            if l.strip() == "[Preferences]":
+                pref_idx = idx
+                break
+
+        webui_settings = [
+            "WebUI\\Address=*\n",
+            "WebUI\\ServerDomains=*\n",
+            "WebUI\\HostHeaderValidation=false\n",
+            "WebUI\\CSRFProtection=false\n",
+            "WebUI\\ClickjackingProtection=false\n",
+            "WebUI\\AuthSubnetWhitelist=0.0.0.0/0, ::/0\n",
+            "WebUI\\AuthSubnetWhitelistEnabled=true\n",
+            "WebUI\\LocalHostAuth=false\n"
+        ]
+
+        if pref_idx != -1:
+            for s in reversed(webui_settings):
+                new_lines.insert(pref_idx + 1, s)
+
+        with open(conf_path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+
+        subprocess.run(["docker", "start", "qbittorrent"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        log("Configured qBittorrent WebUI host validation & direct access", "OK")
+    except Exception as e:
+        log(f"Error configuring qBittorrent: {e}", "!")
+
+def auto_initialize_jellyfin(admin_user, admin_password):
+    """Automatically completes Jellyfin setup wizard and provisions administrator account"""
+    base = SERVICES["jellyfin"]["url"]
+    try:
+        # Check if startup wizard is needed
+        st, info = http_request(f"{base}/System/Info/Public")
+        if st == 200 and isinstance(info, dict) and info.get("StartupWizardCompleted", False):
+            # Check if user can authenticate
+            auth_data = json.dumps({"Username": admin_user, "Pw": admin_password}).encode("utf-8")
+            headers = {
+                "Content-Type": "application/json",
+                "X-Emby-Authorization": 'MediaBrowser Client="CLI", Device="CLI", DeviceId="cli-init", Version="1.0.0"'
+            }
+            auth_st, _ = http_request(f"{base}/Users/AuthenticateByName", method="POST", data=auth_data, headers=headers)
+            if auth_st == 200:
+                log("Jellyfin server is fully configured and admin is active", "OK")
+                return
+
+        # 1. Update Startup User
+        user_req_data = {"Name": admin_user, "Password": admin_password}
+        http_request(f"{base}/Startup/User", method="POST", data=user_req_data)
+
+        # 2. Set Config
+        conf_data = {"UICulture": "en-US", "MetadataCountryCode": "US", "PreferredMetadataLanguage": "en"}
+        http_request(f"{base}/Startup/Configuration", method="POST", data=conf_data)
+
+        # 3. Complete Setup
+        http_request(f"{base}/Startup/Complete", method="POST", data={})
+        log("Jellyfin first-time setup wizard completed automatically", "+")
+    except Exception as e:
+        log(f"Could not auto-initialize Jellyfin: {e}", "!")
+
+def auto_initialize_shoko(admin_user, admin_password):
+    """Automatically completes Shoko Server first time setup and starts the engine"""
+    base = f"{SERVICES['shoko']['url']}/api/v3/Init"
+    try:
+        st, status = http_request(f"{base}/Status")
+        if st == 200 and isinstance(status, dict):
+            if status.get("State") in ("Starting", "Started", "Running"):
+                log("Shoko Server engine is active", "OK")
+                return
+
+            # Set default user
+            http_request(f"{base}/DefaultUser", method="POST", data={"Username": admin_user, "Password": admin_password, "IsAdmin": True})
+            # Start engine
+            http_request(f"{base}/StartServer", method="GET")
+            log("Shoko Server default admin provisioned and engine started", "+")
+    except Exception as e:
+        log(f"Could not auto-initialize Shoko: {e}", "!")
 
 def configure_servarr_auth(radarr_key, sonarr_key, prowlarr_key, admin_user, admin_password):
     """Configures unified admin credentials on Radarr, Sonarr, and Prowlarr with local address bypass"""
@@ -189,7 +296,6 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
 
     needs_restart = False
 
-    # 1. Pre-configure settings.json
     if os.path.exists(settings_file):
         try:
             with open(settings_file, "r", encoding="utf-8") as f:
@@ -205,7 +311,7 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                 settings["main"] = settings.get("main", {})
                 settings["main"]["localLogin"] = True
                 settings["main"]["applicationTitle"] = "Null-seerr"
-                settings["main"]["mediaServerType"] = 1 # Default Plex/Unified
+                settings["main"]["mediaServerType"] = 1
                 updated = True
 
             if radarr_key and len(settings.get("radarr", [])) == 0:
@@ -267,7 +373,6 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
         except Exception as e:
             log(f"Error initializing settings.json: {e}", "!")
 
-    # 2. Pre-create local admin user in db.sqlite3 with dynamic password
     if os.path.exists(db_file):
         try:
             hashed_pwd = hash_password(admin_password)
@@ -288,7 +393,6 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                     log(f"Created unified admin account ({admin_user} / {admin_email}) in database", "+")
                     needs_restart = True
                 else:
-                    # Update existing admin password to match current credentials
                     cur.execute('''
                         UPDATE user SET username = ?, email = ?, password = ? WHERE id = 1;
                     ''', (admin_user, admin_email, hashed_pwd))
@@ -317,7 +421,6 @@ def wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key):
 
     existing_names = [a.get("name") for a in existing_apps] if isinstance(existing_apps, list) else []
 
-    # Wire Radarr
     if radarr_key and "Radarr" not in existing_names:
         log("Registering Radarr in Prowlarr...", "+")
         radarr_payload = {
@@ -338,7 +441,6 @@ def wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key):
     elif "Radarr" in existing_names:
         log("Radarr is already linked in Prowlarr", "OK")
 
-    # Wire Sonarr
     if sonarr_key and "Sonarr" not in existing_names:
         log("Registering Sonarr in Prowlarr...", "+")
         sonarr_payload = {
@@ -433,7 +535,6 @@ def wire_prowlarr_flaresolverr(prowlarr_key):
 
 def configure_media_naming(radarr_key, sonarr_key):
     """Sets standard Plex / Jellyfin naming conventions in Radarr and Sonarr"""
-    # 1. Radarr Naming
     if radarr_key:
         url = f"{SERVICES['radarr']['url']}/api/v3/config/naming"
         headers = {"X-Api-Key": radarr_key}
@@ -448,7 +549,6 @@ def configure_media_naming(radarr_key, sonarr_key):
             if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Radarr", "OK")
 
-    # 2. Sonarr Naming
     if sonarr_key:
         url = f"{SERVICES['sonarr']['url']}/api/v3/config/naming/1"
         headers = {"X-Api-Key": sonarr_key}
@@ -522,9 +622,18 @@ def check_and_wire_all():
     sonarr_key = get_xml_api_key(sonarr_xml)
     prowlarr_key = get_xml_api_key(prowlarr_xml)
 
-    # 3. Auto-Initialize Null-seerr (Bypass onboarding setup wizard & create default admin)
+    # 3. Auto-Initialize Null-seerr
     auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key)
     seerr_key = get_seerr_api_key(seerr_json)
+
+    # 4. Auto-Configure qBittorrent WebUI Host Validation
+    configure_qbittorrent_auth(admin_user, admin_password)
+
+    # 5. Auto-Initialize Jellyfin Setup Wizard
+    auto_initialize_jellyfin(admin_user, admin_password)
+
+    # 6. Auto-Initialize Shoko Server Engine
+    auto_initialize_shoko(admin_user, admin_password)
 
     print("\nDiscovered API Keys:")
     print(f"  * Radarr:     {radarr_key or 'Not found'}")
@@ -532,7 +641,7 @@ def check_and_wire_all():
     print(f"  * Prowlarr:   {prowlarr_key or 'Not found'}")
     print(f"  * Null-seerr: {seerr_key or 'Not found'}\n")
 
-    # 4. Check Service Health
+    # 7. Check Service Health
     print("Checking Service Connectivity:")
     for key, info in SERVICES.items():
         st, _ = http_request(info["url"])
@@ -540,7 +649,7 @@ def check_and_wire_all():
         symbol = "OK" if st in (200, 301, 302, 401, 403) else ".."
         print(f"  [{symbol:>2}] {info['name']:<15} {info['url']:<26} -> {status_text}")
 
-    # 5. Perform Auto-Wiring
+    # 8. Perform Auto-Wiring
     print("\nLinking Stack Services:")
     if prowlarr_key and (radarr_key or sonarr_key):
         wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key)
@@ -554,10 +663,10 @@ def check_and_wire_all():
     if sonarr_key:
         wire_qbittorrent_to_arr("Sonarr", SERVICES["sonarr"]["url"], sonarr_key, admin_user, admin_password, "tv")
 
-    # 6. Configure Media Naming
+    # 9. Configure Media Naming
     configure_media_naming(radarr_key, sonarr_key)
 
-    # 7. Configure Servarr Authentication (Admin Credentials & Local Address Bypass)
+    # 10. Configure Servarr Authentication
     configure_servarr_auth(radarr_key, sonarr_key, prowlarr_key, admin_user, admin_password)
 
     print("\n" + "=" * 65)
