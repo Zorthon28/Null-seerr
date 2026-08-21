@@ -859,6 +859,105 @@ def wire_qbittorrent_to_arr(app_name, app_url, app_key, admin_user, admin_passwo
             http_request(rpm_url, method="POST", data=rpm_data, headers=headers)
             log(f"Remote path mapping added for {app_name} (/downloads/ -> /data/torrents/)", "+")
 
+def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
+    """Configures Bazarr for automated subtitle downloads, language profiles, and provider integration"""
+    bazarr_yaml_path = os.path.join(ARR_DIR, 'config', 'bazarr', 'config', 'config.yaml')
+    bazarr_db_path = os.path.join(ARR_DIR, 'config', 'bazarr', 'db', 'bazarr.db')
+
+    if not os.path.exists(bazarr_yaml_path):
+        return None
+
+    try:
+        import yaml
+    except ImportError:
+        return None
+
+    try:
+        with open(bazarr_yaml_path, 'r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f) or {}
+
+        updated = False
+        if radarr_key and not cfg.get('general', {}).get('use_radarr'):
+            cfg['general']['use_radarr'] = True
+            cfg['general']['movie_default_enabled'] = True
+            cfg['general']['movie_default_profile'] = '1'
+            cfg['radarr']['ip'] = 'radarr'
+            cfg['radarr']['port'] = 7878
+            cfg['radarr']['apikey'] = radarr_key
+            cfg['radarr']['ssl'] = False
+            cfg['radarr']['base_url'] = ''
+            updated = True
+
+        if sonarr_key and not cfg.get('general', {}).get('use_sonarr'):
+            cfg['general']['use_sonarr'] = True
+            cfg['general']['serie_default_enabled'] = True
+            cfg['general']['serie_default_profile'] = '1'
+            cfg['sonarr']['ip'] = 'sonarr'
+            cfg['sonarr']['port'] = 8989
+            cfg['sonarr']['apikey'] = sonarr_key
+            cfg['sonarr']['ssl'] = False
+            cfg['sonarr']['base_url'] = ''
+            updated = True
+
+        if jellyfin_key and not cfg.get('general', {}).get('use_jellyfin'):
+            cfg['general']['use_jellyfin'] = True
+            cfg['jellyfin']['url'] = 'http://jellyfin:8096'
+            cfg['jellyfin']['apikey'] = jellyfin_key
+            cfg['jellyfin']['update_movie_library'] = True
+            cfg['jellyfin']['update_series_library'] = True
+            updated = True
+
+        enabled_provs = ['yifysubtitles', 'podnapisi', 'supersubtitles', 'animetosho', 'subf2m', 'embeddedsubtitles']
+        if cfg.get('general', {}).get('enabled_providers') != enabled_provs:
+            cfg['general']['enabled_providers'] = enabled_provs
+            cfg['general']['minimum_score_movie'] = 60
+            cfg['general']['minimum_score'] = 60
+            cfg['general']['use_embedded_subs'] = True
+            cfg['general']['subfolder'] = 'current'
+            cfg['general']['utf8_encode'] = True
+            updated = True
+
+        if cfg.get('auth', {}).get('type') is not None:
+            cfg['auth']['type'] = None
+            updated = True
+
+        if updated:
+            subprocess.run(['docker', 'stop', 'bazarr'], stdout=subprocess.DEVNULL)
+            time.sleep(1)
+            with open(bazarr_yaml_path, 'w', encoding='utf-8') as f:
+                yaml.dump(cfg, f)
+
+            # Seed Profile 1 into bazarr.db if missing
+            if os.path.exists(bazarr_db_path):
+                conn = sqlite3.connect(bazarr_db_path)
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM table_languages_profiles WHERE profileId = 1;")
+                if cur.fetchone()[0] == 0:
+                    items_json = json.dumps([
+                        {"id": 1, "language": "en", "forced": False, "hi": False, "audio_language": None},
+                        {"id": 2, "language": "es", "forced": False, "hi": False, "audio_language": None}
+                    ])
+                    cur.execute('''
+                        INSERT INTO table_languages_profiles (
+                            profileId, cutoff, originalFormat, items, name, mustContain, mustNotContain, tag
+                        ) VALUES (
+                            1, 1, 0, ?, 'English & Spanish', '', '', ''
+                        );
+                    ''', (items_json,))
+                    conn.commit()
+                conn.close()
+
+            subprocess.run(['docker', 'start', 'bazarr'], stdout=subprocess.DEVNULL)
+            log("Bazarr automated subtitles and providers configured", "+")
+        else:
+            log("Bazarr subtitle automation is active", "OK")
+
+        bazarr_key = cfg.get('auth', {}).get('apikey', '')
+        return bazarr_key
+    except Exception as e:
+        log(f"Error configuring Bazarr: {e}", "!")
+        return None
+
 def check_and_wire_all():
     print("=" * 65)
     print("NULL-SEERR ALL-IN-ONE MEDIA STACK AUTO-WIRING TOOL")
@@ -929,6 +1028,9 @@ def check_and_wire_all():
 
     # 12. Configure Servarr Authentication
     configure_servarr_auth(radarr_key, sonarr_key, prowlarr_key, admin_user, admin_password)
+
+    # 13. Configure Bazarr Subtitle Automation
+    configure_bazarr(radarr_key, sonarr_key, jellyfin_info.get("apiKey") if jellyfin_info else None)
 
     print("\n" + "=" * 65)
     print("✨ STACK WIRING COMPLETE & CREDENTIALS CONFIGURED!")
