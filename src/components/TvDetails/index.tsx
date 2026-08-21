@@ -193,7 +193,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   ) {
     mediaLinks.push({
       text: getAvailableMediaServerName(),
-      url: `/watch/${data.id}?type=tv`,
+      url: plexUrl,
       svg: <PlayIcon />,
     });
   }
@@ -207,7 +207,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   ) {
     mediaLinks.push({
       text: getAvailable4kMediaServerName(),
-      url: `/watch/${data.id}?type=tv&is4k=true`,
+      url: plexUrl4k,
       svg: <PlayIcon />,
     });
   }
@@ -588,6 +588,25 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                 />
               )}
           </div>
+          {((data.mediaInfo?.downloadStatus ?? []).length > 0 ||
+            (data.mediaInfo?.downloadStatus4k ?? []).length > 0) &&
+            [
+              ...(data.mediaInfo?.downloadStatus ?? []),
+              ...(data.mediaInfo?.downloadStatus4k ?? []),
+            ].some(
+              (item) =>
+                !item.timeLeft ||
+                item.timeLeft === 'unknown' ||
+                item.status === 'warning' ||
+                item.status === 'queued'
+            ) && (
+              <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-200 shadow-lg backdrop-blur-md">
+                <ExclamationTriangleIcon className="h-4 w-4 flex-shrink-0 text-amber-400" />
+                <span>
+                  <strong className="text-amber-300">Low Seeder Advisory:</strong> This release currently has a low number of seeders on the swarm. Downloading may take longer than usual.
+                </span>
+              </div>
+            )}
           <h1 data-testid="media-title">
             {data.name}{' '}
             {data.firstAirDate && (

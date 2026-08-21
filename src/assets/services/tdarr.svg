@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="tdarr-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#0369A1"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="url(#tdarr-grad)"/>
+  <path d="M120 180h80v160h-80zM216 130h80v260h-80zM312 210h80v100h-80z" fill="#FFFFFF" fill-opacity="0.25"/>
+  <path d="M150 256c0-58.5 47.5-106 106-106s106 47.5 106 106-47.5 106-106 106-106-47.5-106-106zm70-40v80l64-40-64-40z" fill="#FFFFFF"/>
+</svg>

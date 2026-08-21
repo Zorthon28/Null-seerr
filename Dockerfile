@@ -44,8 +44,10 @@ RUN \
   ;; \
   esac
 
+RUN apk add --no-cache libc6-compat
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store CYPRESS_INSTALL_BINARY=0 pnpm install --frozen-lockfile
 
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN pnpm build
 
 RUN rm -rf .next/cache

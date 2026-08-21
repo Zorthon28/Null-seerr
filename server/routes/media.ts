@@ -20,6 +20,9 @@ import { Router } from 'express';
 import type { FindOneOptions } from 'typeorm';
 import { EntityNotFoundError, In, IsNull, Not } from 'typeorm';
 import PlexAPI from '@server/api/plexapi';
+import JellyfinAPI from '@server/api/jellyfin';
+import { MediaServerType } from '@server/constants/server';
+import { getHostname } from '@server/utils/getHostname';
 import NodeCache from 'node-cache';
 import { uniqWith } from 'lodash';
 import { plexRecentScanner } from '@server/lib/scanners/plex';
@@ -134,6 +137,8 @@ mediaRoutes.get('/queue', async (req, res, next) => {
   try {
     const settings = getSettings();
     const rawQueueItems: any[] = [];
+    const radarrHealthMap = new Map<number, any[]>();
+    const sonarrHealthMap = new Map<number, any[]>();
 
     // Fetch all local media database rows to help map tvdbId to tmdbId
     const localMedia = await getRepository(Media).find();
@@ -159,18 +164,28 @@ mediaRoutes.get('/queue', async (req, res, next) => {
           const queue = await radarrApi.getQueue();
           logger.debug(`[Queue API] Radarr (${server.name}): found ${queue.length} queue items`, { serverName: server.name });
           
+          // Fetch health status
+          try {
+            const health = await radarrApi.getHealth();
+            radarrHealthMap.set(server.id, health);
+          } catch (he) {
+            logger.error(`[Queue API] Failed to retrieve health from Radarr: ${server.name}`, { errorMessage: he.message });
+          }
+
           // Build movie mapping for this Radarr server
           const movieCacheKey = `radarr-${server.id}`;
           let movieMap = mappingCache.get<Record<number, number>>(movieCacheKey);
-          if (!movieMap) {
+          let movies = mappingCache.get<any[]>(`radarr-movies-full-${server.id}`);
+          if (!movieMap || !movies) {
             movieMap = {};
-            const movies = await radarrApi.getMovies();
+            movies = await radarrApi.getMovies();
             for (const m of movies) {
               if (m.id && m.tmdbId) {
                 movieMap[m.id] = m.tmdbId;
               }
             }
             mappingCache.set(movieCacheKey, movieMap);
+            mappingCache.set(`radarr-movies-full-${server.id}`, movies);
             logger.debug(`[Queue API] Radarr (${server.name}): built movie map with ${Object.keys(movieMap).length} entries`);
           }
 
@@ -218,6 +233,7 @@ mediaRoutes.get('/queue', async (req, res, next) => {
                 downloadClient: item.downloadClient || 'qBittorrent',
                 protocol: item.protocol || 'torrent',
                 is4k: server.is4k,
+                downloadId: (item as any).downloadId || null,
               });
             }
           }
@@ -244,12 +260,21 @@ mediaRoutes.get('/queue', async (req, res, next) => {
           const queue = await sonarrApi.getQueue();
           logger.debug(`[Queue API] Sonarr (${server.name}): found ${queue.length} queue items`, { serverName: server.name });
           
+          // Fetch health status
+          try {
+            const health = await sonarrApi.getHealth();
+            sonarrHealthMap.set(server.id, health);
+          } catch (he) {
+            logger.error(`[Queue API] Failed to retrieve health from Sonarr: ${server.name}`, { errorMessage: he.message });
+          }
+
           // Build series mapping for this Sonarr server
           const seriesCacheKey = `sonarr-${server.id}`;
           let seriesMap = mappingCache.get<Record<number, number>>(seriesCacheKey);
-          if (!seriesMap) {
+          let seriesList = mappingCache.get<any[]>(`sonarr-series-full-${server.id}`);
+          if (!seriesMap || !seriesList) {
             seriesMap = {};
-            const seriesList = await sonarrApi.getSeries();
+            seriesList = await sonarrApi.getSeries();
             for (const s of seriesList) {
               if (s.id && s.tvdbId) {
                 const tmdbId = tvdbToTmdb.get(s.tvdbId);
@@ -259,6 +284,7 @@ mediaRoutes.get('/queue', async (req, res, next) => {
               }
             }
             mappingCache.set(seriesCacheKey, seriesMap);
+            mappingCache.set(`sonarr-series-full-${server.id}`, seriesList);
           }
 
           for (const item of queue) {
@@ -310,6 +336,7 @@ mediaRoutes.get('/queue', async (req, res, next) => {
                 downloadClient: item.downloadClient || 'qBittorrent',
                 protocol: item.protocol || 'torrent',
                 is4k: server.is4k,
+                downloadId: (item as any).downloadId || null,
               });
             }
           }
@@ -446,6 +473,49 @@ mediaRoutes.get('/queue', async (req, res, next) => {
 
       logger.debug(`[Queue API] Adding searching item: tmdbId=${m.tmdbId}, type=${m.mediaType}, mediaStatus=${m.status}, mediaStatus4k=${m.status4k}, is4k=${req.is4k}`);
 
+      // Re-map details and warnings from cached servers
+      let healthWarnings: string[] = [];
+      let dvrDetails: any = null;
+
+      if (m.mediaType === MediaType.MOVIE) {
+        for (const server of filteredRadarr) {
+          const movies = mappingCache.get<any[]>(`radarr-movies-full-${server.id}`) || [];
+          const movie = movies.find(mv => mv.tmdbId === m.tmdbId);
+          if (movie) {
+            dvrDetails = {
+              monitored: movie.monitored,
+              status: movie.status,
+              hasFile: movie.hasFile,
+              minimumAvailability: movie.minimumAvailability,
+            };
+            const h = radarrHealthMap.get(server.id) || [];
+            healthWarnings = h.map(hw => `[Radarr - ${server.name}] ${hw.message}`);
+            break;
+          }
+        }
+      } else {
+        for (const server of filteredSonarr) {
+          const seriesList = mappingCache.get<any[]>(`sonarr-series-full-${server.id}`) || [];
+          const series = seriesList.find(s => {
+            const cachedSeriesMap = mappingCache.get<Record<number, number>>(`sonarr-${server.id}`) || {};
+            return cachedSeriesMap[s.id] === m.tmdbId;
+          });
+          if (series) {
+            dvrDetails = {
+              monitored: series.monitored,
+              status: series.status,
+              nextAiring: series.nextAiring,
+              episodeCount: series.statistics?.episodeCount || 0,
+              episodeFileCount: series.statistics?.episodeFileCount || 0,
+              totalEpisodeCount: series.statistics?.totalEpisodeCount || 0,
+            };
+            const h = sonarrHealthMap.get(server.id) || [];
+            healthWarnings = h.map(hw => `[Sonarr - ${server.name}] ${hw.message}`);
+            break;
+          }
+        }
+      }
+
       rawQueueItems.push({
         tmdbId: m.tmdbId,
         mediaType: m.mediaType,
@@ -459,6 +529,8 @@ mediaRoutes.get('/queue', async (req, res, next) => {
         downloadClient: '',
         protocol: '',
         is4k: req.is4k,
+        details: dvrDetails,
+        healthWarnings,
       });
     }
 
@@ -541,9 +613,23 @@ mediaRoutes.get('/queue', async (req, res, next) => {
       }
     }
 
+    // Deduplicate items by downloadId so season packs show ONE card per torrent,
+    // not one card per episode that Sonarr tracks inside the same download.
+    const uniqueItems: any[] = [];
+    const seenDownloadKeys = new Set<string>();
+    for (const item of rawQueueItems) {
+      const key = item.downloadId
+        ? `${item.mediaType}-${item.downloadId}`
+        : `${item.mediaType}-${item.tmdbId}-${item.title}`;
+      if (!seenDownloadKeys.has(key)) {
+        seenDownloadKeys.add(key);
+        uniqueItems.push(item);
+      }
+    }
+
     return res.status(200).json({
       queue: aggregatedQueue,
-      items: rawQueueItems,
+      items: uniqueItems,
       completedIds,
     });
   } catch (e) {
@@ -672,6 +758,110 @@ mediaRoutes.get('/:id/stream', async (req, res, next) => {
     }
 
     const is4k = req.query.is4k === 'true';
+    const settings = getSettings();
+
+    // Check if configured media server is Jellyfin or Emby
+    if (
+      settings.main.mediaServerType === MediaServerType.JELLYFIN ||
+      settings.main.mediaServerType === MediaServerType.EMBY
+    ) {
+      const jellyfinMediaId = is4k ? media.jellyfinMediaId4k : media.jellyfinMediaId;
+
+      if (!jellyfinMediaId) {
+        logger.warn(`[Stream API] Jellyfin media ID not found in local DB for TMDB ID: ${tmdbId} (is4k: ${is4k})`);
+        return res.status(404).json({ message: 'Jellyfin media ID not found. Please ensure libraries are synced.' });
+      }
+
+      const jellyfin = new JellyfinAPI(
+        getHostname(settings.jellyfin),
+        settings.jellyfin.apiKey,
+        settings.clientId
+      );
+
+      let targetItemId = jellyfinMediaId;
+      let itemData: any;
+
+      if (media.mediaType === MediaType.TV) {
+        const seasonNum = Number(req.query.season);
+        const episodeNum = Number(req.query.episode);
+
+        if (isNaN(seasonNum) || isNaN(episodeNum)) {
+          logger.warn(`[Stream API] Missing season or episode query parameter for TV show TMDB ID: ${tmdbId}`);
+          return res.status(400).json({ message: 'Season and episode parameters are required for TV shows.' });
+        }
+
+        logger.debug(`[Stream API] Querying Jellyfin seasons list for Series ID: ${jellyfinMediaId}`);
+        const seasons = await jellyfin.getSeasons(jellyfinMediaId) || [];
+        const matchedSeason = seasons.find((s: any) => s.IndexNumber === seasonNum);
+
+        if (!matchedSeason) {
+          logger.warn(`[Stream API] Season ${seasonNum} not found in Jellyfin for Series ID: ${jellyfinMediaId}`);
+          return res.status(404).json({ message: `Season ${seasonNum} not found in Jellyfin library.` });
+        }
+
+        const episodes = await jellyfin.getEpisodes(jellyfinMediaId, matchedSeason.Id, { includeMediaInfo: true }) || [];
+        const matchedEpisode = episodes.find((ep: any) => ep.IndexNumber === episodeNum);
+
+        if (!matchedEpisode) {
+          logger.warn(`[Stream API] Episode S${seasonNum}E${episodeNum} not found in Jellyfin library for Series ID: ${jellyfinMediaId}`);
+          return res.status(404).json({ message: `Episode S${seasonNum}E${episodeNum} not found in Jellyfin library.` });
+        }
+
+        targetItemId = matchedEpisode.Id;
+        itemData = matchedEpisode;
+      } else {
+        itemData = await jellyfin.getItemData(targetItemId);
+      }
+
+      const subtitleTracks: any[] = [];
+      const audioTracks: any[] = [];
+      const streams = itemData?.MediaSources?.[0]?.MediaStreams || [];
+
+      for (const stream of streams) {
+        if (stream.Type === 'Subtitle') {
+          subtitleTracks.push({
+            id: stream.Index,
+            language: stream.Language || 'Unknown',
+            languageCode: stream.Language || 'unk',
+            codec: stream.Codec,
+            title: stream.DisplayTitle || `${stream.Language || 'Unknown'} (${stream.Codec})`,
+            selected: !!stream.IsDefault,
+          });
+        } else if (stream.Type === 'Audio') {
+          audioTracks.push({
+            id: stream.Index,
+            language: stream.Language || 'Unknown',
+            languageCode: stream.Language || 'unk',
+            codec: stream.Codec,
+            title: stream.DisplayTitle || `${stream.Language || 'Unknown'} (${stream.Codec})`,
+            selected: !!stream.IsDefault,
+          });
+        }
+      }
+
+      const webHost = settings.jellyfin.externalHostname && settings.jellyfin.externalHostname.length > 0
+        ? settings.jellyfin.externalHostname
+        : 'http://localhost:8097';
+      const apiKey = settings.jellyfin.apiKey;
+      const serverId = settings.jellyfin.serverId;
+      const pageName = settings.main.mediaServerType === MediaServerType.EMBY ? 'item' : 'details';
+      const jellyfinWebUrl = `${webHost}/web/index.html#!/${pageName}?id=${targetItemId}&serverId=${serverId}`;
+      const streamUrl = `${webHost}/Videos/${targetItemId}/stream?static=true&api_key=${apiKey}`;
+
+      logger.info(`[Stream API] Resolved Jellyfin playback properties for TMDB ID: ${tmdbId}. Found ${subtitleTracks.length} subtitle tracks and ${audioTracks.length} audio tracks.`);
+
+      return res.status(200).json({
+        streamUrl,
+        jellyfinWebUrl,
+        mediaServerWebUrl: jellyfinWebUrl,
+        plexWebUrl: jellyfinWebUrl,
+        mediaServerName: settings.main.mediaServerType === MediaServerType.EMBY ? 'Emby' : 'Jellyfin',
+        subtitleTracks,
+        audioTracks,
+      });
+    }
+
+    // Fallback to Plex
     const ratingKey = is4k ? media.ratingKey4k : media.ratingKey;
 
     if (!ratingKey) {
@@ -681,7 +871,6 @@ mediaRoutes.get('/:id/stream', async (req, res, next) => {
 
     logger.debug(`[Stream API] Found local DB entry. Type: ${media.mediaType}, RatingKey: ${ratingKey}`);
 
-    const settings = getSettings();
     const userRepository = getRepository(User);
     const admin = await userRepository.findOne({
       select: ['id', 'plexToken'],
@@ -730,10 +919,7 @@ mediaRoutes.get('/:id/stream', async (req, res, next) => {
       }
 
       logger.debug(`[Stream API] Querying Plex episodes list for TV series RatingKey: ${ratingKey}`);
-      // Query Plex for all episodes of the show
       const episodes = await plex.getEpisodes(ratingKey) || [];
-      
-      // Find the episode matching the season and episode number
       const matchedEpisode = episodes.find(
         (ep: any) => ep.parentIndex === seasonNum && ep.index === episodeNum
       );
@@ -747,8 +933,6 @@ mediaRoutes.get('/:id/stream', async (req, res, next) => {
       logger.debug(`[Stream API] Matched episode S${seasonNum}E${episodeNum} to Plex RatingKey: ${targetRatingKey}`);
     }
 
-    // Fetch tracks from Plex metadata
-    logger.debug(`[Stream API] Querying Plex metadata for RatingKey: ${targetRatingKey}`);
     const metadata = (await plex.getMetadata(targetRatingKey)) as any;
     const subtitleTracks: any[] = [];
     const audioTracks: any[] = [];
@@ -785,12 +969,9 @@ mediaRoutes.get('/:id/stream', async (req, res, next) => {
       }
     }
 
-    // Parse subtitle and audio preferences from request if chosen by user
     const subtitleStreamID = req.query.subtitleStreamID ? Number(req.query.subtitleStreamID) : undefined;
     const audioStreamID = req.query.audioStreamID ? Number(req.query.audioStreamID) : undefined;
 
-    // Construct Plex Stream URL (Transcoded / HLS)
-    // Adding required device, product, platform, and client identifier parameters
     let streamUrl = `${protocol}://${plexHost}:${plexPort}/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F${targetRatingKey}&mediaIndex=0&partIndex=0&protocol=hls&offset=0&fastSeek=1&directPlay=1&directStream=1&subtitleSize=100&audioBoost=100&location=lan&addResources=1&X-Plex-Token=${admin.plexToken}&X-Plex-Client-Identifier=${settings.clientId}&X-Plex-Product=Seerr&X-Plex-Device=Browser&X-Plex-Platform=Chrome`;
 
     if (subtitleStreamID !== undefined) {
@@ -800,21 +981,22 @@ mediaRoutes.get('/:id/stream', async (req, res, next) => {
       streamUrl += `&audioStreamID=${audioStreamID}`;
     }
 
-    // Construct local Plex Web App deep-link URL
     const localHost = settings.plex.ip === 'plex' || settings.plex.ip === 'host.docker.internal' ? 'localhost' : settings.plex.ip;
     const webProtocol = settings.plex.useSsl ? 'https' : 'http';
     const plexWebUrl = `${webProtocol}://${localHost}:${settings.plex.port}/web/index.html#!/server/${settings.plex.machineId}/details?key=%2Flibrary%2Fmetadata%2F${targetRatingKey}`;
 
-    logger.info(`[Stream API] Resolved playback properties for TMDB ID: ${tmdbId}. Found ${subtitleTracks.length} subtitle tracks and ${audioTracks.length} audio tracks.`);
+    logger.info(`[Stream API] Resolved Plex playback properties for TMDB ID: ${tmdbId}. Found ${subtitleTracks.length} subtitle tracks and ${audioTracks.length} audio tracks.`);
 
     return res.status(200).json({
       streamUrl,
       plexWebUrl,
+      mediaServerWebUrl: plexWebUrl,
+      mediaServerName: 'Plex',
       subtitleTracks,
       audioTracks,
     });
   } catch (e) {
-    logger.error(`[Stream API] Failed to resolve Plex stream URL for TMDB ID: ${req.params.id}`, { errorMessage: e.message });
+    logger.error(`[Stream API] Failed to resolve stream URL for TMDB ID: ${req.params.id}`, { errorMessage: e.message });
     return next({ status: 500, message: 'Failed to resolve video stream.' });
   }
 });

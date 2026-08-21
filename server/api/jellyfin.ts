@@ -431,14 +431,27 @@ class JellyfinAPI extends ExternalAPI {
 
   public async getRecentlyAdded(id: string): Promise<JellyfinLibraryItem[]> {
     try {
+      let uid = this.userId;
+      if (!uid || uid === 'Me') {
+        try {
+          const users = await this.get<any[]>('/Users');
+          if (users && users.length > 0) {
+            uid = users[0].Id;
+            this.userId = uid;
+          }
+        } catch {
+          // ignore fallback error
+        }
+      }
+
       const endpoint =
         this.mediaServerType === MediaServerType.JELLYFIN
           ? `/Items/Latest`
-          : `/Users/${this.userId}/Items/Latest`;
+          : `/Users/${uid}/Items/Latest`;
       const itemResponse = await this.get<any>(
         `${endpoint}?Limit=12&ParentId=${id}${
-          this.mediaServerType === MediaServerType.JELLYFIN
-            ? `&userId=${this.userId ?? 'Me'}`
+          this.mediaServerType === MediaServerType.JELLYFIN && uid
+            ? `&userId=${uid}`
             : ''
         }`
       );

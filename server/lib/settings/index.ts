@@ -157,6 +157,7 @@ export interface MainSettings {
   locale: string;
   youtubeUrl: string;
   versionCheck: boolean;
+  downloadNotifications: boolean;
 }
 
 export interface ProxySettings {
@@ -433,6 +434,7 @@ class Settings {
         locale: 'en',
         youtubeUrl: '',
         versionCheck: true,
+        downloadNotifications: true,
       },
       plex: {
         name: '',

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="posterizarr-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EC4899"/>
+      <stop offset="100%" stop-color="#BE185D"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="url(#posterizarr-grad)"/>
+  <rect x="130" y="100" width="252" height="312" rx="20" fill="#FFFFFF" fill-opacity="0.2"/>
+  <rect x="155" y="125" width="202" height="262" rx="12" fill="#FFFFFF"/>
+  <path d="M155 330l55-55 45 45 60-70 42 50v37H155z" fill="#DB2777"/>
+  <circle cx="210" cy="195" r="22" fill="#F472B6"/>
+  <rect x="180" y="345" width="152" height="24" rx="6" fill="#831843"/>
+</svg>

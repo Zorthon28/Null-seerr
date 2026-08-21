@@ -17,6 +17,7 @@ import axios from 'axios';
 import { useCallback, useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import useSWR, { mutate } from 'swr';
+import { ClockIcon } from '@heroicons/react/24/outline';
 
 const messages = defineMessages('components.RequestModal', {
   requestadmin: 'This request will be approved automatically.',
@@ -369,6 +370,18 @@ const MovieRequestModal = ({
           }}
         />
       )}
+      
+      {/* Estimated Download Time Card */}
+      <div className="mt-4 bg-gray-900/60 border border-gray-800 rounded-2xl p-4 flex items-start gap-3 text-gray-300">
+        <ClockIcon className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
+        <div className="text-xs leading-normal">
+          <div className="font-bold text-gray-200 text-sm mb-0.5">Estimated Download Time</div>
+          <div>
+            Approximately <strong className="text-indigo-400">{is4k ? '~50 mins' : '~10 mins'}</strong> to download this movie
+            <span className="text-gray-400"> (est. size: {is4k ? '20 GB' : '4 GB'} at 50 Mbps connection speed).</span>
+          </div>
+        </div>
+      </div>
     </Modal>
   );
 };

@@ -2,6 +2,7 @@ import ExternalAPI from '@server/api/externalapi';
 import type { AvailableCacheIds } from '@server/lib/cache';
 import cacheManager from '@server/lib/cache';
 import { getSettings, type DVRSettings } from '@server/lib/settings';
+import logger from '@server/logger';
 
 export interface SystemStatus {
   version: string;
@@ -124,6 +125,16 @@ class ServarrBase<QueueItemAppendT> extends ExternalAPI {
         `[${this.apiName}] Failed to retrieve system status: ${e.message}`,
         { cause: e }
       );
+    }
+  };
+
+  public getHealth = async (): Promise<any[]> => {
+    try {
+      const response = await this.axios.get<any[]>('/health');
+      return response.data;
+    } catch (e) {
+      logger.error(`[${this.apiName}] Failed to retrieve health: ${e.message}`);
+      return [];
     }
   };
 

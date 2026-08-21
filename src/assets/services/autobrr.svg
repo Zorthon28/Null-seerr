@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="autobrr-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="url(#autobrr-grad)"/>
+  <path d="M256 90c-91.7 0-166 74.3-166 166 0 42.4 15.9 81.1 42.2 110.6l28.6-28.6C140.2 315.6 128 287.2 128 256c0-70.7 57.3-128 128-128s128 57.3 128 128c0 31.2-12.2 59.6-32.8 82l28.6 28.6C408.1 337.1 424 298.4 424 256c0-91.7-74.3-166-166-166z" fill="#FFFFFF"/>
+  <path d="M256 160c-53 0-96 43-96 96 0 21.6 7.1 41.5 19.2 57.6l76.8-97.6 19.2 72 38.4-48 19.2 32c12.1-16.1 19.2-36 19.2-57.6 0-53-43-96-96-96z" fill="#FFFFFF" fill-opacity="0.25"/>
+  <circle cx="256" cy="256" r="32" fill="#FFFFFF"/>
+  <path d="M256 256L340 170" stroke="#FDE047" stroke-width="18" stroke-linecap="round"/>
+</svg>

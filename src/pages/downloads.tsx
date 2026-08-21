@@ -33,6 +33,17 @@ interface QueueItem {
   downloadSpeed?: string;
   protocol: string;
   is4k: boolean;
+  details?: {
+    monitored: boolean;
+    status: string;
+    nextAiring?: string;
+    episodeCount?: number;
+    episodeFileCount?: number;
+    totalEpisodeCount?: number;
+    hasFile?: boolean;
+    minimumAvailability?: string;
+  };
+  healthWarnings?: string[];
 }
 
 const DownloadCard = ({ item }: { item: QueueItem }) => {
@@ -72,11 +83,24 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
   let statusText = 'Unknown';
   let StatusIcon = ClockIcon;
 
+  const isDownloaded = item.mediaType === 'movie' 
+    ? item.details?.hasFile === true 
+    : (item.details?.episodeFileCount !== undefined && 
+       item.details?.totalEpisodeCount !== undefined && 
+       item.details.totalEpisodeCount > 0 &&
+       item.details.episodeFileCount === item.details.totalEpisodeCount);
+
   switch (item.status) {
     case 'searching':
-      statusColor = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-      statusText = 'Searching Indexers...';
-      StatusIcon = MagnifyingGlassIcon;
+      if (isDownloaded) {
+        statusColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+        statusText = 'Downloaded (Awaiting Plex)';
+        StatusIcon = CheckCircleIcon;
+      } else {
+        statusColor = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+        statusText = 'Searching Indexers...';
+        StatusIcon = MagnifyingGlassIcon;
+      }
       break;
     case 'downloading':
       statusColor = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
@@ -208,8 +232,72 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
           )}
 
           {item.status === 'searching' && (
-            <div className="text-xs text-amber-400/90 font-medium">
-              Null-seerr has submitted the request. Radarr/Sonarr is searching trackers for a matching release...
+            <div className="flex flex-col gap-2 mt-2">
+              <div className={`text-xs font-medium flex items-center gap-1.5 ${isDownloaded ? 'text-emerald-400/95' : 'text-amber-400/95'}`}>
+                {isDownloaded ? (
+                  <>
+                    <CheckCircleIcon className="w-4 h-4 shrink-0 text-emerald-400" />
+                    Downloaded on disk! Click "Scan Now" in the top right to force Plex to scan and import it.
+                  </>
+                ) : (
+                  <>
+                    <ClockIcon className="w-4 h-4 shrink-0" />
+                    Null-seerr has submitted the request. Radarr/Sonarr is searching trackers for a matching release...
+                  </>
+                )}
+              </div>
+
+              {/* Servarr details */}
+              {item.details && (
+                <div className="text-xs bg-gray-900/60 border border-gray-800 rounded-xl p-3 space-y-1.5 text-gray-300">
+                  <div className="flex justify-between items-center border-b border-gray-850 pb-1.5 mb-1.5">
+                    <span className="font-semibold text-gray-400">DVR Integration Status</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${item.details.monitored ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                      {item.details.monitored ? 'Monitored' : 'Not Monitored'}
+                    </span>
+                  </div>
+                  {item.mediaType === 'tv' ? (
+                    <>
+                      <div>
+                        Airing Status: <strong className="text-white capitalize">{item.details.status}</strong>
+                      </div>
+                      <div>
+                        Episodes Downloaded: <strong className="text-white">{item.details.episodeFileCount}</strong> of <strong className="text-white">{item.details.totalEpisodeCount}</strong>
+                      </div>
+                      {item.details.nextAiring && (
+                        <div className="text-indigo-300 font-semibold mt-1">
+                          📅 Next episode airs: {new Date(item.details.nextAiring).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        Availability Stage: <strong className="text-white capitalize">{item.details.status}</strong>
+                      </div>
+                      <div>
+                        File Present: <strong className={item.details.hasFile ? 'text-green-400' : 'text-amber-400'}>{item.details.hasFile ? 'Yes' : 'No'}</strong>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Health Warnings */}
+              {item.healthWarnings && item.healthWarnings.length > 0 && (
+                <div className="text-xs bg-red-950/20 border border-red-900/40 rounded-xl p-3 space-y-1 text-red-400 font-medium">
+                  <div className="font-bold flex items-center gap-1.5 text-red-300 mb-1">
+                    <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
+                    Active Server Health Warnings:
+                  </div>
+                  {item.healthWarnings.map((warn: string, i: number) => (
+                    <div key={i} className="flex gap-1.5 items-start pl-1 text-[11px] leading-relaxed">
+                      <span>•</span>
+                      <span>{warn}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -221,6 +309,8 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
 const DownloadsPage: NextPage = () => {
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [sortField, setSortField] = useState<'title' | 'status' | 'progress' | 'eta' | 'size'>('status');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [isScanning, setIsScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState('');
   const [onlyDownload, setOnlyDownload] = useState(false);
@@ -302,6 +392,37 @@ const DownloadsPage: NextPage = () => {
     }
     return true;
   });
+
+  // Sort items
+  const STATUS_ORDER: Record<string, number> = {
+    downloading: 0, processing: 1, queued: 2, searching: 3, paused: 4, failed: 5,
+  };
+
+  const sortedItems = [...filteredItems].sort((a, b) => {
+    let cmp = 0;
+    switch (sortField) {
+      case 'title':    cmp = a.title.localeCompare(b.title); break;
+      case 'status':   cmp = (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9); break;
+      case 'progress': cmp = a.progress - b.progress; break;
+      case 'size':     cmp = parseFloat(a.size) - parseFloat(b.size); break;
+      case 'eta': {
+        const etaA = a.estimatedCompletionTime ? new Date(a.estimatedCompletionTime).getTime() : Infinity;
+        const etaB = b.estimatedCompletionTime ? new Date(b.estimatedCompletionTime).getTime() : Infinity;
+        cmp = etaA - etaB;
+        break;
+      }
+    }
+    return sortDirection === 'asc' ? cmp : -cmp;
+  });
+
+  const handleSort = (field: typeof sortField) => {
+    if (sortField === field) {
+      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
 
   return (
     <>
@@ -386,8 +507,29 @@ const DownloadsPage: NextPage = () => {
         </div>
       </div>
 
+      {/* Sort Bar */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <span className="text-xs text-gray-500 font-semibold uppercase tracking-wider mr-1">Sort by:</span>
+        {(['status', 'progress', 'title', 'eta', 'size'] as const).map((field) => (
+          <button
+            key={field}
+            onClick={() => handleSort(field)}
+            className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-semibold transition duration-200 border ${
+              sortField === field
+                ? 'bg-indigo-600/80 border-indigo-500 text-white'
+                : 'bg-gray-900 border-gray-700/50 text-gray-400 hover:text-white hover:border-gray-500'
+            }`}
+          >
+            {field === 'eta' ? 'ETA' : field.charAt(0).toUpperCase() + field.slice(1)}
+            {sortField === field && (
+              <span className="text-[10px]">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* Grid List */}
-      {filteredItems.length === 0 ? (
+      {sortedItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center bg-gray-800/10 border border-dashed border-gray-700/60 rounded-2xl p-12 text-center text-gray-400">
           <ArrowDownTrayIcon className="w-12 h-12 text-gray-500 mb-3" />
           <h3 className="text-lg font-bold text-gray-300 mb-1">No active downloads or searches found</h3>
@@ -399,7 +541,7 @@ const DownloadsPage: NextPage = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {filteredItems.map((item, idx) => (
+          {sortedItems.map((item, idx) => (
             <DownloadCard key={`${item.tmdbId}-${item.status}-${idx}`} item={item} />
           ))}
         </div>
