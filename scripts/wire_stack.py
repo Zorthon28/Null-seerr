@@ -108,48 +108,27 @@ def hash_password(password):
 
     return None
 
-def disable_arr_authentication():
-    """Sets AuthenticationRequired to DisabledForLocalAddresses across Radarr, Sonarr, and Prowlarr"""
-    services_to_update = [
-        ("Radarr", os.path.join(ARR_DIR, "config", "radarr", "config.xml"), "radarr"),
-        ("Sonarr", os.path.join(ARR_DIR, "config", "sonarr", "config.xml"), "sonarr"),
-        ("Prowlarr", os.path.join(ARR_DIR, "config", "prowlarr", "config.xml"), "prowlarr")
+def configure_servarr_auth(radarr_key, sonarr_key, prowlarr_key, admin_user, admin_password):
+    """Configures unified admin credentials on Radarr, Sonarr, and Prowlarr with local address bypass"""
+    targets = [
+        ("Radarr", f"{SERVICES['radarr']['url']}/api/v3/config/host", radarr_key),
+        ("Sonarr", f"{SERVICES['sonarr']['url']}/api/v3/config/host", sonarr_key),
+        ("Prowlarr", f"{SERVICES['prowlarr']['url']}/api/v1/config/host", prowlarr_key),
     ]
-    restarted = []
-    for name, path, container in services_to_update:
-        if os.path.exists(path):
-            try:
-                tree = ET.parse(path)
-                root = tree.getroot()
-                changed = False
-                
-                auth_m = root.find("AuthenticationMethod")
-                if auth_m is None:
-                    auth_m = ET.SubElement(root, "AuthenticationMethod")
-                if auth_m.text != "None":
-                    auth_m.text = "None"
-                    changed = True
-                    
-                auth_r = root.find("AuthenticationRequired")
-                if auth_r is None:
-                    auth_r = ET.SubElement(root, "AuthenticationRequired")
-                if auth_r.text != "DisabledForLocalAddresses":
-                    auth_r.text = "DisabledForLocalAddresses"
-                    changed = True
-                    
-                if changed:
-                    tree.write(path, encoding="utf-8", xml_declaration=False)
-                    restarted.append(container)
-                    log(f"Disabled authentication login prompt for {name}", "+")
-            except Exception as e:
-                log(f"Could not update {name} authentication: {e}", "!")
-
-    if restarted:
-        try:
-            subprocess.run(["docker", "restart"] + restarted, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(3)
-        except Exception:
-            pass
+    for name, url, key in targets:
+        if not key:
+            continue
+        headers = {"X-Api-Key": key}
+        st, current = http_request(url, headers=headers)
+        if st == 200 and isinstance(current, dict):
+            current["authenticationMethod"] = "forms"
+            current["authenticationRequired"] = "disabledForLocalAddresses"
+            current["username"] = admin_user
+            current["password"] = admin_password
+            current["passwordConfirmation"] = admin_password
+            put_st, _ = http_request(url, method="PUT", data=current, headers=headers)
+            if put_st in (200, 202):
+                log(f"Configured unified admin & local bypass for {name}", "OK")
 
 def get_xml_api_key(config_path):
     if not os.path.exists(config_path):
@@ -578,8 +557,8 @@ def check_and_wire_all():
     # 6. Configure Media Naming
     configure_media_naming(radarr_key, sonarr_key)
 
-    # 7. Disable Authentication Prompts for Local Access Across Stack
-    disable_arr_authentication()
+    # 7. Configure Servarr Authentication (Admin Credentials & Local Address Bypass)
+    configure_servarr_auth(radarr_key, sonarr_key, prowlarr_key, admin_user, admin_password)
 
     print("\n" + "=" * 65)
     print("✨ STACK WIRING COMPLETE & CREDENTIALS CONFIGURED!")
