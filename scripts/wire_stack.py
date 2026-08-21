@@ -314,6 +314,13 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                 settings["main"]["mediaServerType"] = 1
                 updated = True
 
+            if not settings.get("plex", {}).get("ip"):
+                settings["plex"] = settings.get("plex", {})
+                settings["plex"]["ip"] = "plex"
+                settings["plex"]["name"] = "Plex"
+                settings["plex"]["port"] = 32400
+                updated = True
+
             if radarr_key:
                 if len(settings.get("radarr", [])) == 0:
                     settings["radarr"] = [
@@ -577,6 +584,28 @@ def configure_media_naming(radarr_key, sonarr_key):
             if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Sonarr", "OK")
 
+def configure_root_folders(radarr_key, sonarr_key):
+    """Registers standard media root folders in Radarr and Sonarr"""
+    if radarr_key:
+        url = f"{SERVICES['radarr']['url']}/api/v3/rootfolder"
+        headers = {"X-Api-Key": radarr_key}
+        st, current = http_request(url, headers=headers)
+        if st == 200 and isinstance(current, list):
+            if not any(r.get("path") == "/data/media/movies" for r in current):
+                http_request(url, method="POST", data={"path": "/data/media/movies"}, headers=headers)
+                log("Registered root folder in Radarr (/data/media/movies)", "+")
+
+    if sonarr_key:
+        url = f"{SERVICES['sonarr']['url']}/api/v3/rootfolder"
+        headers = {"X-Api-Key": sonarr_key}
+        st, current = http_request(url, headers=headers)
+        if st == 200 and isinstance(current, list):
+            existing_paths = [r.get("path") for r in current]
+            for folder in ["/data/media/tv", "/data/media/anime"]:
+                if folder not in existing_paths:
+                    http_request(url, method="POST", data={"path": folder}, headers=headers)
+                    log(f"Registered root folder in Sonarr ({folder})", "+")
+
 def wire_qbittorrent_to_arr(app_name, app_url, app_key, admin_user, admin_password, category):
     if not app_key:
         return
@@ -681,7 +710,10 @@ def check_and_wire_all():
     # 9. Configure Media Naming
     configure_media_naming(radarr_key, sonarr_key)
 
-    # 10. Configure Servarr Authentication
+    # 10. Configure Media Root Folders
+    configure_root_folders(radarr_key, sonarr_key)
+
+    # 11. Configure Servarr Authentication
     configure_servarr_auth(radarr_key, sonarr_key, prowlarr_key, admin_user, admin_password)
 
     print("\n" + "=" * 65)
