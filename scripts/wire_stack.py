@@ -572,37 +572,40 @@ def wire_qbittorrent_to_arr(app_name, app_url, app_key, admin_user, admin_passwo
     headers = {"X-Api-Key": app_key}
 
     status, clients = http_request(url, headers=headers)
-    if status != 200:
-        return
+    if status == 200 and isinstance(clients, list) and not any(c.get("name") == "qBittorrent" for c in clients):
+        schema_url = f"{app_url}/api/v3/downloadclient/schema"
+        s_status, schemas = http_request(schema_url, headers=headers)
+        if s_status == 200 and isinstance(schemas, list):
+            qbit_schema = next((s for s in schemas if s.get("implementation") == "QBittorrent"), None)
+            if qbit_schema:
+                payload = dict(qbit_schema)
+                payload["enable"] = True
+                payload["name"] = "qBittorrent"
+                for f in payload.get("fields", []):
+                    if f["name"] == "host": f["value"] = "qbittorrent"
+                    elif f["name"] == "port": f["value"] = 8080
+                    elif f["name"] == "username": f["value"] = admin_user
+                    elif f["name"] == "password": f["value"] = admin_password
+                    elif f["name"] in ("movieCategory", "tvCategory"): f["value"] = category
 
-    if isinstance(clients, list) and any(c.get("name") == "qBittorrent" for c in clients):
+                st, _ = http_request(url, method="POST", data=payload, headers=headers)
+                if st in (200, 201):
+                    log(f"qBittorrent added successfully to {app_name}!", "+")
+    elif status == 200 and isinstance(clients, list) and any(c.get("name") == "qBittorrent" for c in clients):
         log(f"qBittorrent is already configured in {app_name}", "OK")
-        return
 
-    log(f"Configuring qBittorrent download client in {app_name} (Category: {category})...", "+")
-    payload = {
-        "name": "qBittorrent",
-        "enable": True,
-        "protocol": "torrent",
-        "priority": 1,
-        "implementation": "QBittorrent",
-        "configContract": "QBittorrentSettings",
-        "fields": [
-            {"name": "host", "value": "qbittorrent"},
-            {"name": "port", "value": 8080},
-            {"name": "urlBase", "value": ""},
-            {"name": "username", "value": admin_user},
-            {"name": "password", "value": admin_password},
-            {"name": "tvCategory", "value": category},
-            {"name": "movieCategory", "value": category},
-            {"name": "recentTvPriority", "value": 0},
-            {"name": "olderTvPriority", "value": 0},
-            {"name": "initialState", "value": 0}
-        ]
-    }
-    st, res = http_request(url, method="POST", data=payload, headers=headers)
-    if st in (200, 201):
-        log(f"qBittorrent added successfully to {app_name}!", "+")
+    # Add Remote Path Mapping for qBittorrent (/downloads/ -> /data/torrents/)
+    rpm_url = f"{app_url}/api/v3/remotepathmapping"
+    rpm_st, rpms = http_request(rpm_url, headers=headers)
+    if rpm_st == 200 and isinstance(rpms, list):
+        if not any(r.get("host") == "qbittorrent" for r in rpms):
+            rpm_data = {
+                "host": "qbittorrent",
+                "remotePath": "/downloads/",
+                "localPath": "/data/torrents/"
+            }
+            http_request(rpm_url, method="POST", data=rpm_data, headers=headers)
+            log(f"Remote path mapping added for {app_name} (/downloads/ -> /data/torrents/)", "+")
 
 def check_and_wire_all():
     print("=" * 65)
