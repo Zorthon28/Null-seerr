@@ -654,6 +654,64 @@ def configure_root_folders(radarr_key, sonarr_key):
                     http_request(url, method="POST", data={"path": folder}, headers=headers)
                     log(f"Registered root folder in Sonarr ({folder})", "+")
 
+def configure_seeder_priority(radarr_key, sonarr_key):
+    """Configures 1080p unified quality profiles in Radarr and Sonarr to prioritize seeders/peers"""
+    if radarr_key:
+        url = f"{SERVICES['radarr']['url']}/api/v3/qualityprofile/4"
+        headers = {"X-Api-Key": radarr_key}
+        st, qp = http_request(url, headers=headers)
+        if st == 200 and isinstance(qp, dict):
+            all_1080p_r = [
+                {"quality": {"id": 30, "name": "Remux-1080p", "source": "bluray", "resolution": 1080, "modifier": "remux"}, "items": [], "allowed": True},
+                {"quality": {"id": 7, "name": "Bluray-1080p", "source": "bluray", "resolution": 1080, "modifier": "none"}, "items": [], "allowed": True},
+                {"quality": {"id": 3, "name": "WEBDL-1080p", "source": "webdl", "resolution": 1080, "modifier": "none"}, "items": [], "allowed": True},
+                {"quality": {"id": 15, "name": "WEBRip-1080p", "source": "webrip", "resolution": 1080, "modifier": "none"}, "items": [], "allowed": True},
+                {"quality": {"id": 9, "name": "HDTV-1080p", "source": "tv", "resolution": 1080, "modifier": "none"}, "items": [], "allowed": True}
+            ]
+            new_items = []
+            for it in qp.get("items", []):
+                q_id = it.get("quality", {}).get("id")
+                if q_id in (7, 9, 30):
+                    continue
+                if it.get("name") in ("WEB 1080p", "1080p (Any Source / Max Seeders)"):
+                    it["name"] = "1080p (Any Source / Max Seeders)"
+                    it["items"] = all_1080p_r
+                    it["allowed"] = True
+                new_items.append(it)
+            qp["items"] = new_items
+            qp["cutoff"] = 1002
+            pst, _ = http_request(url, method="PUT", data=qp, headers=headers)
+            if pst in (200, 202):
+                log("Radarr 1080p profile configured for maximum seeders priority", "OK")
+
+    if sonarr_key:
+        url = f"{SERVICES['sonarr']['url']}/api/v3/qualityprofile/4"
+        headers = {"X-Api-Key": sonarr_key}
+        st, qp = http_request(url, headers=headers)
+        if st == 200 and isinstance(qp, dict):
+            all_1080p_s = [
+                {"quality": {"id": 20, "name": "Bluray-1080p Remux", "source": "blurayRaw", "resolution": 1080}, "items": [], "allowed": True},
+                {"quality": {"id": 7, "name": "Bluray-1080p", "source": "bluray", "resolution": 1080}, "items": [], "allowed": True},
+                {"quality": {"id": 3, "name": "WEBDL-1080p", "source": "web", "resolution": 1080}, "items": [], "allowed": True},
+                {"quality": {"id": 15, "name": "WEBRip-1080p", "source": "webRip", "resolution": 1080}, "items": [], "allowed": True},
+                {"quality": {"id": 9, "name": "HDTV-1080p", "source": "television", "resolution": 1080}, "items": [], "allowed": True}
+            ]
+            new_items = []
+            for it in qp.get("items", []):
+                q_id = it.get("quality", {}).get("id")
+                if q_id in (7, 9, 20):
+                    continue
+                if it.get("name") in ("WEB 1080p", "1080p (Any Source / Max Seeders)"):
+                    it["name"] = "1080p (Any Source / Max Seeders)"
+                    it["items"] = all_1080p_s
+                    it["allowed"] = True
+                new_items.append(it)
+            qp["items"] = new_items
+            qp["cutoff"] = 1002
+            pst, _ = http_request(url, method="PUT", data=qp, headers=headers)
+            if pst in (200, 202):
+                log("Sonarr 1080p profile configured for maximum seeders priority", "OK")
+
 def wire_qbittorrent_to_arr(app_name, app_url, app_key, admin_user, admin_password, category):
     if not app_key:
         return
@@ -761,7 +819,10 @@ def check_and_wire_all():
     # 10. Configure Media Root Folders
     configure_root_folders(radarr_key, sonarr_key)
 
-    # 11. Configure Servarr Authentication
+    # 11. Configure Maximum Seeders Priority (1080p Unified Quality Group)
+    configure_seeder_priority(radarr_key, sonarr_key)
+
+    # 12. Configure Servarr Authentication
     configure_servarr_auth(radarr_key, sonarr_key, prowlarr_key, admin_user, admin_password)
 
     print("\n" + "=" * 65)
