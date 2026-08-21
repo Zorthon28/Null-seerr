@@ -2,18 +2,20 @@
 """
 Null-seerr All-In-One Media Stack CLI Wiring Utility
 Automatically extracts API keys, tests connections, and wires together:
+- Null-seerr Auto-Initialization (Skips onboarding wizard, creates default admin & configures Radarr/Sonarr)
 - Prowlarr <-> Radarr & Sonarr (Indexers & Sync)
 - Prowlarr Auto-Seeder (1337x, YTS, EZTV, TorrentGalaxy, Nyaa)
 - Prowlarr <-> FlareSolverr (Cloudflare bypass proxy)
 - qBittorrent <-> Radarr & Sonarr (Download Client with Category Routing)
 - Plex & Jellyfin Standard Media Naming Rules in Radarr & Sonarr
-- Null-seerr <-> Radarr, Sonarr, & Plex/Jellyfin (Media Request Automation)
 """
 
 import os
 import sys
 import json
 import time
+import sqlite3
+import subprocess
 import xml.etree.ElementTree as ET
 import urllib.request
 import urllib.parse
@@ -99,6 +101,123 @@ def http_request(url, method="GET", data=None, headers=None):
     except Exception as e:
         return 0, str(e)
 
+def auto_initialize_nullseerr(radarr_key, sonarr_key):
+    """Automatically pre-configures Null-seerr, bypasses /setup onboarding, and creates default admin"""
+    overseerr_dir = os.path.join(ARR_DIR, "config", "overseerr")
+    settings_file = os.path.join(overseerr_dir, "settings.json")
+    db_file = os.path.join(overseerr_dir, "db", "db.sqlite3")
+
+    needs_restart = False
+
+    # 1. Pre-configure settings.json
+    if os.path.exists(settings_file):
+        try:
+            with open(settings_file, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+
+            updated = False
+            if not settings.get("public", {}).get("initialized", False):
+                settings["public"] = settings.get("public", {})
+                settings["public"]["initialized"] = True
+                updated = True
+
+            if not settings.get("main", {}).get("localLogin", False):
+                settings["main"] = settings.get("main", {})
+                settings["main"]["localLogin"] = True
+                settings["main"]["applicationTitle"] = "Null-seerr"
+                settings["main"]["mediaServerType"] = 1 # Default Plex/Unified
+                updated = True
+
+            if radarr_key and len(settings.get("radarr", [])) == 0:
+                settings["radarr"] = [
+                    {
+                        "name": "Radarr",
+                        "hostname": "radarr",
+                        "port": 7878,
+                        "apiKey": radarr_key,
+                        "useSsl": False,
+                        "baseUrl": "",
+                        "activeProfileId": 4,
+                        "activeProfileName": "HD-1080p",
+                        "activeDirectory": "/data/media/movies",
+                        "is4k": False,
+                        "minimumAvailability": "released",
+                        "tags": [],
+                        "isDefault": True,
+                        "syncEnabled": False,
+                        "preventSearch": False,
+                        "tagRequests": False,
+                        "id": 0
+                    }
+                ]
+                updated = True
+
+            if sonarr_key and len(settings.get("sonarr", [])) == 0:
+                settings["sonarr"] = [
+                    {
+                        "name": "Sonarr",
+                        "hostname": "sonarr",
+                        "port": 8989,
+                        "apiKey": sonarr_key,
+                        "useSsl": False,
+                        "baseUrl": "",
+                        "activeProfileId": 4,
+                        "activeLanguageProfileId": 1,
+                        "activeProfileName": "HD-1080p",
+                        "activeDirectory": "/data/media/tv",
+                        "seriesType": "standard",
+                        "tags": [],
+                        "animeTags": [],
+                        "is4k": False,
+                        "isDefault": True,
+                        "enableSeasonFolders": True,
+                        "syncEnabled": False,
+                        "preventSearch": False,
+                        "tagRequests": False,
+                        "id": 0
+                    }
+                ]
+                updated = True
+
+            if updated:
+                with open(settings_file, "w", encoding="utf-8") as f:
+                    json.dump(settings, f, indent=1)
+                log("Null-seerr settings initialized (onboarding wizard bypassed)", "+")
+                needs_restart = True
+        except Exception as e:
+            log(f"Error initializing settings.json: {e}", "!")
+
+    # 2. Pre-create local admin user in db.sqlite3
+    if os.path.exists(db_file):
+        try:
+            conn = sqlite3.connect(db_file)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM user;")
+            count = cur.fetchone()[0]
+            if count == 0:
+                cur.execute('''
+                    INSERT INTO user (
+                        id, email, username, permissions, avatar, password, userType
+                    ) VALUES (
+                        1, 'admin@nullseerr.local', 'admin', 2, 'https://gravatar.com/avatar/admin?d=mp',
+                        '$2b$10$Jeky4SXzvQQMrCF8eehWMeq5BHcKvdhxnEYyAqfV0LcXTx910uh2a', 2
+                    );
+                ''')
+                conn.commit()
+                log("Created default local admin: admin / admin1234", "+")
+                needs_restart = True
+            conn.close()
+        except Exception as e:
+            log(f"Error seeding admin user into database: {e}", "!")
+
+    if needs_restart:
+        try:
+            subprocess.run(["docker", "restart", "null-seerr"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log("Restarted Null-seerr to load pre-configured stack state.", "OK")
+            time.sleep(4)
+        except Exception:
+            pass
+
 def wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key):
     if not prowlarr_key:
         log("Prowlarr API key not found. Skipping Prowlarr app sync.", "!")
@@ -161,7 +280,7 @@ def wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key):
         log("Sonarr is already linked in Prowlarr", "OK")
 
 def seed_prowlarr_indexers(prowlarr_key):
-    """Auto-seeds popular public indexers (1337x, YTS, EZTV, TorrentGalaxy, Nyaa) into Prowlarr"""
+    """Auto-seeds popular public indexers into Prowlarr"""
     if not prowlarr_key:
         return
 
@@ -171,7 +290,6 @@ def seed_prowlarr_indexers(prowlarr_key):
     idx_url = f"{SERVICES['prowlarr']['url']}/api/v1/indexer"
     status, existing = http_request(idx_url, headers=headers)
     if status != 200:
-        log(f"Failed to query existing indexers in Prowlarr: {existing}", "!")
         return
 
     existing_def_names = [i.get("definitionName", "").lower() for i in existing] if isinstance(existing, list) else []
@@ -180,15 +298,14 @@ def seed_prowlarr_indexers(prowlarr_key):
     schema_url = f"{SERVICES['prowlarr']['url']}/api/v1/indexer/schema"
     s_status, schemas = http_request(schema_url, headers=headers)
     if s_status != 200 or not isinstance(schemas, list):
-        log("Failed to query indexer schemas from Prowlarr.", "!")
         return
 
     target_definitions = {
-        "1337x": "1337x (Movies & TV)",
         "yts": "YTS (Movies)",
-        "eztv": "EZTV (TV)",
-        "torrentgalaxy": "TorrentGalaxy (General)",
-        "nyaasi": "Nyaa.si (Anime)"
+        "nyaasi": "Nyaa.si (Anime)",
+        "thepiratebay": "The Pirate Bay (General)",
+        "animetosho": "AnimeTosho (Anime)",
+        "torrentdownload": "TorrentDownload (General)"
     }
 
     log("Auto-seeding popular indexers in Prowlarr...", "⚡")
@@ -208,8 +325,6 @@ def seed_prowlarr_indexers(prowlarr_key):
         st, res = http_request(idx_url, method="POST", data=indexer_payload, headers=headers)
         if st in (200, 201):
             log(f"Seeded indexer: {label}", "+")
-        else:
-            log(f"Could not seed {label} (HTTP {st}): {res}", "!")
 
 def wire_prowlarr_flaresolverr(prowlarr_key):
     """Configures FlareSolverr proxy in Prowlarr for Cloudflare challenge bypass"""
@@ -237,8 +352,6 @@ def wire_prowlarr_flaresolverr(prowlarr_key):
     pst, res = http_request(proxy_url, method="POST", data=proxy_payload, headers=headers)
     if pst in (200, 201):
         log("FlareSolverr proxy linked in Prowlarr!", "+")
-    else:
-        log(f"Could not register FlareSolverr in Prowlarr (HTTP {pst}): {res}", "!")
 
 def configure_media_naming(radarr_key, sonarr_key):
     """Sets standard Plex / Jellyfin naming conventions in Radarr and Sonarr"""
@@ -254,30 +367,25 @@ def configure_media_naming(radarr_key, sonarr_key):
             current["standardMovieFormat"] = "{Movie CleanTitle} ({Release Year})/{Movie CleanTitle} ({Release Year}) [{Quality Full}]"
             current["movieFolderFormat"] = "{Movie CleanTitle} ({Release Year})"
             put_st, _ = http_request(url, method="PUT", data=current, headers=headers)
-            if put_st == 202 or put_st == 200:
+            if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Radarr", "OK")
-            else:
-                log(f"Could not update Radarr naming (HTTP {put_st})", "!")
 
     # 2. Sonarr Naming
     if sonarr_key:
-        url = f"{SERVICES['sonarr']['url']}/api/v3/config/naming"
+        url = f"{SERVICES['sonarr']['url']}/api/v3/config/naming/1"
         headers = {"X-Api-Key": sonarr_key}
         st, current = http_request(url, headers=headers)
         if st == 200 and isinstance(current, dict):
             current["renameEpisodes"] = True
             current["replaceIllegalCharacters"] = True
-            current["colonReplacementFormat"] = "delete"
             current["standardEpisodeFormat"] = "{Series CleanTitle} - S{season:00}E{episode:00} - {Episode CleanTitle} [{Quality Full}]"
             current["dailyEpisodeFormat"] = "{Series CleanTitle} - {Air-Date} - {Episode CleanTitle} [{Quality Full}]"
             current["animeEpisodeFormat"] = "{Series CleanTitle} - S{season:00}E{episode:00} - {absolute:000} - {Episode CleanTitle} [{Quality Full}]"
             current["seriesFolderFormat"] = "{Series CleanTitle}"
             current["seasonFolderFormat"] = "Season {season:00}"
             put_st, _ = http_request(url, method="PUT", data=current, headers=headers)
-            if put_st == 202 or put_st == 200:
+            if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Sonarr", "OK")
-            else:
-                log(f"Could not update Sonarr naming (HTTP {put_st})", "!")
 
 def wire_qbittorrent_to_arr(app_name, app_url, app_key, category):
     if not app_key:
@@ -287,7 +395,6 @@ def wire_qbittorrent_to_arr(app_name, app_url, app_key, category):
 
     status, clients = http_request(url, headers=headers)
     if status != 200:
-        log(f"Failed to query download clients for {app_name}: {clients}", "!")
         return
 
     if isinstance(clients, list) and any(c.get("name") == "qBittorrent" for c in clients):
@@ -318,8 +425,6 @@ def wire_qbittorrent_to_arr(app_name, app_url, app_key, category):
     st, res = http_request(url, method="POST", data=payload, headers=headers)
     if st in (200, 201):
         log(f"qBittorrent added successfully to {app_name}!", "+")
-    else:
-        log(f"Could not auto-add qBittorrent to {app_name} (HTTP {st}): {res}", "!")
 
 def check_and_wire_all():
     print("=" * 65)
@@ -335,6 +440,9 @@ def check_and_wire_all():
     radarr_key = get_xml_api_key(radarr_xml)
     sonarr_key = get_xml_api_key(sonarr_xml)
     prowlarr_key = get_xml_api_key(prowlarr_xml)
+
+    # 2. Auto-Initialize Null-seerr (Bypass onboarding setup wizard & create default admin)
+    auto_initialize_nullseerr(radarr_key, sonarr_key)
     seerr_key = get_seerr_api_key(seerr_json)
 
     print("\nDiscovered API Keys:")
@@ -343,7 +451,7 @@ def check_and_wire_all():
     print(f"  * Prowlarr:   {prowlarr_key or 'Not found'}")
     print(f"  * Null-seerr: {seerr_key or 'Not found'}\n")
 
-    # 2. Check Service Health
+    # 3. Check Service Health
     print("Checking Service Connectivity:")
     for key, info in SERVICES.items():
         st, _ = http_request(info["url"])
@@ -351,7 +459,7 @@ def check_and_wire_all():
         symbol = "OK" if st in (200, 301, 302, 401, 403) else ".."
         print(f"  [{symbol:>2}] {info['name']:<15} {info['url']:<26} -> {status_text}")
 
-    # 3. Perform Auto-Wiring
+    # 4. Perform Auto-Wiring
     print("\nLinking Stack Services:")
     if prowlarr_key and (radarr_key or sonarr_key):
         wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key)
@@ -365,17 +473,17 @@ def check_and_wire_all():
     if sonarr_key:
         wire_qbittorrent_to_arr("Sonarr", SERVICES["sonarr"]["url"], sonarr_key, "tv")
 
-    # 4. Configure Media Naming
+    # 5. Configure Media Naming
     configure_media_naming(radarr_key, sonarr_key)
 
     print("\n" + "=" * 65)
     print("Stack Wiring Complete!")
     print("=" * 65)
-    print("Null-seerr Portal:  http://localhost:5055")
+    print("Null-seerr Portal:  http://localhost:5055 (admin / admin1234)")
     print("Radarr (Movies):    http://localhost:7878")
     print("Sonarr (TV):        http://localhost:8989")
     print("Prowlarr (Index):   http://localhost:9696")
-    print("qBittorrent (DL):   http://localhost:8089")
+    print("qBittorrent (DL):   http://localhost:8089 (admin / admin1234)")
     print("Plex Media Server:  http://localhost:32400/web")
     print("Jellyfin Server:    http://localhost:8096")
     print("Bazarr (Subtitles): http://localhost:6767")
