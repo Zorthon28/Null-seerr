@@ -1,33 +1,27 @@
 <!--
-    Please read contributing guide before submitting
-    your pull request. Please fill in each section below to help us better prioritize your pull request. Thanks!
+    Null-seerr Pull Request Template
+    Please fill in each section below to help us review and test your changes. Thanks!
 -->
 
 ## Description
 
 <!--- Describe your changes in detail -->
-<!--- Why is this change required? What problem does it solve? -->
-<!--- If it fixes an open issue, please link to the issue here. -->
+<!--- Why is this change required? What feature does it add or problem does it solve? -->
 
-- Fixes #XXXX
+- Relates to #XXXX
 
 ## How Has This Been Tested?
 
-<!--- Please describe in detail how you tested your changes. -->
-<!--- Include details of your testing environment, and the tests you ran to -->
-<!--- see how your change affects other areas of the code, etc. -->
+<!--- Please describe in detail how you tested your changes (e.g. manual verification, Docker stack tests, unit tests). -->
 
 ## Screenshots / Logs (if applicable)
 
 ## Checklist:
 
-<!--- Go over all the following points, and put an `x` in all the boxes that apply. -->
-<!--- If you're unsure about any of these, don't hesitate to ask. We're here to help! -->
-
-- [ ] I have read and followed the contribution [guidelines](https://github.com/seerr-team/seerr/blob/develop/CONTRIBUTING.md).
-- [ ] Disclosed any use of AI (see our [policy](https://github.com/seerr-team/seerr/blob/develop/CONTRIBUTING.md#ai-assistance-notice))
+- [x] I have read and followed the contribution [guidelines](https://github.com/Zorthon28/Null-seerr/blob/develop/CONTRIBUTING.md).
+- [x] Disclosed any use of AI (see our [policy](https://github.com/Zorthon28/Null-seerr/blob/develop/CONTRIBUTING.md#ai-assistance-notice))
 - [ ] I have updated the documentation accordingly.
 - [ ] All new and existing tests passed.
 - [ ] Successful build `pnpm build`
 - [ ] Translation keys `pnpm i18n:extract`
-- [ ] Database migration (if required)
+- [ ] Stack configuration / wire script tested (if applicable)
