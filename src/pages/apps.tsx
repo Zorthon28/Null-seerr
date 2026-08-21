@@ -1,7 +1,8 @@
 import Header from '@app/components/Common/Header';
 import PageTitle from '@app/components/Common/PageTitle';
 import type { NextPage } from 'next';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import PlexLogo from '@app/assets/services/plex.svg';
 import JellyfinLogo from '@app/assets/services/jellyfin.svg';
 import RadarrLogo from '@app/assets/services/radarr.svg';
 import SonarrLogo from '@app/assets/services/sonarr.svg';
@@ -10,10 +11,8 @@ import BazarrLogo from '@app/assets/services/bazarr.svg';
 import QBittorrentLogo from '@app/assets/services/qbittorrent.svg';
 import SuggestarrLogo from '@app/assets/services/suggestarr.svg';
 import FlareSolverrLogo from '@app/assets/services/flaresolverr.svg';
-import AutobrrLogo from '@app/assets/services/autobrr.svg';
 import TdarrLogo from '@app/assets/services/tdarr.svg';
 import ShokoLogo from '@app/assets/services/shoko.svg';
-import PosterizarrLogo from '@app/assets/services/posterizarr.svg';
 import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
 
 interface AppItem {
@@ -21,7 +20,7 @@ interface AppItem {
   name: string;
   category: 'Media' | 'Management' | 'Indexers & Downloads' | 'Automation & Encoding' | 'Anime';
   port: number;
-  url: string;
+  path?: string;
   logo: React.ComponentType<{ className?: string }>;
   role: string;
   description: string;
@@ -29,111 +28,101 @@ interface AppItem {
 
 const APPS: AppItem[] = [
   {
+    id: 'plex',
+    name: 'Plex Media Server',
+    category: 'Media',
+    port: 32400,
+    path: '/web',
+    logo: PlexLogo,
+    role: 'Universal Media Streaming Server',
+    description: 'Hardware-accelerated media streaming platform with multi-device sync, smart collections, and unified user profiles.',
+  },
+  {
     id: 'jellyfin',
     name: 'Jellyfin',
     category: 'Media',
-    port: 8097,
-    url: 'http://localhost:8097',
+    port: 8096,
     logo: JellyfinLogo,
-    role: 'Media Streaming Server',
-    description: 'Personal media server with Jellyskin dark theme, Intro Skipper, and full Spanish/English subtitle & audio support.',
+    role: 'Open-Source Media Streaming Server',
+    description: 'Personal media server with Jellyskin dark theme, Intro Skipper, and full Spanish/English subtitle & audio track support.',
   },
   {
     id: 'radarr',
     name: 'Radarr',
     category: 'Management',
-    port: 7879,
-    url: 'http://localhost:7879',
+    port: 7878,
     logo: RadarrLogo,
     role: 'Movie Collection Manager',
-    description: 'Automated movie manager with TRaSH Guides custom format scoring, language preferences, and automatic upgrades.',
+    description: 'Automated movie manager with TRaSH Guides custom format scoring, standardized naming formats, and automatic quality upgrades.',
   },
   {
     id: 'sonarr',
     name: 'Sonarr',
     category: 'Management',
-    port: 8990,
-    url: 'http://localhost:8990',
+    port: 8989,
     logo: SonarrLogo,
     role: 'TV & Anime Series Manager',
     description: 'Automated TV series & anime organizer with Japanese audio priority, season tracking, and TRaSH quality profiles.',
   },
   {
-    id: 'autobrr',
-    name: 'Autobrr',
-    category: 'Automation & Encoding',
-    port: 4189,
-    url: 'http://localhost:4189',
-    logo: AutobrrLogo,
-    role: 'Instant Release Snatcher',
-    description: 'Monitors IRC announce channels and grabs torrents within 1 second of release for maximum swarm speeds.',
+    id: 'prowlarr',
+    name: 'Prowlarr',
+    category: 'Indexers & Downloads',
+    port: 9696,
+    logo: ProwlarrLogo,
+    role: 'Indexers & Trackers Manager',
+    description: 'Pre-seeded with popular public indexers (YTS, Nyaa, The Pirate Bay, AnimeTosho) and FlareSolverr Cloudflare bypass.',
   },
   {
-    id: 'tdarr',
-    name: 'Tdarr',
-    category: 'Automation & Encoding',
-    port: 8265,
-    url: 'http://localhost:8265',
-    logo: TdarrLogo,
-    role: 'Transcoding & Space Saver',
-    description: 'Automated video compressor converting media to HEVC/AV1 to save 40-60% disk space while keeping preferred audio.',
-  },
-  {
-    id: 'shoko',
-    name: 'Shoko Server',
-    category: 'Anime',
-    port: 8111,
-    url: 'http://localhost:8111',
-    logo: ShokoLogo,
-    role: 'Anime AniDB Engine',
-    description: 'Advanced anime collection engine using AniDB hash matching for exact episode titles, specials, and Shokofin sync.',
+    id: 'qbittorrent',
+    name: 'qBittorrent',
+    category: 'Indexers & Downloads',
+    port: 8089,
+    logo: QBittorrentLogo,
+    role: 'High-Speed BitTorrent Client',
+    description: 'Optimized download client with automated category routing (movies/tv), tier-1 public trackers, and unified credentials.',
   },
   {
     id: 'bazarr',
     name: 'Bazarr',
     category: 'Automation & Encoding',
     port: 6767,
-    url: 'http://localhost:6767',
     logo: BazarrLogo,
     role: 'Subtitles Automation',
-    description: 'Companion for Radarr and Sonarr that searches, downloads, and syncs Spanish and English subtitles automatically.',
-  },
-  {
-    id: 'prowlarr',
-    name: 'Prowlarr',
-    category: 'Indexers & Downloads',
-    port: 9697,
-    url: 'http://localhost:9697',
-    logo: ProwlarrLogo,
-    role: 'Indexers & Trackers Manager',
-    description: 'Manages indexers (1337x, Nyaa, AnimeTosho, YTS) with FlareSolverr Cloudflare bypass synced to Radarr & Sonarr.',
-  },
-  {
-    id: 'qbittorrent',
-    name: 'qBittorrent',
-    category: 'Indexers & Downloads',
-    port: 8090,
-    url: 'http://localhost:8090',
-    logo: QBittorrentLogo,
-    role: 'BitTorrent Client',
-    description: 'Optimized high-speed torrent client with 20+ Tier-1 public trackers, UDP port forwarding, and multi-thread I/O.',
+    description: 'Companion for Radarr and Sonarr that automatically searches, downloads, and syncs Spanish and English subtitles.',
   },
   {
     id: 'suggestarr',
     name: 'Suggestarr',
     category: 'Automation & Encoding',
-    port: 4456,
-    url: 'http://localhost:4456',
+    port: 4455,
     logo: SuggestarrLogo,
     role: 'AI & Trend Recommendations',
     description: 'Smart discovery service analyzing your library and trends to automatically recommend movies and series.',
   },
   {
+    id: 'tdarr',
+    name: 'Tdarr',
+    category: 'Automation & Encoding',
+    port: 8265,
+    logo: TdarrLogo,
+    role: 'Transcoding & Space Saver',
+    description: 'Automated video compressor converting media to HEVC/AV1 to save 40-60% disk space while keeping preferred audio tracks.',
+  },
+  {
+    id: 'shoko',
+    name: 'Shoko Server',
+    category: 'Anime',
+    port: 8111,
+    logo: ShokoLogo,
+    role: 'Anime AniDB Engine',
+    description: 'Advanced anime collection engine using AniDB hash matching for exact episode titles, specials, and Shokofin sync.',
+  },
+  {
     id: 'flaresolverr',
     name: 'FlareSolverr',
     category: 'Indexers & Downloads',
-    port: 8192,
-    url: 'http://localhost:8192',
+    port: 8191,
     logo: FlareSolverrLogo,
     role: 'Cloudflare Proxy Helper',
     description: 'Proxy service allowing Prowlarr to bypass Cloudflare anti-bot protection and solve challenge pages seamlessly.',
@@ -144,6 +133,13 @@ const CATEGORIES = ['All', 'Media', 'Management', 'Indexers & Downloads', 'Autom
 
 const AppsPage: NextPage = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [currentHost, setCurrentHost] = useState<string>('localhost');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hostname) {
+      setCurrentHost(window.location.hostname);
+    }
+  }, []);
 
   const filteredApps =
     selectedCategory === 'All'
@@ -171,7 +167,7 @@ const AppsPage: NextPage = () => {
           </span>
         </div>
         <span className="font-mono text-xs text-gray-400">
-          Environment: Local Development (arr-stack-dev)
+          Environment: Media Automation Stack (C:\arr-stack)
         </span>
       </div>
 
@@ -197,6 +193,8 @@ const AppsPage: NextPage = () => {
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pb-12">
         {filteredApps.map((app) => {
           const LogoComponent = app.logo;
+          const serviceUrl = `http://${currentHost}:${app.port}${app.path || ''}`;
+
           return (
             <div
               key={app.id}
@@ -236,7 +234,7 @@ const AppsPage: NextPage = () => {
                 </span>
 
                 <a
-                  href={app.url}
+                  href={serviceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-gray-800 hover:bg-indigo-600 border border-gray-700 hover:border-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-gray-200 hover:text-white transition-all duration-150 shadow-sm"
