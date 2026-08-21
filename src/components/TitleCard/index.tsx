@@ -20,15 +20,17 @@ import {
   EyeSlashIcon,
   MinusCircleIcon,
   StarIcon,
+  PlayIcon,
 } from '@heroicons/react/24/outline';
 import { MediaStatus } from '@server/constants/media';
 import type { Watchlist } from '@server/entity/Watchlist';
 import type { MediaType } from '@server/models/Search';
 import axios from 'axios';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { mutate } from 'swr';
+import useSWR, { mutate } from 'swr';
 
 interface TitleCardProps {
   id: number;
@@ -71,6 +73,14 @@ const TitleCard = ({
   const isTouch = useIsTouch();
   const intl = useIntl();
   const { user, hasPermission } = useUser();
+  const router = useRouter();
+
+  const { data: queueData } = useSWR<{ queue: Record<number, any> }>(
+    '/api/v1/media/queue',
+    { refreshInterval: 15000 }
+  );
+
+  const activeQueueItem = queueData?.queue?.[id];
   const [isUpdating, setIsUpdating] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(status);
   const [showDetail, setShowDetail] = useState(false);
@@ -89,6 +99,13 @@ const TitleCard = ({
   useEffect(() => {
     setCurrentStatus(status);
   }, [status]);
+
+  const isDownloading = activeQueueItem?.status === 'downloading';
+  const isProcessing = activeQueueItem?.status === 'processing';
+  const isRequested = !isDownloading && !isProcessing && (currentStatus === MediaStatus.PROCESSING || currentStatus === MediaStatus.PENDING);
+  const isAvailable = currentStatus === MediaStatus.AVAILABLE || currentStatus === MediaStatus.PARTIALLY_AVAILABLE;
+  const downloadProgress = activeQueueItem?.progress ?? 0;
+  const downloadTimeLeft = activeQueueItem?.timeLeft ?? '';
 
   const requestComplete = useCallback((newStatus: MediaStatus) => {
     setCurrentStatus(newStatus);
@@ -385,6 +402,14 @@ const TitleCard = ({
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             fill
           />
+          {isDownloading && (
+            <div className="absolute bottom-0 left-0 w-full h-1.5 bg-gray-900/60 z-40">
+              <div
+                className="h-full bg-indigo-500 transition-all duration-300"
+                style={{ width: `${downloadProgress}%` }}
+              />
+            </div>
+          )}
           <div className="absolute left-0 right-0 flex items-center justify-between p-2">
             <div
               className={`pointer-events-none z-40 self-start rounded-full border shadow-md ${
@@ -456,14 +481,29 @@ const TitleCard = ({
                   </Button>
                 </Tooltip>
               )}
-            {currentStatus && currentStatus !== MediaStatus.UNKNOWN && (
+            {(isDownloading || isProcessing || isRequested || (currentStatus && currentStatus !== MediaStatus.UNKNOWN)) && (
               <div className="flex flex-col items-center gap-1">
                 <div className="pointer-events-none z-40 flex">
-                  <StatusBadgeMini
-                    status={currentStatus}
-                    inProgress={inProgress}
-                    shrink
-                  />
+                  {isDownloading ? (
+                    <div className="bg-indigo-600/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 backdrop-blur-sm">
+                      <span>{downloadProgress}%</span>
+                      {downloadTimeLeft && <span className="opacity-80">({downloadTimeLeft})</span>}
+                    </div>
+                  ) : isProcessing ? (
+                    <div className="bg-indigo-500/95 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 backdrop-blur-sm">
+                      <span>Processing</span>
+                    </div>
+                  ) : isRequested ? (
+                    <div className="bg-amber-500/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 backdrop-blur-sm">
+                      <span>Requested ✓</span>
+                    </div>
+                  ) : (
+                    <StatusBadgeMini
+                      status={currentStatus ?? MediaStatus.UNKNOWN}
+                      inProgress={inProgress}
+                      shrink
+                    />
+                  )}
                 </div>
               </div>
             )}
@@ -538,10 +578,14 @@ const TitleCard = ({
                       className="whitespace-normal text-xs"
                       style={{
                         WebkitLineClamp:
-                          !showRequestButton ||
+                          (!showRequestButton ||
                           (currentStatus &&
                             currentStatus !== MediaStatus.UNKNOWN &&
-                            currentStatus !== MediaStatus.DELETED)
+                            currentStatus !== MediaStatus.DELETED)) &&
+                          !isAvailable &&
+                          !isDownloading &&
+                          !isProcessing &&
+                          !isRequested
                             ? 5
                             : 3,
                         display: '-webkit-box',
@@ -557,7 +601,40 @@ const TitleCard = ({
               </Link>
 
               <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 py-2">
-                {showRequestButton &&
+                {isAvailable ? (
+                  <Button
+                    buttonType="primary"
+                    buttonSize="sm"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      router.push(`/watch/${id}?type=${mediaType}`);
+                    }}
+                    className="h-7 w-full bg-green-600 hover:bg-green-500 border-green-600 hover:border-green-500 flex items-center justify-center gap-1"
+                  >
+                    <PlayIcon className="h-4 w-4" />
+                    <span>Play</span>
+                  </Button>
+                ) : isDownloading || isProcessing ? (
+                  <Button
+                    buttonType="default"
+                    buttonSize="sm"
+                    disabled
+                    className="h-7 w-full opacity-70 cursor-not-allowed flex items-center justify-center gap-1"
+                  >
+                    <span>{isDownloading ? `Downloading (${downloadProgress}%)` : 'Processing'}</span>
+                  </Button>
+                ) : isRequested ? (
+                  <Button
+                    buttonType="default"
+                    buttonSize="sm"
+                    disabled
+                    className="h-7 w-full opacity-70 cursor-not-allowed flex items-center justify-center gap-1"
+                  >
+                    <span>Requested ✓</span>
+                  </Button>
+                ) : (
+                  showRequestButton &&
                   (!currentStatus ||
                     currentStatus === MediaStatus.UNKNOWN ||
                     currentStatus === MediaStatus.DELETED) && (
@@ -573,7 +650,8 @@ const TitleCard = ({
                       <ArrowDownTrayIcon />
                       <span>{intl.formatMessage(globalMessages.request)}</span>
                     </Button>
-                  )}
+                  )
+                )}
               </div>
             </div>
           </Transition>

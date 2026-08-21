@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="shoko-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#5B21B6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="url(#shoko-grad)"/>
+  <polygon points="256,100 370,190 330,340 182,340 142,190" fill="#FFFFFF"/>
+  <polygon points="256,150 330,210 305,305 207,305 182,210" fill="#7C3AED"/>
+  <circle cx="256" cy="240" r="22" fill="#FFFFFF"/>
+</svg>

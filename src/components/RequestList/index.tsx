@@ -60,7 +60,7 @@ const RequestList = () => {
     id: Number(router.query.userId),
   });
   const { user: currentUser, hasPermission } = useUser();
-  const [currentFilter, setCurrentFilter] = useState<Filter>(Filter.PENDING);
+  const [currentFilter, setCurrentFilter] = useState<Filter>(Filter.ALL);
   const [currentSort, setCurrentSort] = useState<Sort>('added');
   const [currentMediaType, setCurrentMediaType] = useState<string>('all');
   const [currentSortDirection, setCurrentSortDirection] =

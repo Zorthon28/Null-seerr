@@ -4,23 +4,30 @@ import useClickOutside from '@app/hooks/useClickOutside';
 import { Permission, useUser } from '@app/hooks/useUser';
 import { Transition } from '@headlessui/react';
 import {
+  ArrowDownTrayIcon,
   ClockIcon,
   CogIcon,
   EllipsisHorizontalIcon,
   ExclamationTriangleIcon,
   EyeSlashIcon,
   FilmIcon,
+  FireIcon,
   SparklesIcon,
+  Squares2X2Icon,
+  TicketIcon,
   TvIcon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
 import {
+  ArrowDownTrayIcon as FilledArrowDownTrayIcon,
   ClockIcon as FilledClockIcon,
   CogIcon as FilledCogIcon,
   ExclamationTriangleIcon as FilledExclamationTriangleIcon,
   EyeSlashIcon as FilledEyeSlashIcon,
   FilmIcon as FilledFilmIcon,
+  FireIcon as FilledFireIcon,
   SparklesIcon as FilledSparklesIcon,
+  Squares2X2Icon as FilledSquares2X2Icon,
   TvIcon as FilledTvIcon,
   UsersIcon as FilledUsersIcon,
   XMarkIcon,
@@ -86,6 +93,13 @@ const MobileMenu = ({
       activeRegExp: /^\/discover\/movies$/,
     },
     {
+      href: '/discover/boxoffice',
+      content: intl.formatMessage(menuMessages.browseboxoffice),
+      svgIcon: <TicketIcon className="h-6 w-6 text-amber-500" />,
+      svgIconSelected: <TicketIcon className="h-6 w-6 text-amber-500" />,
+      activeRegExp: /^\/discover\/boxoffice/,
+    },
+    {
       href: '/discover/tv',
       content: intl.formatMessage(menuMessages.browsetv),
       svgIcon: <TvIcon className="h-6 w-6" />,
@@ -93,11 +107,32 @@ const MobileMenu = ({
       activeRegExp: /^\/discover\/tv$/,
     },
     {
+      href: '/discover/anime',
+      content: intl.formatMessage(menuMessages.browseanime),
+      svgIcon: <FireIcon className="h-6 w-6 text-amber-500" />,
+      svgIconSelected: <FilledFireIcon className="h-6 w-6 text-amber-500" />,
+      activeRegExp: /^\/discover\/anime/,
+    },
+    {
       href: '/requests',
       content: intl.formatMessage(menuMessages.requests),
       svgIcon: <ClockIcon className="h-6 w-6" />,
       svgIconSelected: <FilledClockIcon className="h-6 w-6" />,
       activeRegExp: /^\/requests/,
+    },
+    {
+      href: '/downloads',
+      content: intl.formatMessage(menuMessages.downloads),
+      svgIcon: <ArrowDownTrayIcon className="h-6 w-6" />,
+      svgIconSelected: <FilledArrowDownTrayIcon className="h-6 w-6" />,
+      activeRegExp: /^\/downloads/,
+    },
+    {
+      href: '/apps',
+      content: intl.formatMessage(menuMessages.apps),
+      svgIcon: <Squares2X2Icon className="h-6 w-6" />,
+      svgIconSelected: <FilledSquares2X2Icon className="h-6 w-6" />,
+      activeRegExp: /^\/apps/,
     },
     {
       href: '/blocklist',

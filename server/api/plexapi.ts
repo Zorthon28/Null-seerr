@@ -214,6 +214,14 @@ class PlexAPI extends ExternalAPI {
     return response.MediaContainer.Metadata;
   }
 
+  public async getEpisodes(key: string): Promise<PlexMetadata[]> {
+    const response = await this.get<PlexMetadataResponse>(
+      `/library/metadata/${key}/allLeaves`
+    );
+
+    return response.MediaContainer.Metadata;
+  }
+
   public async getRecentlyAdded(
     id: string,
     options: { addedAt: number } = {

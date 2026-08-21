@@ -157,6 +157,7 @@ export interface MainSettings {
   locale: string;
   youtubeUrl: string;
   versionCheck: boolean;
+  downloadNotifications: boolean;
 }
 
 export interface ProxySettings {
@@ -369,7 +370,8 @@ export type JobId =
   | 'jellyfin-full-scan'
   | 'image-cache-cleanup'
   | 'availability-sync'
-  | 'process-blocklisted-tags';
+  | 'process-blocklisted-tags'
+  | 'media-retention-sync';
 
 export interface AllSettings {
   clientId: string;
@@ -432,6 +434,7 @@ class Settings {
         locale: 'en',
         youtubeUrl: '',
         versionCheck: true,
+        downloadNotifications: true,
       },
       plex: {
         name: '',
@@ -608,6 +611,9 @@ class Settings {
         },
         'process-blocklisted-tags': {
           schedule: '0 30 1 */7 * *',
+        },
+        'media-retention-sync': {
+          schedule: '0 0 * * * *',
         },
       },
       network: {
