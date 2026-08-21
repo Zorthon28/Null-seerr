@@ -58,6 +58,7 @@ def get_or_create_stack_credentials():
     """Generates or loads a secure temporary password for the admin account across the stack"""
     cred_file = os.path.join(ARR_DIR, "CREDENTIALS.txt")
     user = "admin"
+    email = "admin@nullseerr.local"
     password = None
 
     if os.path.exists(cred_file):
@@ -68,6 +69,8 @@ def get_or_create_stack_credentials():
                         password = line.split(":", 1)[1].strip()
                     elif line.startswith("USER:"):
                         user = line.split(":", 1)[1].strip()
+                    elif line.startswith("EMAIL:"):
+                        email = line.split(":", 1)[1].strip()
         except Exception:
             pass
 
@@ -77,11 +80,11 @@ def get_or_create_stack_credentials():
         password = "".join(secrets.choice(alphabet) for _ in range(16))
         try:
             with open(cred_file, "w", encoding="utf-8") as f:
-                f.write(f"USER: {user}\nPASSWORD: {password}\nGENERATED: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"USER: {user}\nEMAIL: {email}\nPASSWORD: {password}\nGENERATED: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         except Exception as e:
             log(f"Warning: Could not save credentials file: {e}", "!")
 
-    return user, password
+    return user, email, password
 
 def hash_password(password):
     """Hashes password using bcrypt via container or local runtime"""
@@ -156,7 +159,7 @@ def http_request(url, method="GET", data=None, headers=None):
     except Exception as e:
         return 0, str(e)
 
-def auto_initialize_nullseerr(admin_user, admin_password, radarr_key, sonarr_key):
+def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key):
     """Automatically pre-configures Null-seerr, bypasses /setup onboarding, and provisions unified admin"""
     overseerr_dir = os.path.join(ARR_DIR, "config", "overseerr")
     settings_file = os.path.join(overseerr_dir, "settings.json")
@@ -258,15 +261,15 @@ def auto_initialize_nullseerr(admin_user, admin_password, radarr_key, sonarr_key
                         ) VALUES (
                             1, ?, ?, 2, 'https://gravatar.com/avatar/admin?d=mp', ?, 2
                         );
-                    ''', (f"{admin_user}@nullseerr.local", admin_user, hashed_pwd))
+                    ''', (admin_email, admin_user, hashed_pwd))
                     conn.commit()
-                    log(f"Created unified admin account ({admin_user}) in database", "+")
+                    log(f"Created unified admin account ({admin_user} / {admin_email}) in database", "+")
                     needs_restart = True
                 else:
                     # Update existing admin password to match current credentials
                     cur.execute('''
-                        UPDATE user SET username = ?, password = ? WHERE id = 1;
-                    ''', (admin_user, hashed_pwd))
+                        UPDATE user SET username = ?, email = ?, password = ? WHERE id = 1;
+                    ''', (admin_user, admin_email, hashed_pwd))
                     conn.commit()
                 conn.close()
         except Exception as e:
@@ -485,7 +488,7 @@ def check_and_wire_all():
     print("=" * 65)
 
     # 1. Generate / Retrieve Unified Stack Credentials
-    admin_user, admin_password = get_or_create_stack_credentials()
+    admin_user, admin_email, admin_password = get_or_create_stack_credentials()
 
     # 2. Extract API Keys
     radarr_xml = os.path.join(ARR_DIR, "config", "radarr", "config.xml")
@@ -498,7 +501,7 @@ def check_and_wire_all():
     prowlarr_key = get_xml_api_key(prowlarr_xml)
 
     # 3. Auto-Initialize Null-seerr (Bypass onboarding setup wizard & create default admin)
-    auto_initialize_nullseerr(admin_user, admin_password, radarr_key, sonarr_key)
+    auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key)
     seerr_key = get_seerr_api_key(seerr_json)
 
     print("\nDiscovered API Keys:")
@@ -535,7 +538,8 @@ def check_and_wire_all():
     print("\n" + "=" * 65)
     print("✨ STACK WIRING COMPLETE & CREDENTIALS CONFIGURED!")
     print("=" * 65)
-    print(f"  🔑 UNIFIED ADMIN USERNAME:  {admin_user}")
+    print(f"  🔑 ADMIN USERNAME:          {admin_user}")
+    print(f"  📧 ADMIN EMAIL:             {admin_email}")
     print(f"  🔒 GENERATED TEMP PASSWORD:  {admin_password}")
     print(f"  📁 Saved in:                {os.path.join(ARR_DIR, 'CREDENTIALS.txt')}")
     print("=" * 65)

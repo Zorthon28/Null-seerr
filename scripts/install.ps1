@@ -175,10 +175,12 @@ Pop-Location
 # Read generated credentials if present
 $credFile = "$customRoot\CREDENTIALS.txt"
 $adminUser = "admin"
+$adminEmail = "admin@nullseerr.local"
 $adminPass = "See $customRoot\CREDENTIALS.txt"
 if (Test-Path -Path $credFile) {
     Get-Content $credFile | ForEach-Object {
         if ($_ -match "^USER:\s*(.+)") { $adminUser = $matches[1].Trim() }
+        if ($_ -match "^EMAIL:\s*(.+)") { $adminEmail = $matches[1].Trim() }
         if ($_ -match "^PASSWORD:\s*(.+)") { $adminPass = $matches[1].Trim() }
     }
 }
@@ -189,7 +191,8 @@ Start-Process "http://localhost:5055"
 Write-Host "`n=================================================================" -ForegroundColor Cyan
 Write-Host "          NULL-SEERR MEDIA STACK IS ONLINE & READY!              " -ForegroundColor Green
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host "  🔑 UNIFIED ADMIN USERNAME:  $adminUser" -ForegroundColor Yellow
+Write-Host "  🔑 ADMIN USERNAME:          $adminUser" -ForegroundColor Yellow
+Write-Host "  📧 ADMIN EMAIL:             $adminEmail" -ForegroundColor Yellow
 Write-Host "  🔒 GENERATED TEMP PASSWORD:  $adminPass" -ForegroundColor Yellow
 Write-Host "  📁 Saved in:                $credFile" -ForegroundColor Cyan
 Write-Host "-----------------------------------------------------------------" -ForegroundColor DarkGray
