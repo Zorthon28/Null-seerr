@@ -480,7 +480,52 @@ def wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key):
     elif "Sonarr" in existing_names:
         log("Sonarr is already linked in Prowlarr", "OK")
 
-def seed_prowlarr_indexers(prowlarr_key):
+def wire_prowlarr_flaresolverr(prowlarr_key):
+    """Configures FlareSolverr proxy in Prowlarr for Cloudflare challenge bypass"""
+    if not prowlarr_key:
+        return None
+    headers = {"X-Api-Key": prowlarr_key}
+    
+    # Ensure tag 'flaresolverr' exists
+    tag_id = 1
+    tag_url = f"{SERVICES['prowlarr']['url']}/api/v1/tag"
+    t_st, tags = http_request(tag_url, headers=headers)
+    if t_st == 200 and isinstance(tags, list):
+        f_tag = next((t for t in tags if t.get("label") == "flaresolverr"), None)
+        if f_tag:
+            tag_id = f_tag.get("id", 1)
+        else:
+            c_st, c_tag = http_request(tag_url, method="POST", data={"label": "flaresolverr"}, headers=headers)
+            if c_st in (200, 201) and isinstance(c_tag, dict):
+                tag_id = c_tag.get("id", 1)
+
+    proxy_url = f"{SERVICES['prowlarr']['url']}/api/v1/indexerproxy"
+    st, existing_proxies = http_request(proxy_url, headers=headers)
+    if st == 200 and isinstance(existing_proxies, list):
+        f_proxy = next((p for p in existing_proxies if p.get("implementation") == "FlareSolverr"), None)
+        if f_proxy:
+            if tag_id not in f_proxy.get("tags", []):
+                f_proxy["tags"] = [tag_id]
+                http_request(f"{proxy_url}/{f_proxy.get('id')}", method="PUT", data=f_proxy, headers=headers)
+            log("FlareSolverr proxy active in Prowlarr", "OK")
+            return tag_id
+
+    proxy_payload = {
+        "name": "FlareSolverr",
+        "implementation": "FlareSolverr",
+        "configContract": "FlareSolverrSettings",
+        "fields": [
+            {"name": "host", "value": "http://flaresolverr:8191/"},
+            {"name": "requestTimeout", "value": 60}
+        ],
+        "tags": [tag_id]
+    }
+    pst, res = http_request(proxy_url, method="POST", data=proxy_payload, headers=headers)
+    if pst in (200, 201):
+        log("FlareSolverr proxy linked in Prowlarr!", "+")
+    return tag_id
+
+def seed_prowlarr_indexers(prowlarr_key, flare_tag_id=1):
     """Auto-seeds popular public indexers into Prowlarr"""
     if not prowlarr_key:
         return
@@ -500,15 +545,23 @@ def seed_prowlarr_indexers(prowlarr_key):
         return
 
     target_definitions = {
-        "yts": "YTS (Movies)",
-        "nyaasi": "Nyaa.si (Anime)",
-        "thepiratebay": "The Pirate Bay (General)",
-        "animetosho": "AnimeTosho (Anime)",
-        "torrentdownload": "TorrentDownload (General)"
+        "1337x": {"label": "1337x (General / Movies / TV)", "tag": True, "baseUrl": "https://1337x.st/"},
+        "yts": {"label": "YTS (Movies)"},
+        "thepiratebay": {"label": "The Pirate Bay (General)"},
+        "limetorrents": {"label": "LimeTorrents (General / Movies)"},
+        "torrentdownloads": {"label": "Torrent Downloads (General)"},
+        "torrentdownload": {"label": "TorrentDownload (General)"},
+        "torrentproject2": {"label": "TorrentProject2 (Meta / General)"},
+        "knaben": {"label": "Knaben (Meta / Multi)"},
+        "nyaasi": {"label": "Nyaa.si (Anime)"},
+        "subsplease": {"label": "SubsPlease (Anime Simulcasts)"},
+        "tokyotosho": {"label": "Tokyo Toshokan (Anime)"}
     }
 
-    log("Auto-seeding popular indexers in Prowlarr...", "⚡")
-    for def_name, label in target_definitions.items():
+    log("Auto-seeding top indexers in Prowlarr...", "⚡")
+    added_any = False
+    for def_name, info in target_definitions.items():
+        label = info.get("label", def_name)
         if def_name in existing_def_names:
             log(f"Indexer {label} already active", "OK")
             continue
@@ -521,36 +574,27 @@ def seed_prowlarr_indexers(prowlarr_key):
         indexer_payload["enable"] = True
         indexer_payload["appProfileId"] = 1
         
+        if info.get("tag") and flare_tag_id:
+            indexer_payload["tags"] = [flare_tag_id]
+
+        if info.get("baseUrl"):
+            for f in indexer_payload.get("fields", []):
+                if f.get("name") == "baseUrl":
+                    f["value"] = info.get("baseUrl")
+
         st, res = http_request(idx_url, method="POST", data=indexer_payload, headers=headers)
         if st in (200, 201):
             log(f"Seeded indexer: {label}", "+")
+            added_any = True
 
-def wire_prowlarr_flaresolverr(prowlarr_key):
-    """Configures FlareSolverr proxy in Prowlarr for Cloudflare challenge bypass"""
-    if not prowlarr_key:
-        return
-    headers = {"X-Api-Key": prowlarr_key}
-    proxy_url = f"{SERVICES['prowlarr']['url']}/api/v1/indexerproxy"
-    
-    st, existing_proxies = http_request(proxy_url, headers=headers)
-    if st == 200 and isinstance(existing_proxies, list):
-        if any(p.get("implementation") == "FlareSolverr" for p in existing_proxies):
-            log("FlareSolverr proxy already configured in Prowlarr", "OK")
-            return
-
-    proxy_payload = {
-        "name": "FlareSolverr",
-        "implementation": "FlareSolverr",
-        "configContract": "FlareSolverrSettings",
-        "fields": [
-            {"name": "host", "value": "http://flaresolverr:8191/"},
-            {"name": "requestTimeout", "value": 60}
-        ],
-        "tags": []
-    }
-    pst, res = http_request(proxy_url, method="POST", data=proxy_payload, headers=headers)
-    if pst in (200, 201):
-        log("FlareSolverr proxy linked in Prowlarr!", "+")
+    # Re-sync applications if new indexers were added
+    if added_any:
+        app_url = f"{SERVICES['prowlarr']['url']}/api/v1/applications"
+        ast, apps = http_request(app_url, headers=headers)
+        if ast == 200 and isinstance(apps, list):
+            for app in apps:
+                http_request(f"{app_url}/{app.get('id')}", method="PUT", data=app, headers=headers)
+            log("Synchronized all indexers to Radarr and Sonarr", "+")
 
 def configure_media_naming(radarr_key, sonarr_key):
     """Sets standard Plex / Jellyfin naming conventions in Radarr and Sonarr"""
@@ -699,8 +743,8 @@ def check_and_wire_all():
         wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key)
 
     if prowlarr_key:
-        wire_prowlarr_flaresolverr(prowlarr_key)
-        seed_prowlarr_indexers(prowlarr_key)
+        flare_tag_id = wire_prowlarr_flaresolverr(prowlarr_key)
+        seed_prowlarr_indexers(prowlarr_key, flare_tag_id)
 
     if radarr_key:
         wire_qbittorrent_to_arr("Radarr", SERVICES["radarr"]["url"], radarr_key, admin_user, admin_password, "movies")
