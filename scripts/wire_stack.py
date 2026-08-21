@@ -154,7 +154,29 @@ def configure_qbittorrent_auth(admin_user, admin_password):
             "Session\\DefaultSavePath=/data/torrents/\n",
             "Session\\TempPath=/data/torrents/incomplete/\n",
             "Downloads\\SavePath=/data/torrents/\n",
-            "Downloads\\TempPath=/data/torrents/incomplete/\n"
+            "Downloads\\TempPath=/data/torrents/incomplete/\n",
+            "Connection\\GlobalDLLimit=-1\n",
+            "Connection\\GlobalUPLimit=-1\n",
+            "Connection\\MaxConnecs=1500\n",
+            "Connection\\MaxConnecsPerTorrent=500\n",
+            "Session\\DiskCache=1024\n",
+            "Session\\DiskCacheTTL=120\n",
+            "Session\\AsyncIOThreadsCount=16\n",
+            "Session\\HashingThreadsCount=4\n",
+            "Session\\FilePoolSize=500\n",
+            "Session\\SendBufferWatermark=3072\n",
+            "Session\\SendBufferLowWatermark=1024\n",
+            "Session\\SendBufferWatermarkFactor=250\n",
+            "Session\\SocketReceiveBufferSize=4096\n",
+            "Session\\SocketSendBufferSize=4096\n",
+            "Session\\MaxConcurrentHTTPAnnounces=100\n",
+            "Session\\PiecePreallocation=false\n",
+            "Session\\CoalesceReadsWrite=true\n",
+            "Queueing\\QueueingEnabled=true\n",
+            "Queueing\\MaxActiveDownloads=20\n",
+            "Queueing\\MaxActiveTorrents=50\n",
+            "Queueing\\MaxActiveUploads=20\n",
+            "Queueing\\IgnoreSlowTorrents=true\n"
         ]
 
         if pref_idx != -1:
@@ -165,7 +187,7 @@ def configure_qbittorrent_auth(admin_user, admin_password):
             f.writelines(new_lines)
 
         subprocess.run(["docker", "start", "qbittorrent"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        log("Configured qBittorrent WebUI host validation & direct access", "OK")
+        log("Configured qBittorrent for MAXIMUM download speed & throughput", "OK")
     except Exception as e:
         log(f"Error configuring qBittorrent: {e}", "!")
 
