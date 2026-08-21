@@ -314,56 +314,68 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                 settings["main"]["mediaServerType"] = 1
                 updated = True
 
-            if radarr_key and len(settings.get("radarr", [])) == 0:
-                settings["radarr"] = [
-                    {
-                        "name": "Radarr",
-                        "hostname": "radarr",
-                        "port": 7878,
-                        "apiKey": radarr_key,
-                        "useSsl": False,
-                        "baseUrl": "",
-                        "activeProfileId": 4,
-                        "activeProfileName": "HD-1080p",
-                        "activeDirectory": "/data/media/movies",
-                        "is4k": False,
-                        "minimumAvailability": "released",
-                        "tags": [],
-                        "isDefault": True,
-                        "syncEnabled": False,
-                        "preventSearch": False,
-                        "tagRequests": False,
-                        "id": 0
-                    }
-                ]
-                updated = True
+            if radarr_key:
+                if len(settings.get("radarr", [])) == 0:
+                    settings["radarr"] = [
+                        {
+                            "name": "Radarr",
+                            "hostname": "radarr",
+                            "port": 7878,
+                            "apiKey": radarr_key,
+                            "useSsl": False,
+                            "baseUrl": "",
+                            "activeProfileId": 4,
+                            "activeProfileName": "HD-1080p",
+                            "activeDirectory": "/data/media/movies",
+                            "is4k": False,
+                            "minimumAvailability": "released",
+                            "tags": [],
+                            "isDefault": True,
+                            "syncEnabled": True,
+                            "preventSearch": False,
+                            "tagRequests": False,
+                            "id": 0
+                        }
+                    ]
+                    updated = True
+                else:
+                    for r in settings.get("radarr", []):
+                        if r.get("apiKey") != radarr_key:
+                            r["apiKey"] = radarr_key
+                            updated = True
 
-            if sonarr_key and len(settings.get("sonarr", [])) == 0:
-                settings["sonarr"] = [
-                    {
-                        "name": "Sonarr",
-                        "hostname": "sonarr",
-                        "port": 8989,
-                        "apiKey": sonarr_key,
-                        "useSsl": False,
-                        "baseUrl": "",
-                        "activeProfileId": 4,
-                        "activeLanguageProfileId": 1,
-                        "activeProfileName": "HD-1080p",
-                        "activeDirectory": "/data/media/tv",
-                        "seriesType": "standard",
-                        "tags": [],
-                        "animeTags": [],
-                        "is4k": False,
-                        "isDefault": True,
-                        "enableSeasonFolders": True,
-                        "syncEnabled": False,
-                        "preventSearch": False,
-                        "tagRequests": False,
-                        "id": 0
-                    }
-                ]
-                updated = True
+            if sonarr_key:
+                if len(settings.get("sonarr", [])) == 0:
+                    settings["sonarr"] = [
+                        {
+                            "name": "Sonarr",
+                            "hostname": "sonarr",
+                            "port": 8989,
+                            "apiKey": sonarr_key,
+                            "useSsl": False,
+                            "baseUrl": "",
+                            "activeProfileId": 4,
+                            "activeLanguageProfileId": 1,
+                            "activeProfileName": "HD-1080p",
+                            "activeDirectory": "/data/media/tv",
+                            "seriesType": "standard",
+                            "tags": [],
+                            "animeTags": [],
+                            "is4k": False,
+                            "isDefault": True,
+                            "enableSeasonFolders": True,
+                            "syncEnabled": True,
+                            "preventSearch": False,
+                            "tagRequests": False,
+                            "id": 0
+                        }
+                    ]
+                    updated = True
+                else:
+                    for s in settings.get("sonarr", []):
+                        if s.get("apiKey") != sonarr_key:
+                            s["apiKey"] = sonarr_key
+                            updated = True
 
             if updated:
                 with open(settings_file, "w", encoding="utf-8") as f:
