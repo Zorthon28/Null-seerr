@@ -32,74 +32,74 @@ graph TD
 
 ---
 
-## ⚡ Quick Start (1-Click Launch)
+## ⚡ 1-Click Interactive Setup Wizard
 
-If you are inside `C:\arr-stack`, you can execute the pre-built launcher scripts:
+The fastest way to install and configure everything from scratch:
 
-1. **Start all services**: Double-click [`start-stack.bat`](file:///C:/arr-stack/start-stack.bat)
-2. **Auto-wire everything**: Double-click [`wire-stack.bat`](file:///C:/arr-stack/wire-stack.bat)
-3. **Run Box Office Autopilot**: Double-click [`run-boxarr.bat`](file:///C:/arr-stack/run-boxarr.bat)
-4. **Stop stack**: Double-click [`stop-stack.bat`](file:///C:/arr-stack/stop-stack.bat)
+1. **Run Setup**: Double-click [`setup.bat`](file:///c:/Users/zorthon28/Documents/GitHub/Null-seerr/setup.bat) (or run `powershell -File scripts/install.ps1`).
+2. The setup wizard automatically:
+   - Verifies Docker Desktop and Python 3.
+   - Configures your `.env` and directory paths.
+   - Starts all containers via Docker Compose.
+   - Auto-wires Prowlarr, Radarr, Sonarr, and qBittorrent.
+   - Auto-seeds public indexers (**YTS**, **Nyaa.si**, **The Pirate Bay**, **AnimeTosho**, etc.).
+   - Applies standard Plex / Jellyfin naming formats.
+   - Runs the Box Office autopilot hit sync.
+   - Opens the Null-seerr web UI in your default browser.
 
 ---
 
-## 💻 CLI Step-by-Step Setup Commands
+## ⚙️ Environment Configuration (`.env`)
 
-Run these commands in PowerShell or Terminal to initialize the full stack from source.
+All paths, ports, and credentials are customizable via `.env`:
 
-### Step 1: Build Null-seerr Production Image
-```powershell
-cd C:\Users\zorthon28\Documents\GitHub\Null-seerr
-docker build -t null-seerr:latest .
+```env
+# Base Directories
+ARR_ROOT=C:/arr-stack
+CONFIG_ROOT=C:/arr-stack/config
+DATA_ROOT=C:/arr-stack/data
+
+# Media Sub-Directories
+MEDIA_ROOT=C:/arr-stack/data/media
+MOVIES_DIR=C:/arr-stack/data/media/movies
+TV_DIR=C:/arr-stack/data/media/tv
+ANIME_DIR=C:/arr-stack/data/media/anime
+TORRENTS_DIR=C:/arr-stack/data/torrents
+TRANSCODE_CACHE=C:/arr-stack/data/transcode_cache
+
+# Ports
+NULL_SEERR_PORT=5055
+RADARR_PORT=7878
+SONARR_PORT=8989
+PROWLARR_PORT=9696
+QBIT_WEBUI_PORT=8089
+PLEX_PORT=32400
+JELLYFIN_PORT=8096
+BAZARR_PORT=6767
+SUGGESTARR_PORT=4455
+SHOKO_PORT=8111
+TDARR_WEB_PORT=8265
 ```
 
-### Step 2: Initialize Folder Structure & Volumes
-```powershell
-$dirs = @(
-    "C:\arr-stack\config\overseerr",
-    "C:\arr-stack\config\plex",
-    "C:\arr-stack\config\jellyfin",
-    "C:\arr-stack\config\prowlarr",
-    "C:\arr-stack\config\qbittorrent",
-    "C:\arr-stack\config\radarr",
-    "C:\arr-stack\config\sonarr",
-    "C:\arr-stack\config\bazarr",
-    "C:\arr-stack\config\suggestarr",
-    "C:\arr-stack\config\shoko",
-    "C:\arr-stack\config\tdarr\server",
-    "C:\arr-stack\config\tdarr\configs",
-    "C:\arr-stack\config\tdarr\logs",
-    "C:\arr-stack\config\autobrr",
-    "C:\arr-stack\data\media\movies",
-    "C:\arr-stack\data\media\tv",
-    "C:\arr-stack\data\media\anime",
-    "C:\arr-stack\data\torrents\movies",
-    "C:\arr-stack\data\torrents\tv",
-    "C:\arr-stack\data\torrents\anime",
-    "C:\arr-stack\data\transcode_cache"
-)
-foreach ($d in $dirs) {
-    if (!(Test-Path -Path $d)) {
-        New-Item -ItemType Directory -Path $d -Force | Out-Null
-    }
-}
-```
+---
 
-### Step 3: Launch Docker Containers
+## 💻 Manual CLI Setup Commands
+
+If you prefer running individual commands from terminal:
+
+### Step 1: Launch Containers
 ```powershell
 cd C:\arr-stack
 docker compose up -d
 ```
 
-### Step 4: Run Automated CLI Wiring Tool
-The auto-wiring script extracts all API keys from config files and programs the API endpoints across all services:
+### Step 2: Run Stack Auto-Wiring & Indexer Seeder
 ```powershell
 cd C:\arr-stack
 python wire_stack.py
 ```
 
-### Step 5: Run Boxarr Box-Office Autopilot
-Automatically detects trending box office releases and pushes monitored requests directly into Radarr:
+### Step 3: Run Boxarr Box-Office Autopilot
 ```powershell
 cd C:\arr-stack
 python boxarr.py
@@ -126,62 +126,24 @@ python boxarr.py
 
 ---
 
-## 🛠 Manual CLI & API Wiring Cheatsheet
+## 🎬 Pre-Configured Plex & Jellyfin Naming Formats
 
-If you want to manually interact with or customize service APIs via terminal commands:
-
-### 1. Test Radarr Status via cURL
-```bash
-curl -X GET "http://localhost:7878/api/v3/system/status" \
-     -H "X-Api-Key: 6d504b09cc2242d1a9ebbfb5a0e0753c"
-```
-
-### 2. Test Sonarr Status via cURL
-```bash
-curl -X GET "http://localhost:8989/api/v3/system/status" \
-     -H "X-Api-Key: 0c4101ed9b1e4946b2b494d4e6ec4707"
-```
-
-### 3. Register Radarr in Prowlarr manually via API
-```bash
-curl -X POST "http://localhost:9696/api/v1/applications" \
-     -H "X-Api-Key: 1f333be33e60414e8dbc728d2496f207" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "name": "Radarr",
-       "syncLevel": "fullSync",
-       "implementation": "Radarr",
-       "configContract": "RadarrSettings",
-       "fields": [
-         {"name": "prowlarrUrl", "value": "http://prowlarr:9696"},
-         {"name": "baseUrl", "value": "http://radarr:7878"},
-         {"name": "apiKey", "value": "6d504b09cc2242d1a9ebbfb5a0e0753c"},
-         {"name": "syncCategories", "value": [2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060, 2070, 2080]}
-       ]
-     }'
-```
-
-### 4. Query Null-seerr Media API
-```bash
-curl -X GET "http://localhost:5055/api/v1/discover/movies?sortBy=popularity.desc" \
-     -H "X-Api-Key: MTc4NjAzOTYzNTU3NTM3MGRmZTdmLWM2MTQtNDljZS04MDMwLWYxYTNmZjc4MTUzYQ=="
-```
+When running `wire_stack.py`, the following media formats are automatically configured:
+- **Radarr (Movies)**:
+  `{Movie CleanTitle} ({Release Year})/{Movie CleanTitle} ({Release Year}) [{Quality Full}]`
+- **Sonarr (Standard TV)**:
+  `{Series CleanTitle} - S{season:00}E{episode:00} - {Episode CleanTitle} [{Quality Full}]`
+- **Sonarr (Daily TV)**:
+  `{Series CleanTitle} - {Air-Date} - {Episode CleanTitle} [{Quality Full}]`
+- **Sonarr (Anime)**:
+  `{Series CleanTitle} - S{season:00}E{episode:00} - {absolute:000} - {Episode CleanTitle} [{Quality Full}]`
 
 ---
 
-## 🔧 Troubleshooting & Routine Maintenance
+## 🔧 Helper Batch Scripts
 
-### Check Stack Logs
-```powershell
-docker compose -f C:\arr-stack\docker-compose.yml logs -f null-seerr
-docker compose -f C:\arr-stack\docker-compose.yml logs -f radarr
-docker compose -f C:\arr-stack\docker-compose.yml logs -f sonarr
-```
-
-### Restart a Specific Container
-```powershell
-docker compose -f C:\arr-stack\docker-compose.yml restart null-seerr
-```
-
-### Clean Backup Configuration
-All database files and configs are isolated inside [`C:\arr-stack\config`](file:///C:/arr-stack/config) and can be backed up with standard zip or robocopy commands.
+- [`setup.bat`](file:///C:/arr-stack/setup.bat) - Interactive 1-click installer and setup wizard.
+- [`start-stack.bat`](file:///C:/arr-stack/start-stack.bat) - Starts all Docker containers.
+- [`wire-stack.bat`](file:///C:/arr-stack/wire-stack.bat) - Runs auto-wiring, indexer seeding, and naming config.
+- [`run-boxarr.bat`](file:///C:/arr-stack/run-boxarr.bat) - Runs the Box Office autopilot sync.
+- [`stop-stack.bat`](file:///C:/arr-stack/stop-stack.bat) - Stops all containers cleanly.
