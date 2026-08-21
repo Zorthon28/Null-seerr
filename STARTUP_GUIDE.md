@@ -50,14 +50,19 @@ The fastest way to install and configure everything from scratch:
 
 ---
 
-## 🔑 Default Credentials
+## 🔑 Dynamic Stack Credentials
 
-| Service | Username / Email | Password | Note |
+During installation, a secure, temporary 16-character password is automatically generated for the unified `admin` user across the stack and displayed in the terminal output:
+
+| Service | Username / Account | Password | Note |
 | :--- | :--- | :--- | :--- |
-| **Null-seerr** | `admin` | `admin1234` | Full Admin Privileges |
-| **qBittorrent** | `admin` | `admin1234` | WebUI Access |
+| **Null-seerr** | `admin` *(or `admin@nullseerr.local`)* | *Generated Temp Password* | Full Admin Privileges |
+| **qBittorrent** | `admin` | *Generated Temp Password* | WebUI Access |
 | **Plex** | *Plex Account* | *Plex Password* | Claim via Plex Web |
 | **Jellyfin** | *Initial Wizard* | *Custom* | First-run local admin |
+
+> [!TIP]
+> Your active stack credentials are saved securely in [`C:\arr-stack\CREDENTIALS.txt`](file:///C:/arr-stack/CREDENTIALS.txt).
 
 ---
 

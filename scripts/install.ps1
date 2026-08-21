@@ -172,12 +172,27 @@ if (Test-Path -Path "$customRoot\boxarr.py") {
 
 Pop-Location
 
+# Read generated credentials if present
+$credFile = "$customRoot\CREDENTIALS.txt"
+$adminUser = "admin"
+$adminPass = "See $customRoot\CREDENTIALS.txt"
+if (Test-Path -Path $credFile) {
+    Get-Content $credFile | ForEach-Object {
+        if ($_ -match "^USER:\s*(.+)") { $adminUser = $matches[1].Trim() }
+        if ($_ -match "^PASSWORD:\s*(.+)") { $adminPass = $matches[1].Trim() }
+    }
+}
+
 # Open Null-seerr in default browser
 Start-Process "http://localhost:5055"
 
 Write-Host "`n=================================================================" -ForegroundColor Cyan
 Write-Host "          NULL-SEERR MEDIA STACK IS ONLINE & READY!              " -ForegroundColor Green
 Write-Host "=================================================================" -ForegroundColor Cyan
+Write-Host "  🔑 UNIFIED ADMIN USERNAME:  $adminUser" -ForegroundColor Yellow
+Write-Host "  🔒 GENERATED TEMP PASSWORD:  $adminPass" -ForegroundColor Yellow
+Write-Host "  📁 Saved in:                $credFile" -ForegroundColor Cyan
+Write-Host "-----------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host "  * Null-seerr Portal:   http://localhost:5055" -ForegroundColor Yellow
 Write-Host "  * Radarr (Movies):     http://localhost:7878" -ForegroundColor White
 Write-Host "  * Sonarr (TV):         http://localhost:8989" -ForegroundColor White
