@@ -3,8 +3,10 @@
 Null-seerr All-In-One Media Stack CLI Wiring Utility
 Automatically extracts API keys, tests connections, and wires together:
 - Prowlarr <-> Radarr & Sonarr (Indexers & Sync)
-- Prowlarr <-> FlareSolverr (Cloudflare bypass)
-- qBittorrent <-> Radarr & Sonarr (Download Client)
+- Prowlarr Auto-Seeder (1337x, YTS, EZTV, TorrentGalaxy, Nyaa)
+- Prowlarr <-> FlareSolverr (Cloudflare bypass proxy)
+- qBittorrent <-> Radarr & Sonarr (Download Client with Category Routing)
+- Plex & Jellyfin Standard Media Naming Rules in Radarr & Sonarr
 - Null-seerr <-> Radarr, Sonarr, & Plex/Jellyfin (Media Request Automation)
 """
 
@@ -158,6 +160,125 @@ def wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key):
     elif "Sonarr" in existing_names:
         log("Sonarr is already linked in Prowlarr", "OK")
 
+def seed_prowlarr_indexers(prowlarr_key):
+    """Auto-seeds popular public indexers (1337x, YTS, EZTV, TorrentGalaxy, Nyaa) into Prowlarr"""
+    if not prowlarr_key:
+        return
+
+    headers = {"X-Api-Key": prowlarr_key}
+
+    # 1. Check existing configured indexers
+    idx_url = f"{SERVICES['prowlarr']['url']}/api/v1/indexer"
+    status, existing = http_request(idx_url, headers=headers)
+    if status != 200:
+        log(f"Failed to query existing indexers in Prowlarr: {existing}", "!")
+        return
+
+    existing_def_names = [i.get("definitionName", "").lower() for i in existing] if isinstance(existing, list) else []
+
+    # 2. Query schemas
+    schema_url = f"{SERVICES['prowlarr']['url']}/api/v1/indexer/schema"
+    s_status, schemas = http_request(schema_url, headers=headers)
+    if s_status != 200 or not isinstance(schemas, list):
+        log("Failed to query indexer schemas from Prowlarr.", "!")
+        return
+
+    target_definitions = {
+        "1337x": "1337x (Movies & TV)",
+        "yts": "YTS (Movies)",
+        "eztv": "EZTV (TV)",
+        "torrentgalaxy": "TorrentGalaxy (General)",
+        "nyaasi": "Nyaa.si (Anime)"
+    }
+
+    log("Auto-seeding popular indexers in Prowlarr...", "⚡")
+    for def_name, label in target_definitions.items():
+        if def_name in existing_def_names:
+            log(f"Indexer {label} already active", "OK")
+            continue
+
+        matching_schema = next((s for s in schemas if s.get("definitionName", "").lower() == def_name), None)
+        if not matching_schema:
+            continue
+
+        indexer_payload = dict(matching_schema)
+        indexer_payload["enable"] = True
+        indexer_payload["appProfileId"] = 1
+        
+        st, res = http_request(idx_url, method="POST", data=indexer_payload, headers=headers)
+        if st in (200, 201):
+            log(f"Seeded indexer: {label}", "+")
+        else:
+            log(f"Could not seed {label} (HTTP {st}): {res}", "!")
+
+def wire_prowlarr_flaresolverr(prowlarr_key):
+    """Configures FlareSolverr proxy in Prowlarr for Cloudflare challenge bypass"""
+    if not prowlarr_key:
+        return
+    headers = {"X-Api-Key": prowlarr_key}
+    proxy_url = f"{SERVICES['prowlarr']['url']}/api/v1/indexerproxy"
+    
+    st, existing_proxies = http_request(proxy_url, headers=headers)
+    if st == 200 and isinstance(existing_proxies, list):
+        if any(p.get("implementation") == "FlareSolverr" for p in existing_proxies):
+            log("FlareSolverr proxy already configured in Prowlarr", "OK")
+            return
+
+    proxy_payload = {
+        "name": "FlareSolverr",
+        "implementation": "FlareSolverr",
+        "configContract": "FlareSolverrSettings",
+        "fields": [
+            {"name": "host", "value": "http://flaresolverr:8191/"},
+            {"name": "requestTimeout", "value": 60}
+        ],
+        "tags": []
+    }
+    pst, res = http_request(proxy_url, method="POST", data=proxy_payload, headers=headers)
+    if pst in (200, 201):
+        log("FlareSolverr proxy linked in Prowlarr!", "+")
+    else:
+        log(f"Could not register FlareSolverr in Prowlarr (HTTP {pst}): {res}", "!")
+
+def configure_media_naming(radarr_key, sonarr_key):
+    """Sets standard Plex / Jellyfin naming conventions in Radarr and Sonarr"""
+    # 1. Radarr Naming
+    if radarr_key:
+        url = f"{SERVICES['radarr']['url']}/api/v3/config/naming"
+        headers = {"X-Api-Key": radarr_key}
+        st, current = http_request(url, headers=headers)
+        if st == 200 and isinstance(current, dict):
+            current["renameMovies"] = True
+            current["replaceIllegalCharacters"] = True
+            current["colonReplacementFormat"] = "delete"
+            current["standardMovieFormat"] = "{Movie CleanTitle} ({Release Year})/{Movie CleanTitle} ({Release Year}) [{Quality Full}]"
+            current["movieFolderFormat"] = "{Movie CleanTitle} ({Release Year})"
+            put_st, _ = http_request(url, method="PUT", data=current, headers=headers)
+            if put_st == 202 or put_st == 200:
+                log("Plex/Jellyfin standard naming applied to Radarr", "OK")
+            else:
+                log(f"Could not update Radarr naming (HTTP {put_st})", "!")
+
+    # 2. Sonarr Naming
+    if sonarr_key:
+        url = f"{SERVICES['sonarr']['url']}/api/v3/config/naming"
+        headers = {"X-Api-Key": sonarr_key}
+        st, current = http_request(url, headers=headers)
+        if st == 200 and isinstance(current, dict):
+            current["renameEpisodes"] = True
+            current["replaceIllegalCharacters"] = True
+            current["colonReplacementFormat"] = "delete"
+            current["standardEpisodeFormat"] = "{Series CleanTitle} - S{season:00}E{episode:00} - {Episode CleanTitle} [{Quality Full}]"
+            current["dailyEpisodeFormat"] = "{Series CleanTitle} - {Air-Date} - {Episode CleanTitle} [{Quality Full}]"
+            current["animeEpisodeFormat"] = "{Series CleanTitle} - S{season:00}E{episode:00} - {absolute:000} - {Episode CleanTitle} [{Quality Full}]"
+            current["seriesFolderFormat"] = "{Series CleanTitle}"
+            current["seasonFolderFormat"] = "Season {season:00}"
+            put_st, _ = http_request(url, method="PUT", data=current, headers=headers)
+            if put_st == 202 or put_st == 200:
+                log("Plex/Jellyfin standard naming applied to Sonarr", "OK")
+            else:
+                log(f"Could not update Sonarr naming (HTTP {put_st})", "!")
+
 def wire_qbittorrent_to_arr(app_name, app_url, app_key, category):
     if not app_key:
         return
@@ -235,10 +356,17 @@ def check_and_wire_all():
     if prowlarr_key and (radarr_key or sonarr_key):
         wire_prowlarr_apps(prowlarr_key, radarr_key, sonarr_key)
 
+    if prowlarr_key:
+        wire_prowlarr_flaresolverr(prowlarr_key)
+        seed_prowlarr_indexers(prowlarr_key)
+
     if radarr_key:
         wire_qbittorrent_to_arr("Radarr", SERVICES["radarr"]["url"], radarr_key, "movies")
     if sonarr_key:
         wire_qbittorrent_to_arr("Sonarr", SERVICES["sonarr"]["url"], sonarr_key, "tv")
+
+    # 4. Configure Media Naming
+    configure_media_naming(radarr_key, sonarr_key)
 
     print("\n" + "=" * 65)
     print("Stack Wiring Complete!")
