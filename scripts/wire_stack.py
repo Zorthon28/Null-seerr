@@ -908,13 +908,14 @@ def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
             updated = True
 
         enabled_provs = ['yifysubtitles', 'podnapisi', 'supersubtitles', 'animetosho', 'subf2m', 'embeddedsubtitles']
-        if cfg.get('general', {}).get('enabled_providers') != enabled_provs:
+        if cfg.get('general', {}).get('enabled_providers') != enabled_provs or cfg.get('general', {}).get('single_language') is not False:
             cfg['general']['enabled_providers'] = enabled_provs
             cfg['general']['minimum_score_movie'] = 60
             cfg['general']['minimum_score'] = 60
             cfg['general']['use_embedded_subs'] = True
             cfg['general']['subfolder'] = 'current'
             cfg['general']['utf8_encode'] = True
+            cfg['general']['single_language'] = False
             updated = True
 
         if cfg.get('auth', {}).get('type') is not None:
@@ -927,24 +928,30 @@ def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
             with open(bazarr_yaml_path, 'w', encoding='utf-8') as f:
                 yaml.dump(cfg, f)
 
-            # Seed Profile 1 into bazarr.db if missing
+            # Seed Profile 1 into bazarr.db if missing or update cutoff
             if os.path.exists(bazarr_db_path):
                 conn = sqlite3.connect(bazarr_db_path)
                 cur = conn.cursor()
                 cur.execute("SELECT COUNT(*) FROM table_languages_profiles WHERE profileId = 1;")
+                items_json = json.dumps([
+                    {"id": 1, "language": "en", "forced": False, "hi": False, "audio_language": None},
+                    {"id": 2, "language": "es", "forced": False, "hi": False, "audio_language": None}
+                ])
                 if cur.fetchone()[0] == 0:
-                    items_json = json.dumps([
-                        {"id": 1, "language": "en", "forced": False, "hi": False, "audio_language": None},
-                        {"id": 2, "language": "es", "forced": False, "hi": False, "audio_language": None}
-                    ])
                     cur.execute('''
                         INSERT INTO table_languages_profiles (
                             profileId, cutoff, originalFormat, items, name, mustContain, mustNotContain, tag
                         ) VALUES (
-                            1, 1, 0, ?, 'English & Spanish', '', '', ''
+                            1, 2, 0, ?, 'English & Spanish', '', '', ''
                         );
                     ''', (items_json,))
-                    conn.commit()
+                else:
+                    cur.execute('''
+                        UPDATE table_languages_profiles
+                        SET cutoff = 2, items = ?, name = 'English & Spanish'
+                        WHERE profileId = 1;
+                    ''', (items_json,))
+                conn.commit()
                 conn.close()
 
             subprocess.run(['docker', 'start', 'bazarr'], stdout=subprocess.DEVNULL)
