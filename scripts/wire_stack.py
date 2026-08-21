@@ -192,36 +192,101 @@ def configure_qbittorrent_auth(admin_user, admin_password):
         log(f"Error configuring qBittorrent: {e}", "!")
 
 def auto_initialize_jellyfin(admin_user, admin_password):
-    """Automatically completes Jellyfin setup wizard and provisions administrator account"""
+    """Automatically completes Jellyfin setup wizard, provisions libraries, and generates API key for Null-seerr"""
     base = SERVICES["jellyfin"]["url"]
+    token = None
+    server_id = None
+    user_id = None
+
     try:
         # Check if startup wizard is needed
         st, info = http_request(f"{base}/System/Info/Public")
-        if st == 200 and isinstance(info, dict) and info.get("StartupWizardCompleted", False):
-            # Check if user can authenticate
-            auth_data = json.dumps({"Username": admin_user, "Pw": admin_password}).encode("utf-8")
-            headers = {
-                "Content-Type": "application/json",
-                "X-Emby-Authorization": 'MediaBrowser Client="CLI", Device="CLI", DeviceId="cli-init", Version="1.0.0"'
-            }
-            auth_st, _ = http_request(f"{base}/Users/AuthenticateByName", method="POST", data=auth_data, headers=headers)
-            if auth_st == 200:
-                log("Jellyfin server is fully configured and admin is active", "OK")
-                return
+        if st == 200 and isinstance(info, dict) and not info.get("StartupWizardCompleted", False):
+            # 1. Update Startup User
+            user_req_data = {"Name": admin_user, "Password": admin_password}
+            http_request(f"{base}/Startup/User", method="POST", data=user_req_data)
 
-        # 1. Update Startup User
-        user_req_data = {"Name": admin_user, "Password": admin_password}
-        http_request(f"{base}/Startup/User", method="POST", data=user_req_data)
+            # 2. Set Config
+            conf_data = {"UICulture": "en-US", "MetadataCountryCode": "US", "PreferredMetadataLanguage": "en"}
+            http_request(f"{base}/Startup/Configuration", method="POST", data=conf_data)
 
-        # 2. Set Config
-        conf_data = {"UICulture": "en-US", "MetadataCountryCode": "US", "PreferredMetadataLanguage": "en"}
-        http_request(f"{base}/Startup/Configuration", method="POST", data=conf_data)
+            # 3. Complete Setup
+            http_request(f"{base}/Startup/Complete", method="POST", data={})
+            log("Jellyfin first-time setup wizard completed automatically", "+")
 
-        # 3. Complete Setup
-        http_request(f"{base}/Startup/Complete", method="POST", data={})
-        log("Jellyfin first-time setup wizard completed automatically", "+")
+        # Authenticate
+        auth_data = json.dumps({"Username": admin_user, "Pw": admin_password}).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "X-Emby-Authorization": 'MediaBrowser Client="CLI", Device="CLI", DeviceId="cli-init", Version="1.0.0"'
+        }
+        auth_st, auth_res = http_request(f"{base}/Users/AuthenticateByName", method="POST", data=auth_data, headers=headers)
+        if auth_st == 200 and isinstance(auth_res, dict):
+            token = auth_res.get("AccessToken")
+            server_id = auth_res.get("ServerId")
+            user_id = auth_res.get("User", {}).get("Id")
+            log("Jellyfin server authenticated and active", "OK")
+
+        if not token:
+            return None
+
+        auth_headers = {"X-Emby-Token": token, "Content-Type": "application/json"}
+
+        # 4. Check / Provision Virtual Folders (Libraries)
+        lst, libs = http_request(f"{base}/Library/VirtualFolders", headers=auth_headers)
+        existing_lib_names = [lib.get("Name") for lib in libs] if lst == 200 and isinstance(libs, list) else []
+
+        libraries_to_create = [
+            {"name": "Movies", "type": "movies", "path": "/data/media/movies"},
+            {"name": "TV Shows", "type": "tvshows", "path": "/data/media/tv"},
+            {"name": "Anime", "type": "tvshows", "path": "/data/media/anime"}
+        ]
+
+        for l in libraries_to_create:
+            if l["name"] not in existing_lib_names:
+                create_url = f"{base}/Library/VirtualFolders?name={urllib.parse.quote(l['name'])}&collectionType={l['type']}&paths={urllib.parse.quote(l['path'])}&refreshLibrary=true"
+                http_request(create_url, method="POST", headers=auth_headers)
+                log(f"Created Jellyfin Library: {l['name']}", "+")
+
+        # 5. Create / Retrieve API Key for Null-seerr
+        kst, keys_res = http_request(f"{base}/Auth/Keys", headers=auth_headers)
+        seerr_api_key = None
+        if kst == 200 and isinstance(keys_res, dict):
+            for k in keys_res.get("Items", []):
+                if k.get("AppName") == "Null-seerr":
+                    seerr_api_key = k.get("AccessToken")
+                    break
+
+        if not seerr_api_key:
+            add_key_url = f"{base}/Auth/Keys?app=Null-seerr"
+            http_request(add_key_url, method="POST", headers=auth_headers)
+            kst2, keys_res2 = http_request(f"{base}/Auth/Keys", headers=auth_headers)
+            if kst2 == 200 and isinstance(keys_res2, dict):
+                for k in keys_res2.get("Items", []):
+                    if k.get("AppName") == "Null-seerr":
+                        seerr_api_key = k.get("AccessToken")
+                        break
+
+        # 6. Fetch Virtual Folders with ItemIds
+        lst2, libs2 = http_request(f"{base}/Library/VirtualFolders", headers=auth_headers)
+        jellyfin_libs_config = []
+        if lst2 == 200 and isinstance(libs2, list):
+            for lib in libs2:
+                jellyfin_libs_config.append({
+                    "id": lib.get("ItemId"),
+                    "name": lib.get("Name"),
+                    "enabled": True
+                })
+
+        return {
+            "serverId": server_id,
+            "userId": user_id,
+            "apiKey": seerr_api_key,
+            "libraries": jellyfin_libs_config
+        }
     except Exception as e:
         log(f"Could not auto-initialize Jellyfin: {e}", "!")
+        return None
 
 def auto_initialize_shoko(admin_user, admin_password):
     """Automatically completes Shoko Server first time setup and starts the engine"""
@@ -314,7 +379,7 @@ def http_request(url, method="GET", data=None, headers=None):
     except Exception as e:
         return 0, str(e)
 
-def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key):
+def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key, jellyfin_info=None):
     """Automatically pre-configures Null-seerr, bypasses /setup onboarding, and provisions unified admin"""
     overseerr_dir = os.path.join(ARR_DIR, "config", "overseerr")
     settings_file = os.path.join(overseerr_dir, "settings.json")
@@ -337,7 +402,7 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                 settings["main"] = settings.get("main", {})
                 settings["main"]["localLogin"] = True
                 settings["main"]["applicationTitle"] = "Null-seerr"
-                settings["main"]["mediaServerType"] = 1
+                settings["main"]["mediaServerType"] = 2 if jellyfin_info else 1
                 updated = True
 
             if not settings.get("plex", {}).get("ip"):
@@ -345,6 +410,24 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                 settings["plex"]["ip"] = "plex"
                 settings["plex"]["name"] = "Plex"
                 settings["plex"]["port"] = 32400
+                updated = True
+
+            if jellyfin_info and jellyfin_info.get("apiKey"):
+                settings["main"] = settings.get("main", {})
+                settings["main"]["mediaServerType"] = 2
+                settings["jellyfin"] = {
+                    "name": "Jellyfin",
+                    "ip": "jellyfin",
+                    "port": 8096,
+                    "useSsl": False,
+                    "urlBase": "",
+                    "externalHostname": "http://localhost:8096",
+                    "jellyfinForgotPasswordUrl": "",
+                    "libraries": jellyfin_info.get("libraries", []),
+                    "serverId": jellyfin_info.get("serverId", ""),
+                    "apiKey": jellyfin_info.get("apiKey", ""),
+                    "userId": jellyfin_info.get("userId", "")
+                }
                 updated = True
 
             if radarr_key:
@@ -794,15 +877,15 @@ def check_and_wire_all():
     sonarr_key = get_xml_api_key(sonarr_xml)
     prowlarr_key = get_xml_api_key(prowlarr_xml)
 
-    # 3. Auto-Initialize Null-seerr
-    auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key)
+    # 3. Auto-Initialize Jellyfin Setup Wizard & Libraries
+    jellyfin_info = auto_initialize_jellyfin(admin_user, admin_password)
+
+    # 4. Auto-Initialize Null-seerr
+    auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key, jellyfin_info)
     seerr_key = get_seerr_api_key(seerr_json)
 
-    # 4. Auto-Configure qBittorrent WebUI Host Validation
+    # 5. Auto-Configure qBittorrent WebUI Host Validation & High Speed Limits
     configure_qbittorrent_auth(admin_user, admin_password)
-
-    # 5. Auto-Initialize Jellyfin Setup Wizard
-    auto_initialize_jellyfin(admin_user, admin_password)
 
     # 6. Auto-Initialize Shoko Server Engine
     auto_initialize_shoko(admin_user, admin_password)
