@@ -1,120 +1,94 @@
-<p align="center">
-  <h1 align="center">🌌 Null-seerr</h1>
-  <p align="center"><strong>The All-In-One Self-Hosted Media Automation Ecosystem & Request Suite</strong></p>
-</p>
+# null-arr-stack
 
-<p align="center">
-  <img src="https://img.shields.io/badge/version-0.0.1-blueviolet.svg?style=for-the-badge" alt="Version 0.0.1" />
-  <img src="https://img.shields.io/badge/docker-ready-2496ED.svg?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Ready" />
-  <img src="https://img.shields.io/badge/architecture-All--in--One-00C7B7.svg?style=for-the-badge" alt="All-In-One" />
-  <img src="https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge" alt="License" />
-</p>
+**The Turnkey, Autonomous, All-In-One Media Server Ecosystem & Automation Suite**
+
+[![Project Version](https://img.shields.io/badge/version-0.0.1-blueviolet.svg?style=flat-square)](https://github.com/Zorthon28/Null-seerr)
+[![Docker Ready](https://img.shields.io/badge/docker-ready-2496ED.svg?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Architecture: Autonomous Mesh](https://img.shields.io/badge/architecture-Autonomous%20Mesh-00C7B7.svg?style=flat-square)](https://github.com/Zorthon28/Null-seerr)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
 
 ---
 
-## 🌟 What is Null-seerr?
+## What is null-arr-stack?
 
-**Null-seerr** is a next-generation evolution of media request management. Rather than functioning solely as a request front-end, Null-seerr delivers a **complete, turnkey media automation suite** that unifies discovery, requests, automated indexer sync, torrent routing, automated video transcoding, subtitle fetching, and direct in-browser streaming playback.
+**null-arr-stack** is a complete, pre-integrated, self-wiring media ecosystem.
 
----
+Setting up a modern home media server typically requires deploying and configuring over a dozen independent applications, generating dozens of API keys, configuring download paths, setting up reverse proxies, connecting indexers, and adjusting complex naming schemes.
 
-## ✨ Key Features & Enhancements
+**null-arr-stack solves this by providing a unified, autonomous distribution.** Upon initial startup, an embedded initialization engine automatically discovers services, extracts API keys, provisions libraries, seeds indexers, applies high-throughput download tuning, sets up dual English/Spanish subtitles, and wires the entire stack together without requiring manual setup wizards or host dependencies.
 
-### 🚀 Turnkey All-In-One Media Stack
-- **1-Click Interactive Setup**: Double-click `setup.bat` to automatically verify Docker, provision folders, spin up containers, auto-wire APIs, and seed indexers.
-- **Unified Services**: Pre-integrated with **Radarr**, **Sonarr**, **Prowlarr**, **qBittorrent**, **FlareSolverr**, **Plex**, **Jellyfin**, **Bazarr**, **Suggestarr**, **Shoko**, and **Tdarr**.
-- **Centralized `.env`**: Configure all storage directories, drives, ports, and permissions in one place.
-
-### 🧭 Central Apps Hub
-- Access and monitor your entire media server fleet directly from the **Apps** page in Null-seerr.
-- Instant shortcuts to WebUIs with branded service icons and port mappings.
-
-### 🎬 Box Office Discover & Autopilot
-- Real-time **Box Office** discovery feed showcasing current theatrical hits and grossing rankings.
-- **Boxarr Autopilot**: Built-in sync engine that automatically queries box-office charts and monitors new releases in Radarr.
-
-### 🌸 Dedicated Anime Discovery & Shoko Hub
-- Custom Anime discovery routes with direct integration for **Shoko Server**.
-- Season-by-season anime releases, studio filters, and absolute episode numbering.
-
-### 📺 Direct In-Browser Web Player
-- Stream and preview available movies and episodes directly within the Null-seerr web UI.
-
-### ⚡ CLI Auto-Wiring Engine (`wire_stack.py`)
-- Automatically reads API keys from service configuration files.
-- Auto-registers Radarr & Sonarr inside Prowlarr.
-- Auto-seeds public indexers (*YTS*, *Nyaa.si*, *The Pirate Bay*, *AnimeTosho*, *LimeTorrents*, *TorrentDownload*).
-- Auto-configures qBittorrent download clients with movie & TV category separation.
-- Automatically applies Plex / Jellyfin standardized file and folder naming formats.
+At the center of the ecosystem is **Null-seerr**, an extended fork of [Overseerr](https://github.com/sct/overseerr) and [Jellyseerr](https://github.com/Fallenbagel/jellyseerr), serving as the unified portal for discovery, requests, real-time download monitoring, retention policies, and direct web streaming.
 
 ---
 
-## ⚡ Quick Start
+## Fork & Upstream Attribution
 
-### 1. Interactive 1-Click Setup (Windows)
-Double-click [`setup.bat`](file:///setup.bat) or run from PowerShell:
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/install.ps1
-```
-
-### 2. Manual Launch via Docker Compose
-```powershell
-# 1. Build Null-seerr image
-docker build -t null-seerr:latest .
-
-# 2. Launch stack
-docker compose -f C:\arr-stack\docker-compose.yml up -d
-
-# 3. Auto-wire stack
-python C:\arr-stack\wire_stack.py
-```
-
-Open your browser at **[http://localhost:5055](http://localhost:5055)** to access Null-seerr!
+- **Null-seerr Portal**: An extended fork of [Overseerr](https://github.com/sct/overseerr) and [Jellyseerr](https://github.com/Fallenbagel/jellyseerr), enhanced with direct multi-server library scanning, real-time torrent queue progress, per-item retention management, and unified stack controls.
+- **Ecosystem Backends**: Pre-integrated with upstream community projects including [Radarr](https://radarr.video/), [Sonarr](https://sonarr.tv/), [Prowlarr](https://prowlarr.com/), [qBittorrent](https://www.qbittorrent.org/), [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), [Jellyfin](https://jellyfin.org/), [Plex](https://www.plex.tv/), [Bazarr](https://www.bazarr.media/), [Shoko Server](https://shokoanime.com/), [Suggestarr](https://github.com/ciuse99/Suggestarr), and [Tdarr](https://tdarr.io/).
 
 ---
 
-## 🌐 Default Port & Service Directory
+## What null-arr-stack Automates for You
 
-| Service | Local URL | Port | Role |
-| :--- | :--- | :--- | :--- |
-| **Null-seerr** | [http://localhost:5055](http://localhost:5055) | `5055` | Unified Portal, Discover, Requests & Player |
-| **Radarr** | [http://localhost:7878](http://localhost:7878) | `7878` | Movies Automation |
-| **Sonarr** | [http://localhost:8989](http://localhost:8989) | `8989` | TV Series Automation |
-| **Prowlarr** | [http://localhost:9696](http://localhost:9696) | `9696` | Indexer Sync & Aggregation |
-| **qBittorrent** | [http://localhost:8089](http://localhost:8089) | `8080` | Torrent Download Client |
+| Component | Automated Functionality |
+| :--- | :--- |
+| **Autonomous Wiring Engine** | Extracts API keys and links Prowlarr, Radarr, Sonarr, qBittorrent, Bazarr, Jellyfin, and Plex automatically on boot. |
+| **Instant 0-Second Boot** | Ships with pre-seeded configuration bundles to bypass setup wizards across every application. |
+| **11 Seeded Public Indexers** | Pre-configures 1337x, YTS, The Pirate Bay, LimeTorrents, Torrent Downloads, TorrentDownload, TorrentProject2, Knaben, Nyaa.si, SubsPlease, and Tokyo Toshokan. |
+| **Cloudflare Bypass Integration** | Pre-links FlareSolverr as an automated proxy for Cloudflare-protected indexers. |
+| **High-Throughput Downloader** | qBittorrent configured with 1024 MB RAM disk write buffer, 1500 max connections, and automatic category routing (`movies`, `tv`). |
+| **Swarm-Priority Quality Profiles** | Custom unified 1080p profiles that prioritize torrents with maximum active seeders and peers. |
+| **Dual Subtitle Automation** | Bazarr pre-configured with dual English and Spanish profiles (`cutoff = 2`) and free public providers. |
+| **Standardized File Naming** | Automatic Plex and Jellyfin media folder and file naming conventions applied across Radarr and Sonarr. |
+| **Dual Media Server Provisioning** | Automatically creates Movies (`/data/media/movies`), TV Shows (`/data/media/tv`), and Anime (`/data/media/anime`) libraries in both Jellyfin and Plex. |
+| **Unified Single Sign-On / Admin** | Provisions a unified administrator login across all services with local address bypass. |
+
+---
+
+## Quick Start Guide
+
+### 1-Click Bootstrap on Windows (Recommended)
+1. Verify that Docker Desktop is installed and running.
+2. Double-click `setup.bat` in the repository root (or run `powershell -ExecutionPolicy Bypass -File scripts/setup.ps1`).
+3. The installer will:
+   - Scan attached storage drives and select the disk with the largest free capacity.
+   - Provision directory structures and copy pre-seeded templates.
+   - Start the containers and execute the automated in-container wiring engine.
+   - Open **http://localhost:5055** with administrative credentials displayed.
+
+### Docker Compose CLI (Linux / macOS / Windows)
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Zorthon28/Null-seerr.git
+   cd Null-seerr
+   ```
+2. Start the stack:
+   ```bash
+   docker compose up -d
+   ```
+   The embedded `nullseerr-init` container will automatically wire all APIs and output access credentials to `CREDENTIALS.txt`.
+
+---
+
+## Service Port Directory
+
+| Service | Local Host URL | Port | Role in Stack |
+| :--- | :--- | :---: | :--- |
+| **Null-seerr** | [http://localhost:5055](http://localhost:5055) | `5055` | Unified Portal, Media Discovery, Requests & Player |
+| **Jellyfin** | [http://localhost:8096](http://localhost:8096) | `8096` | Open-Source Media Streaming Server |
+| **Plex Media Server** | [http://localhost:32400/web](http://localhost:32400/web) | `32400` | Plex Media Server Interface |
+| **Radarr** | [http://localhost:7878](http://localhost:7878) | `7878` | Movies Management & Automation |
+| **Sonarr** | [http://localhost:8989](http://localhost:8989) | `8989` | TV Series & Anime Automation |
+| **Prowlarr** | [http://localhost:9696](http://localhost:9696) | `9696` | Torrent Indexer Aggregator & Sync |
+| **qBittorrent** | [http://localhost:8089](http://localhost:8089) | `8089` | Tuned High-Speed Download Client |
+| **Bazarr** | [http://localhost:6767](http://localhost:6767) | `6767` | Dual Subtitle Automation (EN / ES) |
+| **Shoko Server** | [http://localhost:8111](http://localhost:8111) | `8111` | Anime Metadata & Import Organizer |
 | **FlareSolverr** | [http://localhost:8191](http://localhost:8191) | `8191` | Cloudflare Bypass Proxy |
-| **Plex** | [http://localhost:32400/web](http://localhost:32400/web) | `32400` | Media Streaming Server |
-| **Jellyfin** | [http://localhost:8096](http://localhost:8096) | `8096` | Open Source Media Streaming |
-| **Bazarr** | [http://localhost:6767](http://localhost:6767) | `6767` | Subtitles Automation |
-| **Suggestarr** | [http://localhost:4455](http://localhost:4455) | `5000` | AI Movie & TV Recommendations |
-| **Shoko** | [http://localhost:8111](http://localhost:8111) | `8111` | Dedicated Anime Catalog |
-| **Tdarr** | [http://localhost:8265](http://localhost:8265) | `8265` | Video Transcoder & Optimizer |
+| **Suggestarr** | [http://localhost:4455](http://localhost:4455) | `4455` | AI Recommendations Engine |
+| **Tdarr** | [http://localhost:8265](http://localhost:8265) | `8265` | Video & Audio Codec Transcoder |
 
 ---
 
-## 📖 Documentation
+## Technical Documentation
 
-For detailed installation guides, cURL/REST API cheatsheets, and backup instructions, see **[STARTUP_GUIDE.md](./STARTUP_GUIDE.md)**.
-
----
-
-## 🛠 Contributing & Development
-
-Contributions are welcome! Please review our [Contribution Guide](./CONTRIBUTING.md) and submit pull requests following our [PR Template](.github/PULL_REQUEST_TEMPLATE.md).
-
-```bash
-# Clone the repository
-git clone https://github.com/Zorthon28/Null-seerr.git
-cd Null-seerr
-
-# Install dependencies
-pnpm install
-
-# Run development server
-pnpm dev
-```
-
----
-
-## 📄 License
-This project is licensed under the [MIT License](./LICENSE).
+For detailed technical specifications, architecture diagrams, volume mounts, and network access configuration, refer to **[STARTUP_GUIDE.md](./STARTUP_GUIDE.md)**.
