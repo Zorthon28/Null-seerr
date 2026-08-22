@@ -45,6 +45,35 @@ At the center of the ecosystem is **Null-seerr**, an extended fork of [Overseerr
 
 ---
 
+## System Prerequisites & Requirements
+
+### Required Software
+1. **Docker Engine & Docker Compose**:
+   - **Windows & macOS**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (ensure Docker Desktop is launched and running).
+   - **Linux**: Install [Docker Engine](https://docs.docker.com/engine/install/) and the [Docker Compose plugin](https://docs.docker.com/compose/install/) (`docker compose version` >= 2.20).
+2. **Windows Subsystem for Linux (WSL2)** *(Windows users only)*:
+   - Docker Desktop on Windows utilizes the WSL2 backend.
+   - If not already installed, open PowerShell as Administrator and run: `wsl --install`.
+3. **Hardware Virtualization (VT-x / AMD-V)**:
+   - Must be enabled in your computer's motherboard BIOS / UEFI settings (standard requirement for Docker Desktop and WSL2).
+4. **Git** *(Optional)*:
+   - Used to clone and update the repository (`git clone https://github.com/Zorthon28/Null-seerr.git`), or download the project as a ZIP archive.
+
+### Hardware Specifications
+- **Operating System**: Windows 10/11 (64-bit), Linux (Ubuntu, Debian, Fedora, Arch), or macOS (Apple Silicon / Intel).
+- **RAM**: Minimum **8 GB RAM** (16 GB recommended for concurrent video transcoding).
+- **Storage**: Minimum **50–100 GB** free space on your target storage drive.
+- **CPU**: 64-bit x86_64 or ARM64 processor.
+
+### What You DO NOT Need on Your Host Machine
+To maintain a clean, zero-dependency environment, the entire ecosystem is containerized:
+- **No Java installation required**: Shoko Server, Tdarr, Radarr, and Sonarr run within self-contained container runtimes.
+- **No Python or pip required**: The autonomous setup and wiring engine executes inside an ephemeral Docker container.
+- **No Node.js, npm, or pnpm required**: Null-seerr is fully compiled and packaged inside its container.
+- **No database installation required**: SQLite state databases are automatically scaffolded and managed.
+
+---
+
 ## Quick Start Guide
 
 ### 1-Click Bootstrap on Windows (Recommended)
