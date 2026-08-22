@@ -833,7 +833,7 @@ def seed_prowlarr_indexers(prowlarr_key, flare_tag_id=1):
             log("Synchronized all indexers to Radarr and Sonarr", "+")
 
 def configure_media_naming(radarr_key, sonarr_key):
-    """Sets standard Plex / Jellyfin naming conventions in Radarr and Sonarr"""
+    """Sets standard Plex / Jellyfin naming conventions & auto-unmonitor on delete in Radarr and Sonarr"""
     if radarr_key:
         url = f"{get_url('radarr')}/api/v3/config/naming"
         headers = {"X-Api-Key": radarr_key}
@@ -847,6 +847,14 @@ def configure_media_naming(radarr_key, sonarr_key):
             put_st, _ = http_request(url, method="PUT", data=current, headers=headers)
             if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Radarr", "OK")
+
+        # Configure Auto-Unmonitor on deletion & Delete Empty Folders
+        mm_url = f"{get_url('radarr')}/api/v3/config/mediamanagement"
+        m_st, mm_curr = http_request(mm_url, headers=headers)
+        if m_st == 200 and isinstance(mm_curr, dict):
+            mm_curr["autoUnmonitorPreviouslyDownloadedMovies"] = True
+            mm_curr["deleteEmptyFolders"] = True
+            http_request(mm_url, method="PUT", data=mm_curr, headers=headers)
 
     if sonarr_key:
         url = f"{get_url('sonarr')}/api/v3/config/naming/1"
@@ -863,6 +871,14 @@ def configure_media_naming(radarr_key, sonarr_key):
             put_st, _ = http_request(url, method="PUT", data=current, headers=headers)
             if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Sonarr", "OK")
+
+        # Configure Auto-Unmonitor on deletion & Delete Empty Folders
+        mm_url = f"{get_url('sonarr')}/api/v3/config/mediamanagement"
+        m_st, mm_curr = http_request(mm_url, headers=headers)
+        if m_st == 200 and isinstance(mm_curr, dict):
+            mm_curr["autoUnmonitorPreviouslyDownloadedEpisodes"] = True
+            mm_curr["deleteEmptyFolders"] = True
+            http_request(mm_url, method="PUT", data=mm_curr, headers=headers)
 
 def configure_root_folders(radarr_key, sonarr_key):
     """Registers standard media root folders in Radarr and Sonarr"""
