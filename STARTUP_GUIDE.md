@@ -36,16 +36,33 @@ graph TD
 
 The fastest way to install and configure everything from scratch:
 
-1. **Run Setup**: Double-click [`setup.bat`](file:///c:/Users/zorthon28/Documents/GitHub/Null-seerr/setup.bat) (or run `powershell -File scripts/install.ps1`).
+1. **Run Setup**: Double-click [`setup.bat`](file:///setup.bat) (or run `powershell -File scripts/install.ps1`).
 2. The setup wizard automatically:
    - Verifies Docker Desktop and Python 3.
    - Configures your `.env` and directory paths.
    - Starts all containers via Docker Compose.
+   - **Bypasses the `/setup` onboarding wizard** and provisions the local admin account.
    - Auto-wires Prowlarr, Radarr, Sonarr, and qBittorrent.
    - Auto-seeds public indexers (**YTS**, **Nyaa.si**, **The Pirate Bay**, **AnimeTosho**, etc.).
    - Applies standard Plex / Jellyfin naming formats.
    - Runs the Box Office autopilot hit sync.
    - Opens the Null-seerr web UI in your default browser.
+
+---
+
+## 🔑 Dynamic Stack Credentials
+
+During installation, a secure, temporary 16-character password is automatically generated for the unified `admin` user across the stack and displayed in the terminal output:
+
+| Service | Username / Account | Password | Note |
+| :--- | :--- | :--- | :--- |
+| **Null-seerr** | `admin` *(or `admin@nullseerr.local`)* | *Generated Temp Password* | Full Admin Privileges |
+| **qBittorrent** | `admin` | *Generated Temp Password* | WebUI Access |
+| **Plex** | *Plex Account* | *Plex Password* | Claim via Plex Web |
+| **Jellyfin** | *Initial Wizard* | *Custom* | First-run local admin |
+
+> [!TIP]
+> Your active stack credentials are saved securely in [`C:\arr-stack\CREDENTIALS.txt`](file:///C:/arr-stack/CREDENTIALS.txt).
 
 ---
 
@@ -111,7 +128,7 @@ python boxarr.py
 
 | Service | Local URL | Container Port | Purpose | Default Credentials / Note |
 | :--- | :--- | :--- | :--- | :--- |
-| **Null-seerr** | [http://localhost:5055](http://localhost:5055) | `5055` | Unified Portal, Requests, Stream | Primary UI |
+| **Null-seerr** | [http://localhost:5055](http://localhost:5055) | `5055` | Unified Portal, Requests, Stream | `admin` / `admin1234` |
 | **Radarr** | [http://localhost:7878](http://localhost:7878) | `7878` | Movie Management | API in `config/radarr/config.xml` |
 | **Sonarr** | [http://localhost:8989](http://localhost:8989) | `8989` | TV Series Management | API in `config/sonarr/config.xml` |
 | **Prowlarr** | [http://localhost:9696](http://localhost:9696) | `9696` | Indexer Sync & Torrent Aggregation | API in `config/prowlarr/config.xml` |

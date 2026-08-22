@@ -788,8 +788,13 @@ authRoutes.post('/local', async (req, res, next) => {
   try {
     const user = await userRepository
       .createQueryBuilder('user')
-      .select(['user.id', 'user.email', 'user.password', 'user.plexId'])
-      .where('user.email = :email', { email: body.email.toLowerCase() })
+      .addSelect('user.password')
+      .where('user.email = :identifier', {
+        identifier: body.email.toLowerCase(),
+      })
+      .orWhere('user.username = :identifier', {
+        identifier: body.email.toLowerCase(),
+      })
       .getOne();
 
     if (!user || !(await user.passwordMatch(body.password))) {
