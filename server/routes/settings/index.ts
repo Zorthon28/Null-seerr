@@ -668,7 +668,53 @@ settingsRoutes.get('/jobs', (_req, res) => {
   );
 });
 
-settingsRoutes.post<{ jobId: string }>('/jobs/:jobId/run', (req, res, next) => {
+settingsRoutes.post<{ jobId: string }>('/jobs/:jobId/run', async (req, res, next) => {
+  if (req.params.jobId === 'scan-all') {
+    const settings = getSettings();
+    logger.info('Starting manual library scans for Jellyfin, Plex, Radarr, and Sonarr...', {
+      label: 'Jobs',
+    });
+
+    // 1. Tell Jellyfin directly to refresh its filesystem libraries
+    if (settings.jellyfin?.apiKey) {
+      try {
+        const jfUrl = `${settings.jellyfin.useSsl ? 'https' : 'http'}://${settings.jellyfin.ip}:${settings.jellyfin.port}/Library/Refresh`;
+        const axios = (await import('axios')).default;
+        await axios.post(jfUrl, null, {
+          headers: { 'X-Emby-Token': settings.jellyfin.apiKey },
+          timeout: 5000,
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. Invoke all existing scanner jobs
+    const scanJobIds = [
+      'jellyfin-recently-added-scan',
+      'plex-recently-added-scan',
+      'radarr-scan',
+      'sonarr-scan',
+      'media-availability-sync',
+    ];
+
+    for (const jid of scanJobIds) {
+      const sj = scheduledJobs.find((j) => j.id === jid);
+      if (sj) {
+        sj.job.invoke();
+      }
+    }
+
+    return res.status(200).json({
+      id: 'scan-all',
+      name: 'All Media Library Scans',
+      type: 'process',
+      interval: 'minutes',
+      cronSchedule: '',
+      running: true,
+    });
+  }
+
   const scheduledJob = scheduledJobs.find((job) => job.id === req.params.jobId);
 
   if (!scheduledJob) {

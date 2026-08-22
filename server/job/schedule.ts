@@ -31,10 +31,18 @@ interface ScheduledJob {
 export const scheduledJobs: ScheduledJob[] = [];
 
 export const startJobs = (): void => {
-  const jobs = getSettings().jobs;
-  const mediaServerType = getSettings().main.mediaServerType;
+  const settings = getSettings();
+  const jobs = settings.jobs;
+  const mediaServerType = settings.main.mediaServerType;
+  const isPlexEnabled =
+    mediaServerType === MediaServerType.PLEX ||
+    Boolean(settings.plex?.ip && settings.plex?.name);
+  const isJellyfinEnabled =
+    mediaServerType === MediaServerType.JELLYFIN ||
+    mediaServerType === MediaServerType.EMBY ||
+    Boolean(settings.jellyfin?.apiKey);
 
-  if (mediaServerType === MediaServerType.PLEX) {
+  if (isPlexEnabled) {
     // Run recently added plex scan every 5 minutes
     scheduledJobs.push({
       id: 'plex-recently-added-scan',
@@ -105,10 +113,9 @@ export const startJobs = (): void => {
         });
       }),
     });
-  } else if (
-    mediaServerType === MediaServerType.JELLYFIN ||
-    mediaServerType === MediaServerType.EMBY
-  ) {
+  }
+
+  if (isJellyfinEnabled) {
     // Run recently added jellyfin sync every 5 minutes
     scheduledJobs.push({
       id: 'jellyfin-recently-added-scan',

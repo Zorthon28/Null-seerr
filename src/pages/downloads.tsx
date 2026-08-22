@@ -237,7 +237,7 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                 {isDownloaded ? (
                   <>
                     <CheckCircleIcon className="w-4 h-4 shrink-0 text-emerald-400" />
-                    Downloaded on disk! Click "Scan Now" in the top right to force Plex to scan and import it.
+                    Downloaded on disk! Click "Scan Library" in the top right to import into Jellyfin & Plex.
                   </>
                 ) : (
                   <>
@@ -359,12 +359,23 @@ const DownloadsPage: NextPage = () => {
     setIsScanning(true);
     setScanMessage('');
     try {
-      const res = await fetch('/api/v1/media/scan-now', { method: 'POST' });
-      const body = await res.json();
-      setScanMessage(res.status === 429 ? '⏳ Scan triggered recently, please wait.' : '✅ Plex scan started!');
+      // Trigger all active media server and DVR scanner jobs
+      const jobsToTrigger = [
+        'jellyfin-recently-added-scan',
+        'plex-recently-added-scan',
+        'radarr-scan',
+        'sonarr-scan',
+        'availability-sync',
+      ];
+      await Promise.allSettled(
+        jobsToTrigger.map((jobId) =>
+          fetch(`/api/v1/settings/jobs/${jobId}/run`, { method: 'POST' })
+        )
+      );
+      setScanMessage('✅ Library scan started (Jellyfin & Plex)!');
       // Re-fetch after scan has had time to run
-      setTimeout(() => mutate(), 5000);
-      setTimeout(() => mutate(), 12000);
+      setTimeout(() => mutate(), 4000);
+      setTimeout(() => mutate(), 10000);
     } catch {
       setScanMessage('❌ Failed to trigger scan.');
     } finally {
@@ -459,7 +470,7 @@ const DownloadsPage: NextPage = () => {
             onClick={handleScanNow}
             disabled={isScanning}
             className="flex items-center gap-1.5 bg-indigo-700/80 text-white border border-indigo-600/60 rounded-xl px-4 py-2 hover:bg-indigo-600 transition duration-200 disabled:opacity-50"
-            title="Force a Plex recently-added scan and Seerr availability sync"
+            title="Force Jellyfin & Plex library scans, and synchronize media availability"
           >
             <ServerIcon className={`w-4 h-4 ${isScanning ? 'animate-pulse' : ''}`} />
             <span>{isScanning ? 'Scanning...' : 'Scan Library'}</span>

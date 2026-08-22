@@ -7233,6 +7233,17 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/MediaInfo'
+  /media/scan-now:
+    post:
+      summary: Manually trigger library scans
+      description: Triggers immediate library scans for Jellyfin and Plex servers.
+      tags:
+        - media
+      responses:
+        '200':
+          description: Scan started
+        '429':
+          description: Rate limited
   /media/{mediaId}:
     delete:
       summary: Delete media item

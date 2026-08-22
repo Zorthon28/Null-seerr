@@ -26,6 +26,9 @@ import { getHostname } from '@server/utils/getHostname';
 import NodeCache from 'node-cache';
 import { uniqWith } from 'lodash';
 import { plexRecentScanner } from '@server/lib/scanners/plex';
+import { jellyfinRecentScanner } from '@server/lib/scanners/jellyfin';
+import { radarrScanner } from '@server/lib/scanners/radarr';
+import { sonarrScanner } from '@server/lib/scanners/sonarr';
 import availabilitySync from '@server/lib/availabilitySync';
 
 const mappingCache = new NodeCache({ stdTTL: 300 }); // 5 minutes TTL
@@ -637,30 +640,63 @@ mediaRoutes.get('/queue', async (req, res, next) => {
   }
 });
 
-// POST /api/v1/media/scan-now — manually trigger Plex recently-added scan + availability sync
+// POST /api/v1/media/scan-now — manually trigger Jellyfin, Plex, Radarr, Sonarr scans + availability sync
 mediaRoutes.post(
   '/scan-now',
   isAuthenticated(Permission.ADMIN),
   async (_req, res, next) => {
     try {
       const now = Date.now();
-      const cooldownMs = 15_000;
+      const cooldownMs = 10_000;
       if (now - lastScanTriggeredAt < cooldownMs) {
         return res.status(429).json({ message: 'Scan already triggered recently. Please wait a moment.' });
       }
       lastScanTriggeredAt = now;
 
-      logger.info('[Scan Now] Manual scan triggered from Downloads page.');
-      setImmediate(() => {
+      const settings = getSettings();
+      logger.info('[Scan Now] Manual scan triggered from Downloads page (updating Jellyfin, Plex, Radarr, and Sonarr).');
+
+      setImmediate(async () => {
+        // 1. Tell Jellyfin server directly to refresh libraries
+        if (settings.jellyfin?.apiKey) {
+          try {
+            const jfUrl = `${settings.jellyfin.useSsl ? 'https' : 'http'}://${settings.jellyfin.ip}:${settings.jellyfin.port}/Library/Refresh`;
+            const axios = (await import('axios')).default;
+            await axios.post(jfUrl, null, {
+              headers: { 'X-Emby-Token': settings.jellyfin.apiKey },
+              timeout: 5000,
+            });
+            logger.info('[Scan Now] Successfully triggered Jellyfin server library refresh.');
+          } catch (e: any) {
+            logger.debug('[Scan Now] Jellyfin refresh notice:', { error: e.message });
+          }
+        }
+
+        // 2. Run Jellyfin scanner
+        jellyfinRecentScanner.run().catch((e: Error) =>
+          logger.warn('[Scan Now] Jellyfin scan failed:', { error: e.message })
+        );
+
+        // 3. Run Plex scanner
         plexRecentScanner.run().catch((e: Error) =>
           logger.warn('[Scan Now] Plex scan failed:', { error: e.message })
         );
+
+        // 4. Run Radarr / Sonarr scanners
+        radarrScanner.run().catch((e: Error) =>
+          logger.warn('[Scan Now] Radarr scan failed:', { error: e.message })
+        );
+        sonarrScanner.run().catch((e: Error) =>
+          logger.warn('[Scan Now] Sonarr scan failed:', { error: e.message })
+        );
+
+        // 5. Run Availability Sync
         availabilitySync.run().catch((e: Error) =>
           logger.warn('[Scan Now] Availability sync failed:', { error: e.message })
         );
       });
 
-      return res.status(200).json({ message: 'Plex library scan started.' });
+      return res.status(200).json({ message: 'Media library scans started for Jellyfin and Plex.' });
     } catch (e) {
       next({ status: 500, message: e.message });
     }
