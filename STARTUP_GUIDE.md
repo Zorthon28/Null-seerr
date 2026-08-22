@@ -1,6 +1,6 @@
-# Null-seerr Media Stack: Architecture, Installation & Operations Guide
+# null-arr-stack: Architecture, Installation & Operations Guide
 
-This guide provides a comprehensive technical reference for deploying, configuring, and maintaining the Null-seerr All-In-One Media Stack.
+This guide provides a comprehensive technical reference for deploying, configuring, and maintaining the null-arr-stack all-in-one media ecosystem.
 
 ---
 
