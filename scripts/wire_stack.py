@@ -374,20 +374,33 @@ def configure_plex():
         return None
 
 def auto_initialize_shoko(admin_user, admin_password):
-    """Automatically completes Shoko Server first time setup and starts the engine"""
-    base = f"{SERVICES['shoko']['url']}/api/v3/Init"
+    """Automatically completes Shoko Server first time setup, starts engine, and registers anime import folder"""
+    base = SERVICES['shoko']['url']
     try:
-        st, status = http_request(f"{base}/Status")
+        st, status = http_request(f"{base}/api/v3/Init/Status")
         if st == 200 and isinstance(status, dict):
-            if status.get("State") in ("Starting", "Started", "Running"):
+            if status.get("State") not in ("Starting", "Started", "Running"):
+                http_request(f"{base}/api/v3/Init/DefaultUser", method="POST", data={"Username": admin_user, "Password": admin_password, "IsAdmin": True})
+                http_request(f"{base}/api/v3/Init/StartServer", method="GET")
+                log("Shoko Server default admin provisioned and engine started", "+")
+            else:
                 log("Shoko Server engine is active", "OK")
-                return
 
-            # Set default user
-            http_request(f"{base}/DefaultUser", method="POST", data={"Username": admin_user, "Password": admin_password, "IsAdmin": True})
-            # Start engine
-            http_request(f"{base}/StartServer", method="GET")
-            log("Shoko Server default admin provisioned and engine started", "+")
+        # Authenticate and provision anime import folder
+        auth_data = json.dumps({"user": admin_user, "pass": admin_password, "device": "cli", "remember": True}).encode("utf-8")
+        a_st, a_res = http_request(f"{base}/api/auth", method="POST", data=auth_data, headers={"Content-Type": "application/json"})
+        if a_st == 200 and isinstance(a_res, dict):
+            token = a_res.get("apikey")
+            if token:
+                headers = {"apikey": token, "Content-Type": "application/json", "Accept": "application/json"}
+                f_st, folders = http_request(f"{base}/api/v3/ImportFolder", headers=headers)
+                if f_st == 200 and isinstance(folders, list):
+                    if not any(f.get("Path") == "/data/media/anime" for f in folders):
+                        add_data = {"Path": "/data/media/anime", "Name": "Anime Library", "DropFolderType": "Both", "WatchForNewFiles": True}
+                        http_request(f"{base}/api/v3/ImportFolder", method="POST", data=add_data, headers=headers)
+                        log("Created Shoko Import Folder: /data/media/anime", "+")
+                    else:
+                        log("Shoko Import Folder active: /data/media/anime", "OK")
     except Exception as e:
         log(f"Could not auto-initialize Shoko: {e}", "!")
 
