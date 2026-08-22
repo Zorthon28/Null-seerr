@@ -1,0 +1,142 @@
+{
+ "clientId": "23144fc2-a052-4c72-a7f0-47a2d7a84107",
+ "sessionSecret": "c02a657530073ce381220ab4f2a0f60a39afe163fa501443893137ff98f1079e",
+ "main": {
+  "apiKey": "MTc4NzM0MjgzMDc3NGJmNTg5MzFkLTk3YzUtNGJhMS1hZjc2LWYwOTc1YjA3M2VhYQ==",
+  "applicationTitle": "Null-seerr",
+  "applicationUrl": "",
+  "cacheImages": false,
+  "defaultPermissions": 32,
+  "defaultQuotas": {
+   "movie": {},
+   "tv": {}
+  },
+  "hideAvailable": false,
+  "hideBlocklisted": false,
+  "localLogin": true,
+  "mediaServerLogin": true,
+  "newPlexLogin": true,
+  "discoverRegion": "",
+  "streamingRegion": "",
+  "originalLanguage": "",
+  "blocklistRegion": "",
+  "blocklistLanguage": "",
+  "blocklistedTags": "",
+  "blocklistedTagsLimit": 50,
+  "mediaServerType": 2,
+  "partialRequestsEnabled": true,
+  "enableSpecialEpisodes": false,
+  "locale": "en",
+  "youtubeUrl": "",
+  "versionCheck": true,
+  "downloadNotifications": true
+ },
+ "plex": {
+  "name": "Plex",
+  "ip": "plex",
+  "port": 32400,
+  "useSsl": false,
+  "libraries": [
+   {
+    "id": "1",
+    "name": "Movies",
+    "type": "movie",
+    "enabled": true
+   },
+   {
+    "id": "2",
+    "name": "TV Shows",
+    "type": "show",
+    "enabled": true
+   },
+   {
+    "id": "3",
+    "name": "Anime",
+    "type": "show",
+    "enabled": true
+   }
+  ]
+ },
+ "jellyfin": {
+  "name": "Jellyfin",
+  "ip": "jellyfin",
+  "port": 8096,
+  "useSsl": false,
+  "urlBase": "",
+  "externalHostname": "http://localhost:8096",
+  "jellyfinForgotPasswordUrl": "",
+  "libraries": [
+   {
+    "id": "f137a2dd21bbc1b99aa5c0f6bf02a805",
+    "name": "Movies",
+    "enabled": true
+   },
+   {
+    "id": "767bffe4f11c93ef34b805451a696a4e",
+    "name": "TV Shows",
+    "enabled": true
+   },
+   {
+    "id": "0c41907140d802bb58430fed7e2cd79e",
+    "name": "Anime",
+    "enabled": true
+   }
+  ],
+  "serverId": "06ce0691d6754d918b76b3b70c3d9e4e",
+  "apiKey": "91bd45a0fe674ec3a8496b030195d03b",
+  "userId": "0238e8a3673b4a0caf1879b53748c895"
+ },
+ "tautulli": {},
+ "metadataSettings": {
+  "tv": "tmdb",
+  "anime": "tmdb"
+ },
+ "radarr": [
+  {
+   "name": "Radarr",
+   "hostname": "radarr",
+   "port": 7878,
+   "apiKey": "c51db4e7cdd948b4bb7fd112082e7db8",
+   "useSsl": false,
+   "baseUrl": "",
+   "activeProfileId": 4,
+   "activeProfileName": "HD-1080p",
+   "activeDirectory": "/data/media/movies",
+   "is4k": false,
+   "minimumAvailability": "released",
+   "tags": [],
+   "isDefault": true,
+   "syncEnabled": true,
+   "preventSearch": false,
+   "tagRequests": false,
+   "id": 0
+  }
+ ],
+ "sonarr": [
+  {
+   "name": "Sonarr",
+   "hostname": "sonarr",
+   "port": 8989,
+   "apiKey": "9c2a3a1c0f924ad1a690d5da5bac2665",
+   "useSsl": false,
+   "baseUrl": "",
+   "activeProfileId": 4,
+   "activeLanguageProfileId": 1,
+   "activeProfileName": "HD-1080p",
+   "activeDirectory": "/data/media/tv",
+   "seriesType": "standard",
+   "tags": [],
+   "animeTags": [],
+   "is4k": false,
+   "isDefault": true,
+   "enableSeasonFolders": true,
+   "syncEnabled": true,
+   "preventSearch": false,
+   "tagRequests": false,
+   "id": 0
+  }
+ ],
+ "public": {
+  "initialized": true
+ }
+}

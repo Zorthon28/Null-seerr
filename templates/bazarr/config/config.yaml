@@ -1,0 +1,55 @@
+---
+auth:
+  apikey: da287fbb7aac9e9341cb93353d1656e9
+  password: ''
+  type: null
+  username: ''
+general:
+  adaptive_searching: true
+  auto_update: true
+  base_url: ''
+  branch: master
+  enabled_providers:
+  - bsplayer
+  - subtitulamostv
+  - yifysubtitles
+  - supersubtitles
+  - animetosho
+  - subf2m
+  - embeddedsubtitles
+  minimum_score: 60
+  minimum_score_movie: 60
+  movie_default_enabled: true
+  movie_default_profile: 1
+  multithreading: true
+  page_size: 25
+  port: 6767
+  serie_default_enabled: true
+  serie_default_profile: 1
+  single_language: false
+  subfolder: current
+  use_embedded_subs: true
+  use_jellyfin: true
+  use_plex: true
+  use_radarr: true
+  use_sonarr: true
+  utf8_encode: true
+  wanted_search_frequency: 6
+  wanted_search_frequency_movie: 6
+jellyfin:
+  apikey: 91bd45a0fe674ec3a8496b030195d03b
+  update_movie_library: true
+  update_series_library: true
+  url: http://jellyfin:8096
+radarr:
+  apikey: c51db4e7cdd948b4bb7fd112082e7db8
+  base_url: ''
+  ip: radarr
+  port: 7878
+  ssl: false
+sonarr:
+  apikey: 9c2a3a1c0f924ad1a690d5da5bac2665
+  base_url: ''
+  ip: sonarr
+  port: 8989
+  ssl: false
