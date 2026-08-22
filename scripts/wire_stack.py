@@ -288,6 +288,91 @@ def auto_initialize_jellyfin(admin_user, admin_password):
         log(f"Could not auto-initialize Jellyfin: {e}", "!")
         return None
 
+def configure_plex():
+    """Configures Plex library sections for Movies (/data/media/movies), TV Shows (/data/media/tv), and Anime (/data/media/anime)"""
+    pref_path = os.path.join(ARR_DIR, "config", "plex", "Library", "Application Support", "Plex Media Server", "Preferences.xml")
+    if not os.path.exists(pref_path):
+        return None
+
+    try:
+        tree = ET.parse(pref_path)
+        token = tree.getroot().get("PlexOnlineToken")
+        if not token:
+            return None
+
+        base = SERVICES["plex"]["url"]
+        st, sec_res = http_request(f"{base}/library/sections?X-Plex-Token={token}", headers={"Accept": "application/json"})
+        existing_names = []
+        if st == 200 and isinstance(sec_res, dict):
+            for s in sec_res.get("MediaContainer", {}).get("Directory", []):
+                existing_names.append(s.get("title"))
+
+        libraries_to_create = [
+            {
+                "name": "Movies",
+                "type": "movie",
+                "agent": "tv.plex.agents.movie",
+                "scanner": "Plex Movie",
+                "location": "/data/media/movies",
+                "language": "en-US"
+            },
+            {
+                "name": "TV Shows",
+                "type": "show",
+                "agent": "tv.plex.agents.series",
+                "scanner": "Plex TV Series",
+                "location": "/data/media/tv",
+                "language": "en-US"
+            },
+            {
+                "name": "Anime",
+                "type": "show",
+                "agent": "tv.plex.agents.series",
+                "scanner": "Plex TV Series",
+                "location": "/data/media/anime",
+                "language": "en-US"
+            }
+        ]
+
+        for lib in libraries_to_create:
+            if lib["name"] not in existing_names:
+                params = urllib.parse.urlencode({
+                    "name": lib["name"],
+                    "type": lib["type"],
+                    "agent": lib["agent"],
+                    "scanner": lib["scanner"],
+                    "language": lib["language"],
+                    "location": lib["location"],
+                    "X-Plex-Token": token
+                })
+                create_url = f"{base}/library/sections?{params}"
+                c_st, _ = http_request(create_url, method="POST", headers={"Accept": "application/json"})
+                if c_st in (200, 201):
+                    log(f"Created Plex Library Section: {lib['name']} ({lib['location']})", "+")
+            else:
+                log(f"Plex Library Section active: {lib['name']} ({lib['location']})", "OK")
+
+        # Fetch updated sections and trigger scan
+        st2, sec_res2 = http_request(f"{base}/library/sections?X-Plex-Token={token}", headers={"Accept": "application/json"})
+        plex_sections = []
+        if st2 == 200 and isinstance(sec_res2, dict):
+            for s in sec_res2.get("MediaContainer", {}).get("Directory", []):
+                plex_sections.append({
+                    "id": str(s.get("key")),
+                    "name": s.get("title"),
+                    "type": s.get("type"),
+                    "enabled": True
+                })
+                http_request(f"{base}/library/sections/{s.get('key')}/refresh?X-Plex-Token={token}")
+
+        return {
+            "token": token,
+            "libraries": plex_sections
+        }
+    except Exception as e:
+        log(f"Error configuring Plex libraries: {e}", "!")
+        return None
+
 def auto_initialize_shoko(admin_user, admin_password):
     """Automatically completes Shoko Server first time setup and starts the engine"""
     base = f"{SERVICES['shoko']['url']}/api/v3/Init"
@@ -379,7 +464,7 @@ def http_request(url, method="GET", data=None, headers=None):
     except Exception as e:
         return 0, str(e)
 
-def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key, jellyfin_info=None):
+def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key, jellyfin_info=None, plex_info=None):
     """Automatically pre-configures Null-seerr, bypasses /setup onboarding, and provisions unified admin"""
     overseerr_dir = os.path.join(ARR_DIR, "config", "overseerr")
     settings_file = os.path.join(overseerr_dir, "settings.json")
@@ -410,6 +495,14 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                 settings["plex"]["ip"] = "plex"
                 settings["plex"]["name"] = "Plex"
                 settings["plex"]["port"] = 32400
+                updated = True
+
+            if plex_info and plex_info.get("libraries"):
+                settings["plex"] = settings.get("plex", {})
+                settings["plex"]["ip"] = "plex"
+                settings["plex"]["name"] = "Plex"
+                settings["plex"]["port"] = 32400
+                settings["plex"]["libraries"] = plex_info.get("libraries", [])
                 updated = True
 
             if jellyfin_info and jellyfin_info.get("apiKey"):
@@ -986,14 +1079,17 @@ def check_and_wire_all():
     # 3. Auto-Initialize Jellyfin Setup Wizard & Libraries
     jellyfin_info = auto_initialize_jellyfin(admin_user, admin_password)
 
-    # 4. Auto-Initialize Null-seerr
-    auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key, jellyfin_info)
+    # 4. Auto-Configure Plex Libraries
+    plex_info = configure_plex()
+
+    # 5. Auto-Initialize Null-seerr
+    auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_key, sonarr_key, jellyfin_info, plex_info)
     seerr_key = get_seerr_api_key(seerr_json)
 
-    # 5. Auto-Configure qBittorrent WebUI Host Validation & High Speed Limits
+    # 6. Auto-Configure qBittorrent WebUI Host Validation & High Speed Limits
     configure_qbittorrent_auth(admin_user, admin_password)
 
-    # 6. Auto-Initialize Shoko Server Engine
+    # 7. Auto-Initialize Shoko Server Engine
     auto_initialize_shoko(admin_user, admin_password)
 
     print("\nDiscovered API Keys:")
