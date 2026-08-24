@@ -54,9 +54,35 @@ graph TD
 
 ## 3. Installation Methods
 
-### Method A: Automated Bootstrap Installer (Windows)
+### Method A: Automated Bootstrap Installer (Linux / macOS)
 
-The automated installer detects available storage volumes, provisions the file hierarchy, generates `.env`, and launches the stack:
+The automated Linux installer auto-detects optimal filesystem storage, configures `PUID`/`PGID` ownership, provisions directory hierarchies with permissions, copies pre-seeded templates, and initializes the stack:
+
+1. Clone the repository to your system:
+   ```bash
+   git clone https://github.com/Zorthon28/Null-seerr.git
+   cd Null-seerr
+   ```
+2. Execute the bootstrap installer:
+   ```bash
+   chmod +x setup.sh
+   ./setup.sh
+   ```
+   *(Or run the interactive wizard via `bash scripts/install.sh`)*
+3. The installer will:
+   - Verify that Docker Engine and Docker Compose are responsive.
+   - Scan storage drives (`df -Pk`) and determine the optimal media path (`$HOME/arr-stack` or custom mount).
+   - Detect host user IDs (`PUID=$(id -u)` and `PGID=$(id -g)`).
+   - Provision directory structures with `775` permissions.
+   - Seed configuration templates from `templates/`.
+   - Generate `.env` with platform-specific paths and launch `docker compose up -d --build`.
+   - Execute `nullseerr-init` and print administrator credentials from `CREDENTIALS.txt`.
+
+---
+
+### Method B: Automated Bootstrap Installer (Windows)
+
+The automated Windows installer detects available storage drives, provisions the file hierarchy, generates `.env`, and launches the stack:
 
 1. Clone or download the repository to your system:
    ```powershell
@@ -79,7 +105,7 @@ The automated installer detects available storage volumes, provisions the file h
 
 ---
 
-### Method B: Manual Docker Compose Deployment (Linux / macOS / Windows CLI)
+### Method C: Manual Docker Compose Deployment (Linux / macOS / Windows CLI)
 
 If deploying on a headless Linux server or custom environment:
 
@@ -100,6 +126,8 @@ If deploying on a headless Linux server or custom environment:
    MEDIA_ROOT=/opt/arr-stack/data/media
    TV_DIR=/opt/arr-stack/data/media/tv
    TRANSCODE_CACHE=/opt/arr-stack/data/transcode_cache
+   PUID=1000
+   PGID=1000
    ```
 4. Build and start the services:
    ```bash
@@ -187,6 +215,17 @@ python scripts/wire_stack.py
 docker compose run --rm nullseerr-init
 ```
 
+### Stack Lifecycle Helpers
+
+Quick convenience scripts are available in the repository root for managing the stack:
+
+| Task | Linux / macOS | Windows |
+| :--- | :--- | :--- |
+| **Start Production Stack** | `./start-production.sh` | `.\start-production.ps1` |
+| **Stop Production Stack** | `./stop-production.sh` | `.\stop-production.ps1` |
+| **Start Development Stack** | `./start-development.sh` | `.\start-development.ps1` |
+| **Stop Development Stack** | `./stop-development.sh` | `.\stop-development.ps1` |
+
 ### Resetting Service State
 To perform a complete clean reset of configuration databases while preserving your downloaded media files:
 1. Stop all containers:
@@ -194,4 +233,4 @@ To perform a complete clean reset of configuration databases while preserving yo
    docker compose down
    ```
 2. Delete specific service configuration folders inside `config/` (e.g. `config/jellyfin` or `config/overseerr`).
-3. Re-run `setup.bat` or `docker compose up -d` to re-seed from templates.
+3. Re-run `./setup.sh` (Linux) or `setup.bat` (Windows) to re-seed from templates and re-initialize.

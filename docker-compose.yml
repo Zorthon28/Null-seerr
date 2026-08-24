@@ -10,8 +10,8 @@ services:
       - TZ=${TZ:-Etc/UTC}
       - WEBUI_PORT=8080
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/qbittorrent:/config
-      - ${DATA_ROOT:-C:/arr-stack/data}:/data
+      - ${CONFIG_ROOT:-./arr-stack/config}/qbittorrent:/config
+      - ${DATA_ROOT:-./arr-stack/data}:/data
     ports:
       - ${QBIT_WEBUI_PORT:-8089}:8080
       - ${QBIT_TORRENT_PORT:-6881}:6881
@@ -26,7 +26,7 @@ services:
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Etc/UTC}
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/prowlarr:/config
+      - ${CONFIG_ROOT:-./arr-stack/config}/prowlarr:/config
     ports:
       - ${PROWLARR_PORT:-9696}:9696
     restart: unless-stopped
@@ -49,8 +49,8 @@ services:
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Etc/UTC}
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/radarr:/config
-      - ${DATA_ROOT:-C:/arr-stack/data}:/data
+      - ${CONFIG_ROOT:-./arr-stack/config}/radarr:/config
+      - ${DATA_ROOT:-./arr-stack/data}:/data
     ports:
       - ${RADARR_PORT:-7878}:7878
     restart: unless-stopped
@@ -63,14 +63,17 @@ services:
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Etc/UTC}
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/sonarr:/config
-      - ${DATA_ROOT:-C:/arr-stack/data}:/data
+      - ${CONFIG_ROOT:-./arr-stack/config}/sonarr:/config
+      - ${DATA_ROOT:-./arr-stack/data}:/data
     ports:
       - ${SONARR_PORT:-8989}:8989
     restart: unless-stopped
 
   seerr:
     image: null-seerr:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: null-seerr
     init: true
     environment:
@@ -80,7 +83,7 @@ services:
     ports:
       - ${NULL_SEERR_PORT:-5055}:5055
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/overseerr:/app/config
+      - ${CONFIG_ROOT:-./arr-stack/config}/overseerr:/app/config
     restart: unless-stopped
 
   suggestarr:
@@ -89,7 +92,7 @@ services:
     environment:
       - TZ=${TZ:-Etc/UTC}
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/suggestarr:/app/config/config_files
+      - ${CONFIG_ROOT:-./arr-stack/config}/suggestarr:/app/config/config_files
     ports:
       - ${SUGGESTARR_PORT:-4455}:5000
     restart: unless-stopped
@@ -103,8 +106,8 @@ services:
       - TZ=${TZ:-Etc/UTC}
       - VERSION=docker
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/plex:/config
-      - ${MEDIA_ROOT:-C:/arr-stack/data/media}:/data/media
+      - ${CONFIG_ROOT:-./arr-stack/config}/plex:/config
+      - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
     ports:
       - ${PLEX_PORT:-32400}:32400
     restart: unless-stopped
@@ -117,8 +120,8 @@ services:
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Etc/UTC}
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/jellyfin:/config
-      - ${MEDIA_ROOT:-C:/arr-stack/data/media}:/data/media
+      - ${CONFIG_ROOT:-./arr-stack/config}/jellyfin:/config
+      - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
     ports:
       - ${JELLYFIN_PORT:-8096}:8096
     restart: unless-stopped
@@ -131,8 +134,8 @@ services:
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Etc/UTC}
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/bazarr:/config
-      - ${MEDIA_ROOT:-C:/arr-stack/data/media}:/data/media
+      - ${CONFIG_ROOT:-./arr-stack/config}/bazarr:/config
+      - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
     ports:
       - ${BAZARR_PORT:-6767}:6767
     restart: unless-stopped
@@ -145,8 +148,8 @@ services:
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Etc/UTC}
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/shoko:/home/shoko/.shoko
-      - ${TV_DIR:-C:/arr-stack/data/media/tv}:/data/media/anime
+      - ${CONFIG_ROOT:-./arr-stack/config}/shoko:/home/shoko/.shoko
+      - ${TV_DIR:-./arr-stack/data/media/tv}:/data/media/anime
     ports:
       - ${SHOKO_PORT:-8111}:8111
     restart: unless-stopped
@@ -162,11 +165,11 @@ services:
       - serverPort=8266
       - webUIPort=8265
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/tdarr/server:/app/server
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/tdarr/configs:/app/configs
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/tdarr/logs:/app/logs
-      - ${MEDIA_ROOT:-C:/arr-stack/data/media}:/data/media
-      - ${TRANSCODE_CACHE:-C:/arr-stack/data/transcode_cache}:/temp
+      - ${CONFIG_ROOT:-./arr-stack/config}/tdarr/server:/app/server
+      - ${CONFIG_ROOT:-./arr-stack/config}/tdarr/configs:/app/configs
+      - ${CONFIG_ROOT:-./arr-stack/config}/tdarr/logs:/app/logs
+      - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
+      - ${TRANSCODE_CACHE:-./arr-stack/data/transcode_cache}:/temp
     ports:
       - ${TDARR_WEB_PORT:-8265}:8265
       - ${TDARR_SERVER_PORT:-8266}:8266
@@ -183,10 +186,10 @@ services:
       - serverIP=tdarr
       - serverPort=8266
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/tdarr/configs:/app/configs
-      - ${CONFIG_ROOT:-C:/arr-stack/config}/tdarr/logs:/app/logs
-      - ${MEDIA_ROOT:-C:/arr-stack/data/media}:/data/media
-      - ${TRANSCODE_CACHE:-C:/arr-stack/data/transcode_cache}:/temp
+      - ${CONFIG_ROOT:-./arr-stack/config}/tdarr/configs:/app/configs
+      - ${CONFIG_ROOT:-./arr-stack/config}/tdarr/logs:/app/logs
+      - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
+      - ${TRANSCODE_CACHE:-./arr-stack/data/transcode_cache}:/temp
     restart: unless-stopped
 
   cloudflared:
@@ -211,14 +214,14 @@ services:
       - bazarr
       - shoko
     volumes:
-      - ${CONFIG_ROOT:-C:/arr-stack/config}:/config
-      - ${DATA_ROOT:-C:/arr-stack/data}:/data
+      - ${CONFIG_ROOT:-./arr-stack/config}:/config
+      - ${DATA_ROOT:-./arr-stack/data}:/data
       - ./scripts/wire_stack.py:/app/wire_stack.py:ro
       - ./templates:/templates:ro
     environment:
       - RUNNING_IN_DOCKER=true
       - STACK_ROOT=/app
     working_dir: /app
-    entrypoint: ["sh", "-c", "pip install pyyaml requests >/dev/null 2>&1 && python -u /app/wire_stack.py"]
+    entrypoint: ["sh", "-c", "pip install pyyaml requests bcrypt >/dev/null 2>&1 && python -u /app/wire_stack.py"]
     restart: "no"
 

@@ -76,7 +76,24 @@ To maintain a clean, zero-dependency environment, the entire ecosystem is contai
 
 ## Quick Start Guide
 
-### 1-Click Bootstrap on Windows (Recommended)
+### 1-Click Bootstrap on Linux / macOS (Recommended for Linux)
+1. Ensure Docker Engine and Docker Compose are installed.
+2. Clone the repository and run `setup.sh`:
+   ```bash
+   git clone https://github.com/Zorthon28/Null-seerr.git
+   cd Null-seerr
+   chmod +x setup.sh
+   ./setup.sh
+   ```
+3. The installer will:
+   - Verify Docker daemon and compose availability.
+   - Scan storage filesystems and detect optimal media library path.
+   - Configure host `PUID`/`PGID` permissions.
+   - Provision directory structures and copy pre-seeded templates.
+   - Start the stack and execute the automated in-container wiring engine.
+   - Display administrative credentials and open **http://localhost:5055**.
+
+### 1-Click Bootstrap on Windows (Recommended for Windows)
 1. Verify that Docker Desktop is installed and running.
 2. Double-click `setup.bat` in the repository root (or run `powershell -ExecutionPolicy Bypass -File scripts/setup.ps1`).
 3. The installer will:
