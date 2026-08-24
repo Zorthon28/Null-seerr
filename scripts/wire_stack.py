@@ -44,10 +44,10 @@ if sys.platform == "win32":
 
 IN_DOCKER = os.environ.get("RUNNING_IN_DOCKER", "").lower() in ("true", "1", "yes") or os.path.exists("/.dockerenv")
 
-ARR_DIR = os.environ.get("STACK_ROOT", r"C:\arr-stack")
+ARR_DIR = os.environ.get("STACK_ROOT", "/opt/arr-stack" if sys.platform != "win32" else r"C:\arr-stack")
 CONFIG_ROOT = "/config" if IN_DOCKER else os.path.join(ARR_DIR, "config")
 DATA_ROOT = "/data" if IN_DOCKER else os.path.join(ARR_DIR, "data")
-CREDENTIALS_FILE = "/CREDENTIALS.txt" if IN_DOCKER else os.path.join(ARR_DIR, "CREDENTIALS.txt")
+CREDENTIALS_FILE = "/config/CREDENTIALS.txt" if IN_DOCKER else os.path.join(ARR_DIR, "CREDENTIALS.txt")
 TEMPLATES_DIR = "/templates" if IN_DOCKER else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
 
 # Service default ports & URLs
@@ -103,28 +103,48 @@ def get_or_create_stack_credentials():
     email = "admin@nullseerr.local"
     password = None
 
-    if os.path.exists(CREDENTIALS_FILE):
-        try:
-            with open(CREDENTIALS_FILE, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.startswith("PASSWORD:"):
-                        password = line.split(":", 1)[1].strip()
-                    elif line.startswith("USER:"):
-                        user = line.split(":", 1)[1].strip()
-                    elif line.startswith("EMAIL:"):
-                        email = line.split(":", 1)[1].strip()
-        except Exception:
-            pass
+    candidates = [
+        CREDENTIALS_FILE,
+        os.path.join(CONFIG_ROOT, "CREDENTIALS.txt"),
+        os.path.join(ARR_DIR, "CREDENTIALS.txt"),
+        "/CREDENTIALS.txt",
+        "/config/CREDENTIALS.txt",
+    ]
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            try:
+                with open(candidate, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith("PASSWORD:"):
+                            password = line.split(":", 1)[1].strip()
+                        elif line.startswith("USER:"):
+                            user = line.split(":", 1)[1].strip()
+                        elif line.startswith("EMAIL:"):
+                            email = line.split(":", 1)[1].strip()
+                if password:
+                    break
+            except Exception:
+                pass
 
     if not password:
         alphabet = string.ascii_letters + string.digits + "!@#$"
         password = "".join(secrets.choice(alphabet) for _ in range(16))
-        try:
-            os.makedirs(os.path.dirname(os.path.abspath(CREDENTIALS_FILE)), exist_ok=True)
-            with open(CREDENTIALS_FILE, "w", encoding="utf-8") as f:
-                f.write(f"USER: {user}\nEMAIL: {email}\nPASSWORD: {password}\nGENERATED: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        except Exception as e:
-            log(f"Warning: Could not save credentials file: {e}", "!")
+        content = f"USER: {user}\nEMAIL: {email}\nPASSWORD: {password}\nGENERATED: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        
+        target_files = [CREDENTIALS_FILE]
+        if IN_DOCKER:
+            target_files.extend(["/CREDENTIALS.txt", "/config/CREDENTIALS.txt"])
+        else:
+            target_files.append(os.path.join(CONFIG_ROOT, "CREDENTIALS.txt"))
+
+        for tf in target_files:
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(tf)), exist_ok=True)
+                with open(tf, "w", encoding="utf-8") as f:
+                    f.write(content)
+            except Exception as e:
+                log(f"Warning: Could not save credentials file ({tf}): {e}", "!")
 
     return user, email, password
 
@@ -833,7 +853,7 @@ def seed_prowlarr_indexers(prowlarr_key, flare_tag_id=1):
             log("Synchronized all indexers to Radarr and Sonarr", "+")
 
 def configure_media_naming(radarr_key, sonarr_key):
-    """Sets standard Plex / Jellyfin naming conventions in Radarr and Sonarr"""
+    """Sets standard Plex / Jellyfin naming conventions & auto-unmonitor on delete in Radarr and Sonarr"""
     if radarr_key:
         url = f"{get_url('radarr')}/api/v3/config/naming"
         headers = {"X-Api-Key": radarr_key}
@@ -847,6 +867,14 @@ def configure_media_naming(radarr_key, sonarr_key):
             put_st, _ = http_request(url, method="PUT", data=current, headers=headers)
             if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Radarr", "OK")
+
+        # Configure Auto-Unmonitor on deletion & Delete Empty Folders
+        mm_url = f"{get_url('radarr')}/api/v3/config/mediamanagement"
+        m_st, mm_curr = http_request(mm_url, headers=headers)
+        if m_st == 200 and isinstance(mm_curr, dict):
+            mm_curr["autoUnmonitorPreviouslyDownloadedMovies"] = True
+            mm_curr["deleteEmptyFolders"] = True
+            http_request(mm_url, method="PUT", data=mm_curr, headers=headers)
 
     if sonarr_key:
         url = f"{get_url('sonarr')}/api/v3/config/naming/1"
@@ -863,6 +891,14 @@ def configure_media_naming(radarr_key, sonarr_key):
             put_st, _ = http_request(url, method="PUT", data=current, headers=headers)
             if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Sonarr", "OK")
+
+        # Configure Auto-Unmonitor on deletion & Delete Empty Folders
+        mm_url = f"{get_url('sonarr')}/api/v3/config/mediamanagement"
+        m_st, mm_curr = http_request(mm_url, headers=headers)
+        if m_st == 200 and isinstance(mm_curr, dict):
+            mm_curr["autoUnmonitorPreviouslyDownloadedEpisodes"] = True
+            mm_curr["deleteEmptyFolders"] = True
+            http_request(mm_url, method="PUT", data=mm_curr, headers=headers)
 
 def configure_root_folders(radarr_key, sonarr_key):
     """Registers standard media root folders in Radarr and Sonarr"""

@@ -7,7 +7,7 @@ services:
     ports:
       - 5056:5055
     volumes:
-      - C:/arr-stack-dev/config/overseerr:/app/config
+      - ${CONFIG_ROOT_DEV:-./arr-stack-dev/config}/overseerr:/app/config
     environment:
       - TZ=Etc/UTC
       - NODE_ENV=development

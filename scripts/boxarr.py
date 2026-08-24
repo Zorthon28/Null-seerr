@@ -1,15 +1,49 @@
+import os
+import sys
 import json
 import logging
 import urllib.request
 import urllib.parse
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [Boxarr] %(message)s')
 
-SEERR_URL = "http://localhost:5055"
-SEERR_API_KEY = "MTc4NjAzOTYzNTU3NTM3MGRmZTdmLWM2MTQtNDljZS04MDMwLWYxYTNmZjc4MTUzYQ=="
-RADARR_URL = "http://localhost:7878"
-RADARR_API_KEY = "6d504b09cc2242d1a9ebbfb5a0e0753c"
+SEERR_URL = os.environ.get("SEERR_URL", "http://localhost:5055")
+RADARR_URL = os.environ.get("RADARR_URL", "http://localhost:7878")
+
+ARR_DIR = os.environ.get("STACK_ROOT", "/opt/arr-stack" if sys.platform != "win32" else r"C:\arr-stack")
+CONFIG_ROOT = os.environ.get("CONFIG_ROOT", os.path.join(ARR_DIR, "config") if not os.path.exists("/config") else "/config")
+
+def get_xml_api_key(config_path):
+    if not os.path.exists(config_path):
+        return None
+    try:
+        tree = ET.parse(config_path)
+        root = tree.getroot()
+        api_elem = root.find("ApiKey")
+        if api_elem is not None and api_elem.text:
+            return api_elem.text.strip()
+    except Exception:
+        pass
+    return None
+
+def get_seerr_api_key(settings_path):
+    if not os.path.exists(settings_path):
+        return None
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("main", {}).get("apiKey")
+    except Exception:
+        pass
+    return None
+
+RADARR_XML = os.path.join(CONFIG_ROOT, "radarr", "config.xml")
+SEERR_JSON = os.path.join(CONFIG_ROOT, "overseerr", "settings.json")
+
+RADARR_API_KEY = os.environ.get("RADARR_API_KEY") or get_xml_api_key(RADARR_XML) or "6d504b09cc2242d1a9ebbfb5a0e0753c"
+SEERR_API_KEY = os.environ.get("SEERR_API_KEY") or get_seerr_api_key(SEERR_JSON) or "MTc4NjAzOTYzNTU3NTM3MGRmZTdmLWM2MTQtNDljZS04MDMwLWYxYTNmZjc4MTUzYQ=="
 
 def get_top_box_office_movies(limit=10):
     """Fetch the top popular and box-office movies from Null-seerr / TMDB"""
