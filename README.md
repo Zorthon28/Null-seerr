@@ -36,8 +36,8 @@ At the center of the ecosystem is **Null-seerr**, an extended fork of [Overseerr
 | **Instant 0-Second Boot** | Ships with pre-seeded configuration bundles to bypass setup wizards across every application. |
 | **11 Seeded Public Indexers** | Pre-configures 1337x, YTS, The Pirate Bay, LimeTorrents, Torrent Downloads, TorrentDownload, TorrentProject2, Knaben, Nyaa.si, SubsPlease, and Tokyo Toshokan. |
 | **Cloudflare Bypass Integration** | Pre-links FlareSolverr as an automated proxy for Cloudflare-protected indexers. |
-| **High-Throughput Downloader** | qBittorrent configured with 1024 MB RAM disk write buffer, 1500 max connections, and automatic category routing (`movies`, `tv`). |
-| **Swarm-Priority Quality Profiles** | Custom unified 1080p profiles that prioritize torrents with maximum active seeders and peers. |
+| **High-Throughput Downloader** | qBittorrent configured with 1500 max connections, 16 async I/O disk threads, and automatic category routing (`movies`, `tv`). |
+| **Unified 1080p Quality Profiles** | Groups Remux-1080p, Bluray-1080p, WEBDL, WEBRip, and HDTV into a flexible quality tier in Radarr and Sonarr so any valid 1080p release is accepted. |
 | **Dual Subtitle Automation** | Bazarr pre-configured with dual English and Spanish profiles (`cutoff = 2`) and free public providers. |
 | **Standardized File Naming** | Automatic Plex and Jellyfin media folder and file naming conventions applied across Radarr and Sonarr. |
 | **Dual Media Server Provisioning** | Automatically creates Movies (`/data/media/movies`), TV Shows (`/data/media/tv`), and Anime (`/data/media/anime`) libraries in both Jellyfin and Plex. |
@@ -108,11 +108,23 @@ To maintain a clean, zero-dependency environment, the entire ecosystem is contai
    git clone https://github.com/Zorthon28/Null-seerr.git
    cd Null-seerr
    ```
-2. Start the stack:
+2. Start the core stack (lightweight, ~8 GB RAM friendly):
    ```bash
    docker compose up -d
    ```
-   The embedded `nullseerr-init` container will automatically wire all APIs and output access credentials to `CREDENTIALS.txt`.
+   *Core services started: Null-seerr, Jellyfin, Radarr, Sonarr, Prowlarr, qBittorrent, FlareSolverr, Bazarr, and nullseerr-init.*
+
+3. Start with optional heavy services (Plex, Tdarr, Shoko, Suggestarr, Cloudflared):
+   ```bash
+   # Start all services (16 GB+ RAM recommended)
+   docker compose --profile all up -d
+
+   # Or start individual optional profiles:
+   docker compose --profile plex up -d
+   docker compose --profile tdarr up -d
+   docker compose --profile anime up -d
+   ```
+   The embedded `nullseerr-init` container will automatically wire all active APIs and output access credentials to `CREDENTIALS.txt`.
 
 ---
 

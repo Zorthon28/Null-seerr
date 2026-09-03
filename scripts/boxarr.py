@@ -42,8 +42,20 @@ def get_seerr_api_key(settings_path):
 RADARR_XML = os.path.join(CONFIG_ROOT, "radarr", "config.xml")
 SEERR_JSON = os.path.join(CONFIG_ROOT, "overseerr", "settings.json")
 
-RADARR_API_KEY = os.environ.get("RADARR_API_KEY") or get_xml_api_key(RADARR_XML) or "6d504b09cc2242d1a9ebbfb5a0e0753c"
-SEERR_API_KEY = os.environ.get("SEERR_API_KEY") or get_seerr_api_key(SEERR_JSON) or "MTc4NjAzOTYzNTU3NTM3MGRmZTdmLWM2MTQtNDljZS04MDMwLWYxYTNmZjc4MTUzYQ=="
+RADARR_API_KEY = os.environ.get("RADARR_API_KEY") or get_xml_api_key(RADARR_XML) or ""
+SEERR_API_KEY = os.environ.get("SEERR_API_KEY") or get_seerr_api_key(SEERR_JSON) or ""
+
+def validate_api_keys():
+    """Validates that required API keys are available before sending requests"""
+    missing = []
+    if not RADARR_API_KEY:
+        missing.append("Radarr API Key (RADARR_API_KEY or config/radarr/config.xml)")
+    if not SEERR_API_KEY:
+        missing.append("Null-seerr API Key (SEERR_API_KEY or config/overseerr/settings.json)")
+    if missing:
+        logging.error(f"Missing required API credentials: {', '.join(missing)}.")
+        logging.error("Please ensure the media stack has been initialized via wire_stack.py or provide keys via environment variables.")
+        sys.exit(1)
 
 def get_top_box_office_movies(limit=10):
     """Fetch the top popular and box-office movies from Null-seerr / TMDB"""
@@ -117,6 +129,7 @@ def add_movie_to_radarr(movie):
         return False
 
 def run_boxarr_autopilot(limit=10):
+    validate_api_keys()
     logging.info("Starting Boxarr Box Office -> Radarr Autopilot sync...")
     existing = get_radarr_movies()
     top_movies = get_top_box_office_movies(limit)

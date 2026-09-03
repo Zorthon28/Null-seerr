@@ -1,8 +1,8 @@
 {
- "clientId": "23144fc2-a052-4c72-a7f0-47a2d7a84107",
- "sessionSecret": "c02a657530073ce381220ab4f2a0f60a39afe163fa501443893137ff98f1079e",
+ "clientId": "",
+ "sessionSecret": "",
  "main": {
-  "apiKey": "MTc4NzM0MjgzMDc3NGJmNTg5MzFkLTk3YzUtNGJhMS1hZjc2LWYwOTc1YjA3M2VhYQ==",
+  "apiKey": "",
   "applicationTitle": "Null-seerr",
   "applicationUrl": "",
   "cacheImages": false,
@@ -65,26 +65,10 @@
   "urlBase": "",
   "externalHostname": "http://localhost:8096",
   "jellyfinForgotPasswordUrl": "",
-  "libraries": [
-   {
-    "id": "f137a2dd21bbc1b99aa5c0f6bf02a805",
-    "name": "Movies",
-    "enabled": true
-   },
-   {
-    "id": "767bffe4f11c93ef34b805451a696a4e",
-    "name": "TV Shows",
-    "enabled": true
-   },
-   {
-    "id": "0c41907140d802bb58430fed7e2cd79e",
-    "name": "Anime",
-    "enabled": true
-   }
-  ],
-  "serverId": "06ce0691d6754d918b76b3b70c3d9e4e",
-  "apiKey": "91bd45a0fe674ec3a8496b030195d03b",
-  "userId": "0238e8a3673b4a0caf1879b53748c895"
+  "libraries": [],
+  "serverId": "",
+  "apiKey": "",
+  "userId": ""
  },
  "tautulli": {},
  "metadataSettings": {
@@ -96,7 +80,7 @@
    "name": "Radarr",
    "hostname": "radarr",
    "port": 7878,
-   "apiKey": "c51db4e7cdd948b4bb7fd112082e7db8",
+   "apiKey": "",
    "useSsl": false,
    "baseUrl": "",
    "activeProfileId": 4,
@@ -117,7 +101,7 @@
    "name": "Sonarr",
    "hostname": "sonarr",
    "port": 8989,
-   "apiKey": "9c2a3a1c0f924ad1a690d5da5bac2665",
+   "apiKey": "",
    "useSsl": false,
    "baseUrl": "",
    "activeProfileId": 4,
