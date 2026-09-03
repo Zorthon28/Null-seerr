@@ -317,7 +317,7 @@ def configure_qbittorrent_auth(admin_user, admin_password):
         with open(conf_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        if "HostHeaderValidation=false" in content and "MaxConnections=1500" in content and "CSRFProtection=true" in content:
+        if "HostHeaderValidation=true" in content and "MaxConnections=1500" in content and "CSRFProtection=true" in content and "ServerDomains=localhost" in content:
             log("qBittorrent WebUI security and throughput optimizations configured", "OK")
             return
 
@@ -330,7 +330,7 @@ def configure_qbittorrent_auth(admin_user, admin_password):
 
         new_lines = []
         for line in lines:
-            if not line.startswith("WebUI\\") and not line.startswith("Session\\") and not line.startswith("Connection\\"):
+            if not line.startswith("WebUI\\") and not line.startswith("Session\\") and not line.startswith("Connection\\") and not line.startswith("Downloads\\"):
                 new_lines.append(line)
 
         pref_idx = -1
@@ -343,8 +343,8 @@ def configure_qbittorrent_auth(admin_user, admin_password):
 
         webui_settings = [
             "WebUI\\Address=0.0.0.0\n",
-            "WebUI\\ServerDomains=*\n",
-            "WebUI\\HostHeaderValidation=false\n",
+            "WebUI\\ServerDomains=localhost, 127.0.0.1, qbittorrent\n",
+            "WebUI\\HostHeaderValidation=true\n",
             "WebUI\\CSRFProtection=true\n",
             "WebUI\\ClickjackingProtection=true\n",
             "WebUI\\AuthSubnetWhitelist=\n",

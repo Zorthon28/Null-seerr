@@ -95,6 +95,10 @@ DIRS=(
     "${CUSTOM_ROOT}/data/transcode_cache"
 )
 
+for d in "${DIRS[@]}"; do
+    mkdir -p "$d"
+done
+
 # Set secure directory permissions
 find "${CUSTOM_ROOT}" -type d -exec chmod 750 {} + 2>/dev/null || true
 find "${CUSTOM_ROOT}/data" -type d -exec chmod 775 {} + 2>/dev/null || true
