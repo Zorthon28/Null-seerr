@@ -95,10 +95,9 @@ DIRS=(
     "${CUSTOM_ROOT}/data/transcode_cache"
 )
 
-for d in "${DIRS[@]}"; do
-    mkdir -p "$d"
-done
-chmod -R 775 "${CUSTOM_ROOT}" 2>/dev/null || true
+# Set secure directory permissions
+find "${CUSTOM_ROOT}" -type d -exec chmod 750 {} + 2>/dev/null || true
+find "${CUSTOM_ROOT}/data" -type d -exec chmod 775 {} + 2>/dev/null || true
 echo -e "${GREEN} [+] All directories created & verified.${NC}"
 
 # Copy docker-compose.yml into target folder
@@ -150,6 +149,7 @@ TDARR_WEB_PORT=8265
 TDARR_SERVER_PORT=8266
 FLARESOLVERR_PORT=8191
 EOF
+    chmod 600 "$ENV_FILE" 2>/dev/null || true
     echo -e "${GREEN} [+] Created .env configuration in ${CUSTOM_ROOT}.${NC}"
 fi
 
@@ -242,6 +242,7 @@ elif [ -f "$CONFIG_CRED_FILE" ]; then
     done < "$CONFIG_CRED_FILE"
     cp "$CONFIG_CRED_FILE" "$CRED_FILE" 2>/dev/null || true
 fi
+chmod 600 "$CRED_FILE" "$CONFIG_CRED_FILE" 2>/dev/null || true
 
 # Open Null-seerr in default browser if desktop session active
 if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then

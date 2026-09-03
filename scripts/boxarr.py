@@ -42,8 +42,8 @@ def get_seerr_api_key(settings_path):
 RADARR_XML = os.path.join(CONFIG_ROOT, "radarr", "config.xml")
 SEERR_JSON = os.path.join(CONFIG_ROOT, "overseerr", "settings.json")
 
-RADARR_API_KEY = os.environ.get("RADARR_API_KEY") or get_xml_api_key(RADARR_XML) or "6d504b09cc2242d1a9ebbfb5a0e0753c"
-SEERR_API_KEY = os.environ.get("SEERR_API_KEY") or get_seerr_api_key(SEERR_JSON) or "MTc4NjAzOTYzNTU3NTM3MGRmZTdmLWM2MTQtNDljZS04MDMwLWYxYTNmZjc4MTUzYQ=="
+RADARR_API_KEY = os.environ.get("RADARR_API_KEY") or get_xml_api_key(RADARR_XML) or ""
+SEERR_API_KEY = os.environ.get("SEERR_API_KEY") or get_seerr_api_key(SEERR_JSON) or ""
 
 def get_top_box_office_movies(limit=10):
     """Fetch the top popular and box-office movies from Null-seerr / TMDB"""

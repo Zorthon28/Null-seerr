@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
 Null-seerr All-In-One Media Stack CLI Wiring Utility & Init Engine
-Automatically extracts API keys, generates secure unified stack credentials,
+Automatically extracts/generates API keys, generates secure unified stack credentials,
 seeds pre-configured templates, tests connections, and wires together:
-- Dynamic Random Password Generation for the entire stack (admin / <generated_password>)
+- Dynamic Random Password & Per-Installation Secret Generation for the entire stack
 - Jellyfin Auto-Initialization (Bypasses startup wizard, creates libraries & admin with stack password)
-- Plex Media Server Auto-Initialization (Provisions Movies, TV Shows, Anime libraries)
+- Plex Media Server Auto-Initialization (Provisions Movies, TV Shows, Anime libraries when enabled)
 - Null-seerr Auto-Initialization (Skips onboarding wizard, creates admin, wires Jellyfin/Plex/Radarr/Sonarr)
-- Shoko Server Auto-Initialization (Bypasses setup wizard, creates admin, starts server, configures /data/media/anime)
-- qBittorrent WebUI Host Validation, Save Path, RAM Cache & Max Speed Optimization
+- Shoko Server Auto-Initialization (Bypasses setup wizard, creates admin, starts server when enabled)
+- qBittorrent WebUI Host Validation, Save Path & Max Throughput Optimization
 - Bazarr Auto-Configuration (Wires Radarr, Sonarr, Jellyfin, free subtitle providers & English + Spanish dual profiles)
 - Auto-registers Root Media Folders in Radarr & Sonarr (/data/media/movies, /data/media/tv, /data/media/anime)
-- Prioritizes Highest Seeders / Peers (1080p Unified Quality Group in Radarr & Sonarr)
+- Unified 1080p Quality Profile in Radarr & Sonarr (Groups Remux/Bluray/WEB into single flexible tier)
 - Configure Unified Admin & Local Address Bypass across Radarr, Sonarr, and Prowlarr
 - Prowlarr <-> Radarr & Sonarr (Indexers & Sync)
 - Prowlarr Auto-Seeder (1337x, YTS, The Pirate Bay, LimeTorrents, Torrent Downloads, TorrentDownload, TorrentProject2, Knaben, Nyaa, SubsPlease, Tokyo Toshokan)
@@ -24,7 +24,9 @@ import os
 import sys
 import json
 import time
+import uuid
 import shutil
+import base64
 import sqlite3
 import secrets
 import string
@@ -50,20 +52,20 @@ DATA_ROOT = "/data" if IN_DOCKER else os.path.join(ARR_DIR, "data")
 CREDENTIALS_FILE = "/config/CREDENTIALS.txt" if IN_DOCKER else os.path.join(ARR_DIR, "CREDENTIALS.txt")
 TEMPLATES_DIR = "/templates" if IN_DOCKER else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
 
-# Service default ports & URLs
+# Core & Optional Services
 SERVICES = {
-    "seerr": {"url": "http://localhost:5055", "docker_url": "http://seerr:5055", "name": "Null-seerr"},
-    "radarr": {"url": "http://localhost:7878", "docker_url": "http://radarr:7878", "name": "Radarr"},
-    "sonarr": {"url": "http://localhost:8989", "docker_url": "http://sonarr:8989", "name": "Sonarr"},
-    "prowlarr": {"url": "http://localhost:9696", "docker_url": "http://prowlarr:9696", "name": "Prowlarr"},
-    "qbittorrent": {"url": "http://localhost:8089", "docker_url": "http://qbittorrent:8080", "name": "qBittorrent"},
-    "flaresolverr": {"url": "http://localhost:8191", "docker_url": "http://flaresolverr:8191", "name": "FlareSolverr"},
-    "plex": {"url": "http://localhost:32400", "docker_url": "http://plex:32400", "name": "Plex"},
-    "jellyfin": {"url": "http://localhost:8096", "docker_url": "http://jellyfin:8096", "name": "Jellyfin"},
-    "bazarr": {"url": "http://localhost:6767", "docker_url": "http://bazarr:6767", "name": "Bazarr"},
-    "suggestarr": {"url": "http://localhost:4455", "docker_url": "http://suggestarr:5000", "name": "Suggestarr"},
-    "shoko": {"url": "http://localhost:8111", "docker_url": "http://shoko:8111", "name": "Shoko Server"},
-    "tdarr": {"url": "http://localhost:8265", "docker_url": "http://tdarr:8265", "name": "Tdarr"},
+    "seerr": {"url": "http://localhost:5055", "docker_url": "http://seerr:5055", "name": "Null-seerr", "core": True},
+    "radarr": {"url": "http://localhost:7878", "docker_url": "http://radarr:7878", "name": "Radarr", "core": True},
+    "sonarr": {"url": "http://localhost:8989", "docker_url": "http://sonarr:8989", "name": "Sonarr", "core": True},
+    "prowlarr": {"url": "http://localhost:9696", "docker_url": "http://prowlarr:9696", "name": "Prowlarr", "core": True},
+    "qbittorrent": {"url": "http://localhost:8089", "docker_url": "http://qbittorrent:8080", "name": "qBittorrent", "core": True},
+    "flaresolverr": {"url": "http://localhost:8191", "docker_url": "http://flaresolverr:8191", "name": "FlareSolverr", "core": True},
+    "jellyfin": {"url": "http://localhost:8096", "docker_url": "http://jellyfin:8096", "name": "Jellyfin", "core": True},
+    "bazarr": {"url": "http://localhost:6767", "docker_url": "http://bazarr:6767", "name": "Bazarr", "core": True},
+    "plex": {"url": "http://localhost:32400", "docker_url": "http://plex:32400", "name": "Plex", "core": False},
+    "suggestarr": {"url": "http://localhost:4455", "docker_url": "http://suggestarr:5000", "name": "Suggestarr", "core": False},
+    "shoko": {"url": "http://localhost:8111", "docker_url": "http://shoko:8111", "name": "Shoko Server", "core": False},
+    "tdarr": {"url": "http://localhost:8265", "docker_url": "http://tdarr:8265", "name": "Tdarr", "core": False},
 }
 
 def get_url(service_key):
@@ -73,29 +75,160 @@ def get_url(service_key):
 def log(msg, symbol="*"):
     print(f"[{symbol}] {msg}")
 
-def seed_templates():
-    """Copies pre-seeded configuration bundles if target configs are new/empty"""
-    if not os.path.exists(TEMPLATES_DIR):
-        return
+def generate_random_api_key():
+    """Generates a 32-character hexadecimal API key"""
+    return secrets.token_hex(16)
 
-    mappings = [
-        ("qbittorrent/qBittorrent.conf", os.path.join(CONFIG_ROOT, "qbittorrent", "qBittorrent", "qBittorrent.conf")),
-        ("radarr/config.xml", os.path.join(CONFIG_ROOT, "radarr", "config.xml")),
-        ("sonarr/config.xml", os.path.join(CONFIG_ROOT, "sonarr", "config.xml")),
-        ("prowlarr/config.xml", os.path.join(CONFIG_ROOT, "prowlarr", "config.xml")),
-        ("bazarr/config/config.yaml", os.path.join(CONFIG_ROOT, "bazarr", "config", "config.yaml")),
-        ("overseerr/settings.json", os.path.join(CONFIG_ROOT, "overseerr", "settings.json")),
+def generate_session_secret():
+    """Generates a 64-character hexadecimal session secret"""
+    return secrets.token_hex(32)
+
+def generate_seerr_api_key():
+    """Generates a base64 encoded API key matching Overseerr format"""
+    raw = f"{int(time.time() * 1000)}{secrets.token_hex(16)}"
+    return base64.b64encode(raw.encode("utf-8")).decode("utf-8")
+
+def get_xml_api_key(config_path):
+    if not os.path.exists(config_path):
+        return None
+    try:
+        tree = ET.parse(config_path)
+        root = tree.getroot()
+        api_elem = root.find("ApiKey")
+        if api_elem is not None and api_elem.text and api_elem.text.strip():
+            return api_elem.text.strip()
+    except Exception as e:
+        log(f"Error reading {config_path}: {e}", "!")
+    return None
+
+def set_xml_api_key(config_path, new_key):
+    """Ensures XML config file has the specified ApiKey"""
+    try:
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        if os.path.exists(config_path):
+            tree = ET.parse(config_path)
+            root = tree.getroot()
+            api_elem = root.find("ApiKey")
+            if api_elem is None:
+                api_elem = ET.SubElement(root, "ApiKey")
+            api_elem.text = new_key
+            tree.write(config_path, encoding="utf-8", xml_declaration=True)
+        return True
+    except Exception as e:
+        log(f"Error updating API key in {config_path}: {e}", "!")
+        return False
+
+def get_seerr_api_key(settings_path):
+    if not os.path.exists(settings_path):
+        return None
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("main", {}).get("apiKey")
+    except Exception as e:
+        log(f"Error reading {settings_path}: {e}", "!")
+    return None
+
+def seed_templates():
+    """Copies pre-seeded configuration bundles with dynamically generated unique secrets"""
+    radarr_xml = os.path.join(CONFIG_ROOT, "radarr", "config.xml")
+    sonarr_xml = os.path.join(CONFIG_ROOT, "sonarr", "config.xml")
+    prowlarr_xml = os.path.join(CONFIG_ROOT, "prowlarr", "config.xml")
+    bazarr_yaml = os.path.join(CONFIG_ROOT, "bazarr", "config", "config.yaml")
+    overseerr_json = os.path.join(CONFIG_ROOT, "overseerr", "settings.json")
+    qbit_conf = os.path.join(CONFIG_ROOT, "qbittorrent", "qBittorrent", "qBittorrent.conf")
+
+    # 1. Discover or generate unique API keys per installation
+    radarr_key = get_xml_api_key(radarr_xml) or generate_random_api_key()
+    sonarr_key = get_xml_api_key(sonarr_xml) or generate_random_api_key()
+    prowlarr_key = get_xml_api_key(prowlarr_xml) or generate_random_api_key()
+    bazarr_key = generate_random_api_key()
+
+    if os.path.exists(bazarr_yaml):
+        try:
+            import yaml
+            with open(bazarr_yaml, "r", encoding="utf-8") as f:
+                b_cfg = yaml.safe_load(f) or {}
+                if b_cfg.get("auth", {}).get("apikey"):
+                    bazarr_key = b_cfg["auth"]["apikey"]
+        except Exception:
+            pass
+
+    # 2. Seed and inject unique keys
+    xml_targets = [
+        ("radarr/config.xml", radarr_xml, radarr_key),
+        ("sonarr/config.xml", sonarr_xml, sonarr_key),
+        ("prowlarr/config.xml", prowlarr_xml, prowlarr_key),
     ]
 
-    for src_rel, dest in mappings:
+    for src_rel, dest, key in xml_targets:
         src = os.path.join(TEMPLATES_DIR, src_rel)
-        if os.path.exists(src) and not os.path.exists(dest):
+        if not os.path.exists(dest) and os.path.exists(src):
             try:
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 shutil.copy2(src, dest)
-                log(f"Seeded configuration template: {src_rel}", "+")
+                set_xml_api_key(dest, key)
+                log(f"Seeded configuration with unique key: {src_rel}", "+")
             except Exception as e:
-                log(f"Could not copy template {src_rel}: {e}", "!")
+                log(f"Could not seed {src_rel}: {e}", "!")
+        elif os.path.exists(dest):
+            curr_key = get_xml_api_key(dest)
+            if not curr_key:
+                set_xml_api_key(dest, key)
+
+    # 3. Seed Bazarr YAML
+    bazarr_src = os.path.join(TEMPLATES_DIR, "bazarr", "config", "config.yaml")
+    if not os.path.exists(bazarr_yaml) and os.path.exists(bazarr_src):
+        try:
+            os.makedirs(os.path.dirname(bazarr_yaml), exist_ok=True)
+            shutil.copy2(bazarr_src, bazarr_yaml)
+            try:
+                import yaml
+                with open(bazarr_yaml, "r", encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f) or {}
+                cfg.setdefault("auth", {})["apikey"] = bazarr_key
+                cfg.setdefault("radarr", {})["apikey"] = radarr_key
+                cfg.setdefault("sonarr", {})["apikey"] = sonarr_key
+                with open(bazarr_yaml, "w", encoding="utf-8") as f:
+                    yaml.dump(cfg, f)
+            except Exception:
+                pass
+            log("Seeded configuration with unique key: bazarr/config.yaml", "+")
+        except Exception as e:
+            log(f"Could not seed Bazarr config: {e}", "!")
+
+    # 4. Seed Overseerr / Null-seerr settings.json
+    seerr_src = os.path.join(TEMPLATES_DIR, "overseerr", "settings.json")
+    if not os.path.exists(overseerr_json) and os.path.exists(seerr_src):
+        try:
+            os.makedirs(os.path.dirname(overseerr_json), exist_ok=True)
+            with open(seerr_src, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+            
+            settings["clientId"] = str(uuid.uuid4())
+            settings["sessionSecret"] = generate_session_secret()
+            settings.setdefault("main", {})["apiKey"] = generate_seerr_api_key()
+            
+            if settings.get("radarr") and len(settings["radarr"]) > 0:
+                settings["radarr"][0]["apiKey"] = radarr_key
+            if settings.get("sonarr") and len(settings["sonarr"]) > 0:
+                settings["sonarr"][0]["apiKey"] = sonarr_key
+
+            with open(overseerr_json, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=1)
+            log("Seeded configuration with unique secrets: overseerr/settings.json", "+")
+        except Exception as e:
+            log(f"Could not seed Overseerr settings: {e}", "!")
+
+    # 5. Seed qBittorrent template
+    qbit_src = os.path.join(TEMPLATES_DIR, "qbittorrent", "qBittorrent.conf")
+    if not os.path.exists(qbit_conf) and os.path.exists(qbit_src):
+        try:
+            os.makedirs(os.path.dirname(qbit_conf), exist_ok=True)
+            shutil.copy2(qbit_src, qbit_conf)
+            log("Seeded configuration template: qbittorrent/qBittorrent.conf", "+")
+        except Exception as e:
+            log(f"Could not seed qBittorrent config: {e}", "!")
 
 def get_or_create_stack_credentials():
     """Generates or loads a secure temporary password for the admin account across the stack"""
@@ -175,7 +308,7 @@ def hash_password(password):
     return None
 
 def configure_qbittorrent_auth(admin_user, admin_password):
-    """Sets PBKDF2 credentials, host header validation bypass, RAM disk buffer and max speed in qBittorrent"""
+    """Sets WebUI host headers, robust authentication, and high-throughput connection limits in qBittorrent"""
     conf_path = os.path.join(CONFIG_ROOT, "qbittorrent", "qBittorrent", "qBittorrent.conf")
     if not os.path.exists(conf_path):
         return
@@ -184,8 +317,8 @@ def configure_qbittorrent_auth(admin_user, admin_password):
         with open(conf_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        if "HostHeaderValidation=false" in content and "DiskCache=1024" in content:
-            log("qBittorrent WebUI authentication and speed optimizations configured", "OK")
+        if "HostHeaderValidation=false" in content and "MaxConnections=1500" in content and "CSRFProtection=true" in content:
+            log("qBittorrent WebUI security and throughput optimizations configured", "OK")
             return
 
         if not IN_DOCKER:
@@ -197,34 +330,40 @@ def configure_qbittorrent_auth(admin_user, admin_password):
 
         new_lines = []
         for line in lines:
-            if not line.startswith("WebUI\\"):
+            if not line.startswith("WebUI\\") and not line.startswith("Session\\") and not line.startswith("Connection\\"):
                 new_lines.append(line)
 
         pref_idx = -1
+        bittorrent_idx = -1
         for idx, l in enumerate(new_lines):
             if l.strip() == "[Preferences]":
                 pref_idx = idx
-                break
+            elif l.strip() == "[BitTorrent]":
+                bittorrent_idx = idx
 
         webui_settings = [
             "WebUI\\Address=0.0.0.0\n",
             "WebUI\\ServerDomains=*\n",
             "WebUI\\HostHeaderValidation=false\n",
-            "WebUI\\CSRFProtection=false\n",
-            "WebUI\\ClickjackingProtection=false\n",
-            "WebUI\\AuthSubnetWhitelist=0.0.0.0/0, ::/0\n",
-            "WebUI\\AuthSubnetWhitelistEnabled=true\n",
-            "WebUI\\LocalHostAuth=false\n",
-            "Session\\DefaultSavePath=/data/torrents/\n",
-            "Session\\TempPath=/data/torrents/incomplete/\n",
+            "WebUI\\CSRFProtection=true\n",
+            "WebUI\\ClickjackingProtection=true\n",
+            "WebUI\\AuthSubnetWhitelist=\n",
+            "WebUI\\AuthSubnetWhitelistEnabled=false\n",
+            "WebUI\\LocalHostAuth=true\n",
             "Downloads\\SavePath=/data/torrents/\n",
             "Downloads\\TempPath=/data/torrents/incomplete/\n",
-            "Connection\\GlobalDLLimit=-1\n",
-            "Connection\\GlobalUPLimit=-1\n",
-            "Connection\\MaxConnecs=1500\n",
-            "Connection\\MaxConnecsPerTorrent=500\n",
-            "Session\\DiskCache=1024\n",
-            "Session\\DiskCacheTTL=120\n",
+            "Connection\\PortRangeMin=6881\n",
+            "Connection\\UPnP=false\n",
+            "Connection\\ResolvePeerCountries=false\n"
+        ]
+
+        bittorrent_settings = [
+            "Session\\DefaultSavePath=/data/torrents/\n",
+            "Session\\TempPath=/data/torrents/incomplete/\n",
+            "Session\\MaxConnections=1500\n",
+            "Session\\MaxConnectionsPerTorrent=500\n",
+            "Session\\MaxUploads=100\n",
+            "Session\\MaxUploadsPerTorrent=20\n",
             "Session\\AsyncIOThreadsCount=16\n",
             "Session\\HashingThreadsCount=4\n",
             "Session\\FilePoolSize=500\n",
@@ -236,23 +375,33 @@ def configure_qbittorrent_auth(admin_user, admin_password):
             "Session\\MaxConcurrentHTTPAnnounces=100\n",
             "Session\\PiecePreallocation=false\n",
             "Session\\CoalesceReadsWrite=true\n",
-            "Queueing\\QueueingEnabled=true\n",
-            "Queueing\\MaxActiveDownloads=20\n",
-            "Queueing\\MaxActiveTorrents=50\n",
-            "Queueing\\MaxActiveUploads=20\n",
-            "Queueing\\IgnoreSlowTorrents=true\n"
+            "Session\\QueueingSystemEnabled=true\n",
+            "Session\\MaxActiveDownloads=20\n",
+            "Session\\MaxActiveTorrents=50\n",
+            "Session\\MaxActiveUploads=20\n",
+            "Session\\IgnoreSlowTorrentsForQueueing=true\n"
         ]
 
         if pref_idx != -1:
             for s in reversed(webui_settings):
                 new_lines.insert(pref_idx + 1, s)
+        else:
+            new_lines.append("\n[Preferences]\n")
+            new_lines.extend(webui_settings)
+
+        if bittorrent_idx != -1:
+            for s in reversed(bittorrent_settings):
+                new_lines.insert(bittorrent_idx + 1, s)
+        else:
+            new_lines.append("\n[BitTorrent]\n")
+            new_lines.extend(bittorrent_settings)
 
         with open(conf_path, "w", encoding="utf-8") as f:
             f.writelines(new_lines)
 
         if not IN_DOCKER:
             subprocess.run(["docker", "start", "qbittorrent"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        log("Configured qBittorrent for MAXIMUM download speed & throughput", "OK")
+        log("Configured qBittorrent with secure WebUI auth & high throughput tuning", "OK")
     except Exception as e:
         log(f"Error configuring qBittorrent: {e}", "!")
 
@@ -355,6 +504,11 @@ def auto_initialize_jellyfin(admin_user, admin_password):
 
 def configure_plex():
     """Configures Plex library sections for Movies (/data/media/movies), TV Shows (/data/media/tv), and Anime (/data/media/anime)"""
+    base = get_url("plex")
+    st, _ = http_request(f"{base}/identity")
+    if st <= 0:
+        return None
+
     pref_path = os.path.join(CONFIG_ROOT, "plex", "Library", "Application Support", "Plex Media Server", "Preferences.xml")
     if not os.path.exists(pref_path):
         return None
@@ -365,7 +519,6 @@ def configure_plex():
         if not token:
             return None
 
-        base = get_url("plex")
         st, sec_res = http_request(f"{base}/library/sections?X-Plex-Token={token}", headers={"Accept": "application/json"})
         existing_names = []
         if st == 200 and isinstance(sec_res, dict):
@@ -373,30 +526,9 @@ def configure_plex():
                 existing_names.append(s.get("title"))
 
         libraries_to_create = [
-            {
-                "name": "Movies",
-                "type": "movie",
-                "agent": "tv.plex.agents.movie",
-                "scanner": "Plex Movie",
-                "location": "/data/media/movies",
-                "language": "en-US"
-            },
-            {
-                "name": "TV Shows",
-                "type": "show",
-                "agent": "tv.plex.agents.series",
-                "scanner": "Plex TV Series",
-                "location": "/data/media/tv",
-                "language": "en-US"
-            },
-            {
-                "name": "Anime",
-                "type": "show",
-                "agent": "tv.plex.agents.series",
-                "scanner": "Plex TV Series",
-                "location": "/data/media/anime",
-                "language": "en-US"
-            }
+            {"name": "Movies", "type": "movie", "agent": "tv.plex.agents.movie", "scanner": "Plex Movie", "location": "/data/media/movies", "language": "en-US"},
+            {"name": "TV Shows", "type": "show", "agent": "tv.plex.agents.series", "scanner": "Plex TV Series", "location": "/data/media/tv", "language": "en-US"},
+            {"name": "Anime", "type": "show", "agent": "tv.plex.agents.series", "scanner": "Plex TV Series", "location": "/data/media/anime", "language": "en-US"}
         ]
 
         for lib in libraries_to_create:
@@ -417,7 +549,6 @@ def configure_plex():
             else:
                 log(f"Plex Library Section active: {lib['name']} ({lib['location']})", "OK")
 
-        # Fetch updated sections and trigger scan
         st2, sec_res2 = http_request(f"{base}/library/sections?X-Plex-Token={token}", headers={"Accept": "application/json"})
         plex_sections = []
         if st2 == 200 and isinstance(sec_res2, dict):
@@ -441,6 +572,10 @@ def configure_plex():
 def auto_initialize_shoko(admin_user, admin_password):
     """Automatically completes Shoko Server first time setup, starts engine, and registers anime import folder"""
     base = get_url("shoko")
+    st, _ = http_request(f"{base}/api/v3/Init/Status")
+    if st <= 0:
+        return
+
     try:
         st, status = http_request(f"{base}/api/v3/Init/Status")
         if st == 200 and isinstance(status, dict):
@@ -451,7 +586,6 @@ def auto_initialize_shoko(admin_user, admin_password):
             else:
                 log("Shoko Server engine is active", "OK")
 
-        # Authenticate and provision anime import folder
         auth_data = json.dumps({"user": admin_user, "pass": admin_password, "device": "cli", "remember": True}).encode("utf-8")
         a_st, a_res = http_request(f"{base}/api/auth", method="POST", data=auth_data, headers={"Content-Type": "application/json"})
         if a_st == 200 and isinstance(a_res, dict):
@@ -469,31 +603,7 @@ def auto_initialize_shoko(admin_user, admin_password):
     except Exception as e:
         log(f"Could not auto-initialize Shoko: {e}", "!")
 
-def get_xml_api_key(config_path):
-    if not os.path.exists(config_path):
-        return None
-    try:
-        tree = ET.parse(config_path)
-        root = tree.getroot()
-        api_elem = root.find("ApiKey")
-        if api_elem is not None and api_elem.text:
-            return api_elem.text.strip()
-    except Exception as e:
-        log(f"Error reading {config_path}: {e}", "!")
-    return None
-
-def get_seerr_api_key(settings_path):
-    if not os.path.exists(settings_path):
-        return None
-    try:
-        with open(settings_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data.get("main", {}).get("apiKey")
-    except Exception as e:
-        log(f"Error reading {settings_path}: {e}", "!")
-    return None
-
-def http_request(url, method="GET", data=None, headers=None):
+def http_request(url, method="GET", data=None, headers=None, timeout=10):
     headers = headers or {}
     if data is not None and isinstance(data, (dict, list)):
         data_bytes = json.dumps(data).encode("utf-8")
@@ -505,7 +615,7 @@ def http_request(url, method="GET", data=None, headers=None):
 
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             resp_body = resp.read().decode("utf-8")
             try:
                 return resp.status, json.loads(resp_body)
@@ -534,6 +644,17 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                 settings = json.load(f)
 
             updated = False
+
+            if not settings.get("clientId"):
+                settings["clientId"] = str(uuid.uuid4())
+                updated = True
+            if not settings.get("sessionSecret"):
+                settings["sessionSecret"] = generate_session_secret()
+                updated = True
+            if not settings.get("main", {}).get("apiKey"):
+                settings.setdefault("main", {})["apiKey"] = generate_seerr_api_key()
+                updated = True
+
             if not settings.get("public", {}).get("initialized", False):
                 settings["public"] = settings.get("public", {})
                 settings["public"]["initialized"] = True
@@ -868,7 +989,6 @@ def configure_media_naming(radarr_key, sonarr_key):
             if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Radarr", "OK")
 
-        # Configure Auto-Unmonitor on deletion & Delete Empty Folders
         mm_url = f"{get_url('radarr')}/api/v3/config/mediamanagement"
         m_st, mm_curr = http_request(mm_url, headers=headers)
         if m_st == 200 and isinstance(mm_curr, dict):
@@ -892,7 +1012,6 @@ def configure_media_naming(radarr_key, sonarr_key):
             if put_st in (200, 202):
                 log("Plex/Jellyfin standard naming applied to Sonarr", "OK")
 
-        # Configure Auto-Unmonitor on deletion & Delete Empty Folders
         mm_url = f"{get_url('sonarr')}/api/v3/config/mediamanagement"
         m_st, mm_curr = http_request(mm_url, headers=headers)
         if m_st == 200 and isinstance(mm_curr, dict):
@@ -922,8 +1041,10 @@ def configure_root_folders(radarr_key, sonarr_key):
                     http_request(url, method="POST", data={"path": folder}, headers=headers)
                     log(f"Registered root folder in Sonarr ({folder})", "+")
 
-def configure_seeder_priority(radarr_key, sonarr_key):
-    """Configures 1080p unified quality profiles in Radarr and Sonarr to prioritize seeders/peers"""
+def configure_quality_profiles(radarr_key, sonarr_key):
+    """Configures unified 1080p quality profiles in Radarr and Sonarr grouping Remux/Bluray/WEB into single flexible tier"""
+    profile_label = "1080p (Flexible Source / Any 1080p)"
+
     if radarr_key:
         url = f"{get_url('radarr')}/api/v3/qualityprofile/4"
         headers = {"X-Api-Key": radarr_key}
@@ -941,8 +1062,8 @@ def configure_seeder_priority(radarr_key, sonarr_key):
                 q_id = it.get("quality", {}).get("id")
                 if q_id in (7, 9, 30):
                     continue
-                if it.get("name") in ("WEB 1080p", "1080p (Any Source / Max Seeders)"):
-                    it["name"] = "1080p (Any Source / Max Seeders)"
+                if it.get("name") in ("WEB 1080p", "1080p (Any Source / Max Seeders)", profile_label):
+                    it["name"] = profile_label
                     it["items"] = all_1080p_r
                     it["allowed"] = True
                 new_items.append(it)
@@ -950,7 +1071,7 @@ def configure_seeder_priority(radarr_key, sonarr_key):
             qp["cutoff"] = 1002
             pst, _ = http_request(url, method="PUT", data=qp, headers=headers)
             if pst in (200, 202):
-                log("Radarr 1080p profile configured for maximum seeders priority", "OK")
+                log("Radarr unified 1080p quality profile configured", "OK")
 
     if sonarr_key:
         url = f"{get_url('sonarr')}/api/v3/qualityprofile/4"
@@ -969,8 +1090,8 @@ def configure_seeder_priority(radarr_key, sonarr_key):
                 q_id = it.get("quality", {}).get("id")
                 if q_id in (7, 9, 20):
                     continue
-                if it.get("name") in ("WEB 1080p", "1080p (Any Source / Max Seeders)"):
-                    it["name"] = "1080p (Any Source / Max Seeders)"
+                if it.get("name") in ("WEB 1080p", "1080p (Any Source / Max Seeders)", profile_label):
+                    it["name"] = profile_label
                     it["items"] = all_1080p_s
                     it["allowed"] = True
                 new_items.append(it)
@@ -978,7 +1099,7 @@ def configure_seeder_priority(radarr_key, sonarr_key):
             qp["cutoff"] = 1002
             pst, _ = http_request(url, method="PUT", data=qp, headers=headers)
             if pst in (200, 202):
-                log("Sonarr 1080p profile configured for maximum seeders priority", "OK")
+                log("Sonarr unified 1080p quality profile configured", "OK")
 
 def wire_qbittorrent_to_arr(app_name, app_url, app_key, admin_user, admin_password, category):
     if not app_key:
@@ -1009,7 +1130,6 @@ def wire_qbittorrent_to_arr(app_name, app_url, app_key, admin_user, admin_passwo
     elif status == 200 and isinstance(clients, list) and any(c.get("name") == "qBittorrent" for c in clients):
         log(f"qBittorrent is already configured in {app_name}", "OK")
 
-    # Add Remote Path Mapping for qBittorrent (/downloads/ -> /data/torrents/)
     rpm_url = f"{app_url}/api/v3/remotepathmapping"
     rpm_st, rpms = http_request(rpm_url, headers=headers)
     if rpm_st == 200 and isinstance(rpms, list):
@@ -1063,10 +1183,10 @@ def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
 
         updated = False
         if radarr_key and not cfg.get('general', {}).get('use_radarr'):
-            cfg['general']['use_radarr'] = True
+            cfg.setdefault('general', {})['use_radarr'] = True
             cfg['general']['movie_default_enabled'] = True
             cfg['general']['movie_default_profile'] = '1'
-            cfg['radarr']['ip'] = 'radarr'
+            cfg.setdefault('radarr', {})['ip'] = 'radarr'
             cfg['radarr']['port'] = 7878
             cfg['radarr']['apikey'] = radarr_key
             cfg['radarr']['ssl'] = False
@@ -1074,10 +1194,10 @@ def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
             updated = True
 
         if sonarr_key and not cfg.get('general', {}).get('use_sonarr'):
-            cfg['general']['use_sonarr'] = True
+            cfg.setdefault('general', {})['use_sonarr'] = True
             cfg['general']['serie_default_enabled'] = True
             cfg['general']['serie_default_profile'] = '1'
-            cfg['sonarr']['ip'] = 'sonarr'
+            cfg.setdefault('sonarr', {})['ip'] = 'sonarr'
             cfg['sonarr']['port'] = 8989
             cfg['sonarr']['apikey'] = sonarr_key
             cfg['sonarr']['ssl'] = False
@@ -1085,8 +1205,8 @@ def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
             updated = True
 
         if jellyfin_key and not cfg.get('general', {}).get('use_jellyfin'):
-            cfg['general']['use_jellyfin'] = True
-            cfg['jellyfin']['url'] = 'http://jellyfin:8096'
+            cfg.setdefault('general', {})['use_jellyfin'] = True
+            cfg.setdefault('jellyfin', {})['url'] = 'http://jellyfin:8096'
             cfg['jellyfin']['apikey'] = jellyfin_key
             cfg['jellyfin']['update_movie_library'] = True
             cfg['jellyfin']['update_series_library'] = True
@@ -1094,7 +1214,7 @@ def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
 
         enabled_provs = ['bsplayer', 'subtitulamostv', 'supersubtitles', 'yifysubtitles', 'animetosho', 'subf2m', 'embeddedsubtitles']
         if cfg.get('general', {}).get('enabled_providers') != enabled_provs or cfg.get('general', {}).get('single_language') is not False:
-            cfg['general']['enabled_providers'] = enabled_provs
+            cfg.setdefault('general', {})['enabled_providers'] = enabled_provs
             cfg['general']['minimum_score_movie'] = 60
             cfg['general']['minimum_score'] = 60
             cfg['general']['use_embedded_subs'] = True
@@ -1104,7 +1224,7 @@ def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
             updated = True
 
         if cfg.get('auth', {}).get('type') is not None:
-            cfg['auth']['type'] = None
+            cfg.setdefault('auth', {})['type'] = None
             updated = True
 
         if updated:
@@ -1114,31 +1234,33 @@ def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
             with open(bazarr_yaml_path, 'w', encoding='utf-8') as f:
                 yaml.dump(cfg, f)
 
-            # Seed Profile 1 into bazarr.db if missing or update cutoff
             if os.path.exists(bazarr_db_path):
-                conn = sqlite3.connect(bazarr_db_path)
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(*) FROM table_languages_profiles WHERE profileId = 1;")
-                items_json = json.dumps([
-                    {"id": 1, "language": "en", "forced": False, "hi": False, "audio_language": None},
-                    {"id": 2, "language": "es", "forced": False, "hi": False, "audio_language": None}
-                ])
-                if cur.fetchone()[0] == 0:
-                    cur.execute('''
-                        INSERT INTO table_languages_profiles (
-                            profileId, cutoff, originalFormat, items, name, mustContain, mustNotContain, tag
-                        ) VALUES (
-                            1, 2, 0, ?, 'English & Spanish', '', '', ''
-                        );
-                    ''', (items_json,))
-                else:
-                    cur.execute('''
-                        UPDATE table_languages_profiles
-                        SET cutoff = 2, items = ?, name = 'English & Spanish'
-                        WHERE profileId = 1;
-                    ''', (items_json,))
-                conn.commit()
-                conn.close()
+                try:
+                    conn = sqlite3.connect(bazarr_db_path)
+                    cur = conn.cursor()
+                    cur.execute("SELECT COUNT(*) FROM table_languages_profiles WHERE profileId = 1;")
+                    items_json = json.dumps([
+                        {"id": 1, "language": "en", "forced": False, "hi": False, "audio_language": None},
+                        {"id": 2, "language": "es", "forced": False, "hi": False, "audio_language": None}
+                    ])
+                    if cur.fetchone()[0] == 0:
+                        cur.execute('''
+                            INSERT INTO table_languages_profiles (
+                                profileId, cutoff, originalFormat, items, name, mustContain, mustNotContain, tag
+                            ) VALUES (
+                                1, 2, 0, ?, 'English & Spanish', '', '', ''
+                            );
+                        ''', (items_json,))
+                    else:
+                        cur.execute('''
+                            UPDATE table_languages_profiles
+                            SET cutoff = 2, items = ?, name = 'English & Spanish'
+                            WHERE profileId = 1;
+                        ''', (items_json,))
+                    conn.commit()
+                    conn.close()
+                except Exception:
+                    pass
 
             if not IN_DOCKER:
                 subprocess.run(['docker', 'start', 'bazarr'], stdout=subprocess.DEVNULL)
@@ -1153,19 +1275,19 @@ def configure_bazarr(radarr_key, sonarr_key, jellyfin_key):
         return None
 
 def wait_for_services(timeout=45):
-    """Waits for key services to become reachable on startup"""
-    critical_services = ["radarr", "sonarr", "prowlarr", "seerr", "jellyfin"]
-    log(f"Waiting for services to spin up ({timeout}s max)...", "⏳")
+    """Waits for key core services to become reachable on startup"""
+    critical_services = [k for k, v in SERVICES.items() if v.get("core")]
+    log(f"Waiting for core services to spin up ({timeout}s max)...", "⏳")
     start = time.time()
     while time.time() - start < timeout:
         all_ready = True
         for s in critical_services:
-            st, _ = http_request(get_url(s))
+            st, _ = http_request(get_url(s), timeout=3)
             if st <= 0:
                 all_ready = False
                 break
         if all_ready:
-            log("All primary stack services are responsive!", "OK")
+            log("All primary core services are responsive!", "OK")
             return True
         time.sleep(2)
     return False
@@ -1175,10 +1297,10 @@ def check_and_wire_all():
     print("NULL-SEERR ALL-IN-ONE MEDIA STACK AUTO-WIRING ENGINE")
     print("=" * 65)
 
-    # 1. Seed Pre-Configured Templates (if clean/empty setup)
+    # 1. Seed Pre-Configured Templates & Generate Unique Secrets
     seed_templates()
 
-    # 2. Wait for Services
+    # 2. Wait for Core Services
     wait_for_services(timeout=30 if IN_DOCKER else 5)
 
     # 3. Generate / Retrieve Unified Stack Credentials
@@ -1197,7 +1319,7 @@ def check_and_wire_all():
     # 5. Auto-Initialize Jellyfin Setup Wizard & Libraries
     jellyfin_info = auto_initialize_jellyfin(admin_user, admin_password)
 
-    # 6. Auto-Configure Plex Libraries
+    # 6. Auto-Configure Plex Libraries (if Plex container active)
     plex_info = configure_plex()
 
     # 7. Auto-Initialize Null-seerr
@@ -1207,10 +1329,10 @@ def check_and_wire_all():
     # 8. Auto-Configure qBittorrent WebUI Host Validation & High Speed Limits
     configure_qbittorrent_auth(admin_user, admin_password)
 
-    # 9. Auto-Initialize Shoko Server Engine
+    # 9. Auto-Initialize Shoko Server Engine (if Shoko container active)
     auto_initialize_shoko(admin_user, admin_password)
 
-    print("\nDiscovered API Keys:")
+    print("\nDiscovered Unique API Keys:")
     print(f"  * Radarr:     {radarr_key or 'Not found'}")
     print(f"  * Sonarr:     {sonarr_key or 'Not found'}")
     print(f"  * Prowlarr:   {prowlarr_key or 'Not found'}")
@@ -1219,9 +1341,9 @@ def check_and_wire_all():
     # 10. Check Service Health
     print("Checking Service Connectivity:")
     for key, info in SERVICES.items():
-        st, _ = http_request(get_url(key))
-        status_text = f"ONLINE (HTTP {st})" if st > 0 else "OFFLINE / STARTING"
-        symbol = "OK" if st in (200, 301, 302, 401, 403) else ".."
+        st, _ = http_request(get_url(key), timeout=3)
+        status_text = f"ONLINE (HTTP {st})" if st > 0 else ("OFFLINE / STARTING" if info.get("core") else "DISABLED (Optional Profile)")
+        symbol = "OK" if st in (200, 301, 302, 401, 403) else (".." if info.get("core") else "--")
         display_url = info["docker_url"] if IN_DOCKER else info["url"]
         print(f"  [{symbol:>2}] {info['name']:<15} {display_url:<26} -> {status_text}")
 
@@ -1245,8 +1367,8 @@ def check_and_wire_all():
     # 13. Configure Media Root Folders
     configure_root_folders(radarr_key, sonarr_key)
 
-    # 14. Configure Maximum Seeders Priority (1080p Unified Quality Group)
-    configure_seeder_priority(radarr_key, sonarr_key)
+    # 14. Configure Unified 1080p Quality Profiles
+    configure_quality_profiles(radarr_key, sonarr_key)
 
     # 15. Configure Servarr Authentication
     configure_servarr_auth(radarr_key, sonarr_key, prowlarr_key, admin_user, admin_password)
@@ -1267,12 +1389,12 @@ def check_and_wire_all():
     print("  * Sonarr (TV):         http://localhost:8989")
     print("  * Prowlarr (Index):    http://localhost:9696")
     print("  * qBittorrent (DL):    http://localhost:8089")
-    print("  * Plex Media Server:   http://localhost:32400/web")
     print("  * Jellyfin Server:     http://localhost:8096")
     print("  * Bazarr (Subtitles):  http://localhost:6767")
-    print("  * Suggestarr (AI):     http://localhost:4455")
-    print("  * Shoko (Anime):       http://localhost:8111")
-    print("  * Tdarr (Transcode):   http://localhost:8265")
+    print("  * Plex Media Server:   http://localhost:32400/web  (Optional)")
+    print("  * Suggestarr (AI):     http://localhost:4455      (Optional)")
+    print("  * Shoko (Anime):       http://localhost:8111      (Optional)")
+    print("  * Tdarr (Transcode):   http://localhost:8265      (Optional)")
     print("=" * 65)
 
 if __name__ == "__main__":

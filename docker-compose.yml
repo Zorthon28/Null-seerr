@@ -2,7 +2,7 @@ name: arr-stack
 
 services:
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
+    image: lscr.io/linuxserver/qbittorrent:5.0.4
     container_name: qbittorrent
     environment:
       - PUID=${PUID:-1000}
@@ -16,10 +16,16 @@ services:
       - ${QBIT_WEBUI_PORT:-8089}:8080
       - ${QBIT_TORRENT_PORT:-6881}:6881
       - ${QBIT_TORRENT_PORT:-6881}:6881/udp
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
+    image: lscr.io/linuxserver/prowlarr:1.31.2
     container_name: prowlarr
     environment:
       - PUID=${PUID:-1000}
@@ -29,20 +35,32 @@ services:
       - ${CONFIG_ROOT:-./arr-stack/config}/prowlarr:/config
     ports:
       - ${PROWLARR_PORT:-9696}:9696
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9696/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+    image: ghcr.io/flaresolverr/flaresolverr:v3.3.21
     container_name: flaresolverr
     environment:
       - LOG_LEVEL=info
       - TZ=${TZ:-Etc/UTC}
     ports:
       - ${FLARESOLVERR_PORT:-8191}:8191
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8191/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
   radarr:
-    image: lscr.io/linuxserver/radarr:latest
+    image: lscr.io/linuxserver/radarr:5.19.3
     container_name: radarr
     environment:
       - PUID=${PUID:-1000}
@@ -53,10 +71,16 @@ services:
       - ${DATA_ROOT:-./arr-stack/data}:/data
     ports:
       - ${RADARR_PORT:-7878}:7878
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7878/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
   sonarr:
-    image: lscr.io/linuxserver/sonarr:latest
+    image: lscr.io/linuxserver/sonarr:4.0.13.2934
     container_name: sonarr
     environment:
       - PUID=${PUID:-1000}
@@ -67,6 +91,12 @@ services:
       - ${DATA_ROOT:-./arr-stack/data}:/data
     ports:
       - ${SONARR_PORT:-8989}:8989
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8989/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
   seerr:
@@ -84,11 +114,62 @@ services:
       - ${NULL_SEERR_PORT:-5055}:5055
     volumes:
       - ${CONFIG_ROOT:-./arr-stack/config}/overseerr:/app/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5055/api/v1/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:10.10.6
+    container_name: jellyfin
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - ${CONFIG_ROOT:-./arr-stack/config}/jellyfin:/config
+      - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
+    ports:
+      - ${JELLYFIN_PORT:-8096}:8096
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8096/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:1.5.1
+    container_name: bazarr
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - ${CONFIG_ROOT:-./arr-stack/config}/bazarr:/config
+      - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
+    ports:
+      - ${BAZARR_PORT:-6767}:6767
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:6767/api || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ==========================================
+  # Optional Services (Activated via Profiles)
+  # ==========================================
+
   suggestarr:
-    image: ciuse99/suggestarr:latest
+    image: ciuse99/suggestarr:v2.1.0
     container_name: suggestarr
+    profiles: ["suggestarr", "ai", "all", "extended"]
     environment:
       - TZ=${TZ:-Etc/UTC}
     volumes:
@@ -98,8 +179,9 @@ services:
     restart: unless-stopped
 
   plex:
-    image: lscr.io/linuxserver/plex:latest
+    image: lscr.io/linuxserver/plex:1.41.4
     container_name: plex
+    profiles: ["plex", "all", "extended"]
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
@@ -112,37 +194,10 @@ services:
       - ${PLEX_PORT:-32400}:32400
     restart: unless-stopped
 
-  jellyfin:
-    image: lscr.io/linuxserver/jellyfin:latest
-    container_name: jellyfin
-    environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - TZ=${TZ:-Etc/UTC}
-    volumes:
-      - ${CONFIG_ROOT:-./arr-stack/config}/jellyfin:/config
-      - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
-    ports:
-      - ${JELLYFIN_PORT:-8096}:8096
-    restart: unless-stopped
-
-  bazarr:
-    image: lscr.io/linuxserver/bazarr:latest
-    container_name: bazarr
-    environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - TZ=${TZ:-Etc/UTC}
-    volumes:
-      - ${CONFIG_ROOT:-./arr-stack/config}/bazarr:/config
-      - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
-    ports:
-      - ${BAZARR_PORT:-6767}:6767
-    restart: unless-stopped
-
   shoko:
-    image: ghcr.io/shokoanime/server:latest
+    image: ghcr.io/shokoanime/server:4.2.2
     container_name: shoko
+    profiles: ["shoko", "anime", "all", "extended"]
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
@@ -155,8 +210,9 @@ services:
     restart: unless-stopped
 
   tdarr:
-    image: haveagitgat/tdarr:latest
+    image: haveagitgat/tdarr:2.35.01
     container_name: tdarr
+    profiles: ["tdarr", "all", "extended"]
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
@@ -176,8 +232,9 @@ services:
     restart: unless-stopped
 
   tdarr-node:
-    image: haveagitgat/tdarr_node:latest
+    image: haveagitgat/tdarr_node:2.35.01
     container_name: tdarr-node
+    profiles: ["tdarr", "all", "extended"]
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
@@ -193,26 +250,32 @@ services:
     restart: unless-stopped
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2025.2.0
     container_name: cloudflared
+    profiles: ["cloudflared", "tunnel", "all", "extended"]
     command: tunnel --no-autoupdate run
     environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-eyJhIjoiYjU0MjRkOWI3MzY2Mzg0NTIwMTVjYTM2YjU0MjZjZDUiLCJ0IjoiY2IyYjBlZjktYmI4OC00ZjAwLWFjN2QtNzVjMzIzZDFlMWI1IiwicyI6Ik0yWTROakU0WVRJdE1HVTNNaTAwWkRoaUxUaG1ORGt0WkRNd09UVTNZVFpsTVdJMSJ9}
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:?Set your Cloudflare Tunnel token via CLOUDFLARE_TUNNEL_TOKEN}
     restart: unless-stopped
 
   nullseerr-init:
     image: python:3.11-alpine
     container_name: nullseerr-init
     depends_on:
-      - seerr
-      - radarr
-      - sonarr
-      - prowlarr
-      - qbittorrent
-      - jellyfin
-      - plex
-      - bazarr
-      - shoko
+      seerr:
+        condition: service_healthy
+      radarr:
+        condition: service_healthy
+      sonarr:
+        condition: service_healthy
+      prowlarr:
+        condition: service_healthy
+      qbittorrent:
+        condition: service_healthy
+      jellyfin:
+        condition: service_healthy
+      bazarr:
+        condition: service_healthy
     volumes:
       - ${CONFIG_ROOT:-./arr-stack/config}:/config
       - ${DATA_ROOT:-./arr-stack/data}:/data
@@ -223,5 +286,4 @@ services:
       - STACK_ROOT=/app
     working_dir: /app
     entrypoint: ["sh", "-c", "pip install pyyaml requests bcrypt >/dev/null 2>&1 && python -u /app/wire_stack.py"]
-    restart: "no"
-
+    restart: on-failure:5

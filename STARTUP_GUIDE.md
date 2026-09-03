@@ -176,19 +176,20 @@ If deploying on a headless Linux server or custom environment:
 ## 6. Subsystem Configurations & Optimizations
 
 ### High-Throughput Download Engine (qBittorrent)
-The automated configuration applies the following performance parameters in `qBittorrent.conf`:
-- **Disk Write Cache**: Configured to 1024 MB RAM write buffer to minimize disk I/O thrashing during multi-gigabit downloads.
+The automated configuration applies the following performance and security parameters in `qBittorrent.conf`:
 - **Connection Limits**: 1500 maximum global connections, 500 connections per torrent.
-- **Async I/O Threads**: 16 dedicated disk threads.
-- **WebUI Host Header Validation**: Disabled to permit proxying and direct IP access across local subnets.
+- **Upload & Queue Limits**: 100 max uploads, 20 active downloads, 50 active torrents.
+- **Async I/O & Hashing Threads**: 16 dedicated disk threads and 4 hashing threads.
+- **Socket Buffers**: 4096 KiB receive and send buffer sizes, with 3072 KiB watermark factors.
+- **WebUI Security**: Enforces CSRF & Clickjacking protection and restricts subnet authentication while allowing internal Docker reverse proxying.
 
 ### Subtitle Automation (Bazarr)
 - **Language Profiles**: Profile 1 configured for dual English (`en`) and Spanish (`es`) acquisition with cutoff set to 2.
 - **Providers**: Pre-configured with free public providers including BSPlayer, SuperSubtitles, YifySubtitles, AnimeTosho, SubF2M, and EmbeddedSubtitles.
 
-### Swarm-Priority Quality Profiles (Radarr & Sonarr)
-- Both Radarr and Sonarr are configured with a unified **1080p (Any Source / Max Seeders)** quality grouping.
-- Rather than strictly rejecting releases that do not match exact scene tags (e.g. demanding Raw Remux over high-efficiency x265 encodes), the engine prioritizes torrents with the largest active swarm seeder and peer counts.
+### Unified 1080p Quality Profiles (Radarr & Sonarr)
+- Both Radarr and Sonarr are configured with a unified **1080p (Flexible Source / Any 1080p)** quality grouping.
+- Rather than strictly rejecting releases that do not match exact scene tags (e.g. demanding Raw Remux over high-efficiency x265 or WEB encodes), the engine groups Remux-1080p, Bluray-1080p, WEBDL-1080p, WEBRip-1080p, and HDTV-1080p into a single flexible quality tier so any valid 1080p release is accepted.
 
 ---
 

@@ -134,8 +134,9 @@ for folder in "${FOLDERS[@]}"; do
     fi
 done
 
-# Ensure folder permissions are open for containers
-chmod -R 775 "${STACK_ROOT}" 2>/dev/null || true
+# Set secure folder permissions
+find "${STACK_ROOT}" -type d -exec chmod 750 {} + 2>/dev/null || true
+find "${STACK_ROOT}/data" -type d -exec chmod 775 {} + 2>/dev/null || true
 echo -e "${GREEN}[OK] Folder hierarchy provisioned & permissions set${NC}"
 
 # 5. Copy Pre-Seeded Configuration Templates
@@ -190,12 +191,13 @@ TDARR_SERVER_PORT=8266
 FLARESOLVERR_PORT=8191
 EOF
 
+chmod 600 "$ENV_PATH" 2>/dev/null || true
 echo -e "${GREEN}[OK] .env configuration file generated${NC}"
 
 # 7. Start Docker Compose Stack
 echo -e "\n${CYAN}[*] Starting Null-seerr Media Stack...${NC}"
 cd "$REPO_DIR"
-$DOCKER_COMPOSE up -d --build
+$DOCKER_COMPOSE up -d --build "$@"
 
 echo -e "\n${CYAN}[*] Waiting for background auto-wiring engine...${NC}"
 sleep 15
@@ -203,6 +205,7 @@ sleep 15
 # 8. Display Final Credentials
 CRED_PATH="${STACK_ROOT}/CREDENTIALS.txt"
 CONFIG_CRED_PATH="${STACK_ROOT}/config/CREDENTIALS.txt"
+chmod 600 "$CRED_PATH" "$CONFIG_CRED_PATH" 2>/dev/null || true
 PASSWORD="Check ${CRED_PATH}"
 
 if [ -f "$CRED_PATH" ]; then
