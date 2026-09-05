@@ -100,10 +100,7 @@ services:
     restart: unless-stopped
 
   seerr:
-    image: null-seerr:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/zorthon28/null-seerr:latest
     container_name: null-seerr
     init: true
     environment:

@@ -183,9 +183,6 @@ jobs:
           - runner: ubuntu-24.04
             platform: linux/amd64
             arch: amd64
-          - runner: ubuntu-24.04-arm
-            platform: linux/arm64
-            arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - parallel:
@@ -231,10 +228,14 @@ jobs:
             with:
               persist-credentials: false
 
+          - name: Set up QEMU
+            uses: docker/setup-qemu-action@v3
+
           - name: Set up Docker Buildx
             uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_TOKEN != '' }}
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -256,7 +257,7 @@ jobs:
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
         with:
           images: |
-            ${{ env.DOCKER_HUB }}
+            ${{ secrets.DOCKER_USERNAME != '' && env.DOCKER_HUB || '' }}
             ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=develop

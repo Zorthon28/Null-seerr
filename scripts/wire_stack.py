@@ -667,6 +667,11 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                 settings["main"]["mediaServerType"] = 2 if jellyfin_info else 1
                 updated = True
 
+            if settings.get("main", {}).get("defaultPermissions") != 928:
+                settings["main"] = settings.get("main", {})
+                settings["main"]["defaultPermissions"] = 928
+                updated = True
+
             if not settings.get("plex", {}).get("ip"):
                 settings["plex"] = settings.get("plex", {})
                 settings["plex"]["ip"] = "plex"
@@ -794,6 +799,8 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                     cur.execute('''
                         UPDATE user SET username = ?, email = ?, password = ? WHERE id = 1;
                     ''', (admin_user, admin_email, hashed_pwd))
+                    cur.execute("UPDATE user SET permissions = 2 WHERE username = 'admin' OR id = 1;")
+                    cur.execute("UPDATE user SET permissions = permissions | 928 WHERE permissions < 928 AND permissions != 2;")
                     conn.commit()
                 conn.close()
         except Exception as e:
