@@ -81,6 +81,8 @@ const messages = defineMessages('components.Settings.SettingsMain', {
     'Allow the host computer to automatically sleep when idle to save power. Kept awake during active downloads and streaming. Wakeable via Wake-on-Wi-Fi.',
   wakeOnLanMac: 'Wake-on-LAN MAC Address',
   wakeOnLanMacCopied: 'Copied Wake-on-LAN MAC address to clipboard.',
+  wakeOnLanMacPlaceholder:
+    'Not detected (run setup_power_guard.ps1 to configure)',
   wakeOnLanHelp:
     'Use this MAC address in any mobile Wake-on-LAN app (UDP port 9) to wake your server from sleep in 2 seconds.',
   validationUrl: 'You must provide a valid URL',
@@ -678,13 +680,15 @@ const SettingsMain = () => {
                           id="hostWakeOnLanMac"
                           type="text"
                           readOnly
-                          value={data?.hostWakeOnLanMac ?? '10:3D:1C:AE:B3:FC'}
+                          placeholder={intl.formatMessage(
+                            messages.wakeOnLanMacPlaceholder
+                          )}
+                          value={data?.hostWakeOnLanMac || ''}
                           className="rounded-l-only"
                         />
                         <CopyButton
-                          textToCopy={
-                            data?.hostWakeOnLanMac ?? '10:3D:1C:AE:B3:FC'
-                          }
+                          textToCopy={data?.hostWakeOnLanMac || ''}
+                          disabled={!data?.hostWakeOnLanMac}
                           toastMessage={intl.formatMessage(
                             messages.wakeOnLanMacCopied
                           )}

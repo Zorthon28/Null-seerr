@@ -56,33 +56,84 @@ def is_sleep_on_idle_enabled():
             pass
     return False
 
+def get_qbittorrent_url():
+    url = os.environ.get("QBITTORRENT_URL")
+    if url:
+        return url.rstrip("/")
+    port = os.environ.get("QBIT_WEBUI_PORT", "8089")
+    return f"http://localhost:{port}"
+
+def get_jellyfin_url():
+    url = os.environ.get("JELLYFIN_URL")
+    if url:
+        return url.rstrip("/")
+    port = os.environ.get("JELLYFIN_PORT", "8096")
+    return f"http://localhost:{port}"
+
 def check_qbittorrent_active():
-    """Returns True if qBittorrent has active downloads or active high-speed seeding."""
+    """
+    Returns True if qBittorrent has active downloads or high-speed activity.
+    FAIL-SAFE: If the status cannot be verified (e.g. 401/403 auth required,
+    connection timeout, or server error), returns True to prevent sleeping during active downloads.
+    """
+    if os.environ.get("DISABLE_QBIT_CHECK", "0") == "1":
+        return False
+
+    base_url = get_qbittorrent_url()
+    url = f"{base_url}/api/v2/torrents/info?filter=downloading"
+    headers = {"User-Agent": "NullSeerrPowerGuard/1.0"}
+    cookie = os.environ.get("QBITTORRENT_COOKIE")
+    if cookie:
+        headers["Cookie"] = cookie
+
+    req = urllib.request.Request(url, headers=headers)
     try:
-        url = "http://localhost:8089/api/v2/torrents/info?filter=downloading"
-        req = urllib.request.Request(url, headers={"User-Agent": "NullSeerrPowerGuard/1.0"})
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if len(data) > 0:
-                return True
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                return len(data) > 0
+            # Non-200 status code (e.g. 401/403/500): fail-safe
+            return True
+    except urllib.error.HTTPError:
+        # HTTP 401 Unauthorized / 403 Forbidden etc.: fail-safe to keep host awake
+        return True
     except Exception:
-        pass
-    return False
+        # Network/timeout error: fail-safe
+        return True
 
 def check_jellyfin_active():
-    """Returns True if any client is currently playing media on Jellyfin."""
+    """
+    Returns True if any client is currently playing media on Jellyfin.
+    FAIL-SAFE: If the status cannot be verified (e.g. 401/403 auth required,
+    connection timeout, or server error), returns True to prevent sleeping during active playback.
+    """
+    if os.environ.get("DISABLE_JELLYFIN_CHECK", "0") == "1":
+        return False
+
+    base_url = get_jellyfin_url()
+    url = f"{base_url}/Sessions"
+    headers = {"User-Agent": "NullSeerrPowerGuard/1.0"}
+    token = os.environ.get("JELLYFIN_API_KEY") or os.environ.get("JELLYFIN_TOKEN")
+    if token:
+        headers["X-MediaBrowser-Token"] = token
+
+    req = urllib.request.Request(url, headers=headers)
     try:
-        url = "http://localhost:8096/Sessions"
-        req = urllib.request.Request(url, headers={"User-Agent": "NullSeerrPowerGuard/1.0"})
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            sessions = json.loads(resp.read().decode("utf-8"))
-            for s in sessions:
-                if s.get("NowPlayingItem") is not None:
-                    # Media is currently playing
-                    return True
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            if resp.status == 200:
+                sessions = json.loads(resp.read().decode("utf-8"))
+                for s in sessions:
+                    if s.get("NowPlayingItem") is not None:
+                        return True
+                return False
+            # Non-200 status code: fail-safe
+            return True
+    except urllib.error.HTTPError:
+        # HTTP 401 Unauthorized / 403 Forbidden etc.: fail-safe to keep host awake
+        return True
     except Exception:
-        pass
-    return False
+        # Network/timeout error: fail-safe
+        return True
 
 def main():
     currently_holding_awake = False

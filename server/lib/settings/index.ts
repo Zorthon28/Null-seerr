@@ -438,7 +438,7 @@ class Settings {
         versionCheck: true,
         downloadNotifications: true,
         sleepOnIdleEnabled: false,
-        hostWakeOnLanMac: '10:3D:1C:AE:B3:FC',
+        hostWakeOnLanMac: '',
       },
       plex: {
         name: '',
