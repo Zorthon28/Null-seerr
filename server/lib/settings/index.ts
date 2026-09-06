@@ -158,6 +158,8 @@ export interface MainSettings {
   youtubeUrl: string;
   versionCheck: boolean;
   downloadNotifications: boolean;
+  sleepOnIdleEnabled?: boolean;
+  hostWakeOnLanMac?: string;
 }
 
 export interface ProxySettings {
@@ -435,6 +437,8 @@ class Settings {
         youtubeUrl: '',
         versionCheck: true,
         downloadNotifications: true,
+        sleepOnIdleEnabled: false,
+        hostWakeOnLanMac: '10:3D:1C:AE:B3:FC',
       },
       plex: {
         name: '',
