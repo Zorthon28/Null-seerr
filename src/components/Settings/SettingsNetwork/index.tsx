@@ -1,15 +1,21 @@
+import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import Tooltip from '@app/components/Common/Tooltip';
+import CopyButton from '@app/components/Settings/CopyButton';
 import SettingsBadge from '@app/components/Settings/SettingsBadge';
 import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
-import { ArrowDownOnSquareIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowDownOnSquareIcon,
+  ArrowTopRightOnSquareIcon,
+} from '@heroicons/react/24/outline';
 import type { NetworkSettings } from '@server/lib/settings';
 import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
+import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import useSWR, { mutate } from 'swr';
 import * as Yup from 'yup';
@@ -60,7 +66,36 @@ const messages = defineMessages('components.Settings.SettingsNetwork', {
   apiRequestTimeoutTip:
     'Maximum time (in seconds) to wait for responses from external services like Radarr/Sonarr. Set to 0 for no timeout.',
   validationApiRequestTimeout: 'You must provide a valid timeout value',
+  cloudflareSectionTitle: 'Cloudflare Custom Domain & Tunnel',
+  cloudflareSectionDescription:
+    'Securely access Null-seerr from your own custom domain using Cloudflare Tunnel (cloudflared) with automatic HTTPS and no router port forwarding.',
+  cloudflareDomain: 'Custom Domain / Hostname',
+  cloudflareDomainTip: 'e.g. seerr.yourdomain.com or yourdomain.com',
+  cloudflareTunnelToken: 'Cloudflare Zero Trust Tunnel Token (Optional)',
+  cloudflareTunnelTokenTip:
+    'Paste your Zero Trust tunnel connector token to automate service installation on the host.',
+  cloudflareStatus: 'Tunnel Status',
+  cloudflareConnected: 'Tunnel Active & Running',
+  cloudflareInstalled: 'cloudflared Installed (Service Inactive)',
+  cloudflareNotInstalled: 'Not Installed',
+  cloudflareInstallButton: 'Save & Connect Domain',
+  cloudflareCliCommand: 'PowerShell Setup Command',
+  cloudflareCliCommandTip:
+    'Run this command in PowerShell to launch the guided interactive Cloudflare CLI wizard or automate tunnel creation.',
+  cloudflareCopiedCli: 'Copied PowerShell setup command to clipboard!',
+  cloudflareDomainSaved: 'Cloudflare domain configuration saved successfully!',
+  cloudflareMappedUrls: 'Automatically Configured Service URLs',
 });
+
+interface CloudflareStatusResponse {
+  installed: boolean;
+  serviceRunning: boolean;
+  domain: string;
+  subdomain?: string;
+  enabled: boolean;
+  tunnelTokenConfigured: boolean;
+  applicationUrl: string;
+}
 
 const SettingsNetwork = () => {
   const { addToast } = useToasts();
@@ -70,6 +105,81 @@ const SettingsNetwork = () => {
     error,
     mutate: revalidate,
   } = useSWR<NetworkSettings>('/api/v1/settings/network');
+
+  const { data: cfStatus, mutate: revalidateCfStatus } =
+    useSWR<CloudflareStatusResponse>(
+      '/api/v1/settings/network/cloudflare/status'
+    );
+  const [cfDomain, setCfDomain] = useState('');
+  const [cfToken, setCfToken] = useState('');
+  const [isSubmittingCf, setIsSubmittingCf] = useState(false);
+
+  useEffect(() => {
+    if (cfStatus?.domain && !cfDomain) {
+      setCfDomain(cfStatus.domain);
+    }
+  }, [cfStatus?.domain, cfDomain]);
+
+  const handleSaveCloudflare = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cfDomain) {
+      return;
+    }
+    setIsSubmittingCf(true);
+    try {
+      await axios.post('/api/v1/settings/network/cloudflare/install', {
+        domain: cfDomain,
+        tunnelToken: cfToken,
+      });
+      addToast(intl.formatMessage(messages.cloudflareDomainSaved), {
+        appearance: 'success',
+        autoDismiss: true,
+      });
+      revalidateCfStatus();
+      mutate('/api/v1/settings/public');
+    } catch {
+      addToast(intl.formatMessage(messages.toastSettingsFailure), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    } finally {
+      setIsSubmittingCf(false);
+    }
+  };
+
+  const getCleanApexDomain = (input: string): string => {
+    let raw = (input || '').trim().toLowerCase();
+    if (raw.startsWith('https://')) {
+      raw = raw.slice(8);
+    } else if (raw.startsWith('http://')) {
+      raw = raw.slice(7);
+    }
+    if (raw.startsWith('www.')) {
+      raw = raw.slice(4);
+    }
+    const slashIdx = raw.indexOf('/');
+    if (slashIdx !== -1) {
+      raw = raw.slice(0, slashIdx);
+    }
+    const colonIdx = raw.indexOf(':');
+    if (colonIdx !== -1) {
+      raw = raw.slice(0, colonIdx);
+    }
+    const sanitized = raw.replace(/[^a-z0-9.-]/g, '');
+    const parts = sanitized.split('.');
+    return parts.length > 2 ? parts.slice(-2).join('.') : sanitized;
+  };
+
+  const cleanApex = getCleanApexDomain(cfDomain || cfStatus?.domain || '');
+  const isValidApexDomain =
+    /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(cleanApex) &&
+    cleanApex.includes('.') &&
+    !cleanApex.startsWith('.') &&
+    !cleanApex.endsWith('.');
+
+  const cliSetupCommand = `powershell -ExecutionPolicy Bypass -File .\\scripts\\setup_cloudflare_tunnel.ps1 -Domain ${
+    cleanApex || 'nullraccoon.com'
+  }${cfToken ? ` -Token "${cfToken}"` : ''}`;
 
   const NetworkSettingsSchema = Yup.object().shape({
     dnsCacheForceMinTtl: Yup.number().when('dnsCacheEnabled', {
@@ -586,6 +696,181 @@ const SettingsNetwork = () => {
             );
           }}
         </Formik>
+      </div>
+      <div className="mt-10 mb-6">
+        <h3 className="heading">
+          {intl.formatMessage(messages.cloudflareSectionTitle)}
+        </h3>
+        <p className="description">
+          {intl.formatMessage(messages.cloudflareSectionDescription)}
+        </p>
+      </div>
+      <div className="section">
+        <form onSubmit={handleSaveCloudflare}>
+          <div className="form-row">
+            <span className="text-label">
+              {intl.formatMessage(messages.cloudflareStatus)}
+            </span>
+            <div className="form-input-area">
+              <div className="flex items-center space-x-3">
+                {cfStatus?.serviceRunning ? (
+                  <Badge badgeType="success">
+                    {intl.formatMessage(messages.cloudflareConnected)}
+                  </Badge>
+                ) : cfStatus?.installed ? (
+                  <Badge badgeType="warning">
+                    {intl.formatMessage(messages.cloudflareInstalled)}
+                  </Badge>
+                ) : (
+                  <Badge badgeType="default">
+                    {intl.formatMessage(messages.cloudflareNotInstalled)}
+                  </Badge>
+                )}
+                {cfStatus?.domain && (
+                  <a
+                    href={`https://${cfStatus.domain}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center text-sm text-indigo-400 hover:text-indigo-300 transition"
+                  >
+                    <span>{`https://${cfStatus.domain}`}</span>
+                    <ArrowTopRightOnSquareIcon className="w-4 h-4 ml-1" />
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="cfDomain" className="text-label">
+              {intl.formatMessage(messages.cloudflareDomain)}
+              <span className="label-tip">
+                {intl.formatMessage(messages.cloudflareDomainTip)}
+              </span>
+            </label>
+            <div className="form-input-area">
+              <div className="form-input-field">
+                <input
+                  id="cfDomain"
+                  type="text"
+                  placeholder="e.g. https://www.nullraccoon.com/ or nullraccoon.com"
+                  value={cfDomain}
+                  onChange={(e) => setCfDomain(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {isValidApexDomain && (
+            <div className="form-row">
+              <span className="text-label">
+                {intl.formatMessage(messages.cloudflareMappedUrls)}
+              </span>
+              <div className="form-input-area">
+                <div className="rounded-md bg-gray-800 p-3 text-xs space-y-1.5 text-gray-300 border border-gray-700">
+                  {[
+                    { name: 'Null-seerr', sub: 'nullseerr' },
+                    { name: 'Jellyfin', sub: 'jellyfin' },
+                    { name: 'Radarr', sub: 'radarr' },
+                    { name: 'Sonarr', sub: 'sonarr' },
+                    { name: 'qBittorrent', sub: 'qbittorrent' },
+                    { name: 'Prowlarr', sub: 'prowlarr' },
+                  ].map((service, idx, arr) => {
+                    const safeHost = `${encodeURIComponent(service.sub)}.${encodeURIComponent(cleanApex)}`;
+                    const safeUrl = `https://${safeHost}`;
+                    const isLast = idx === arr.length - 1;
+
+                    return (
+                      <div
+                        key={service.sub}
+                        className={`flex justify-between py-0.5 ${
+                          !isLast ? 'border-b border-gray-700' : ''
+                        }`}
+                      >
+                        <span className="font-semibold text-white">
+                          {service.name}
+                        </span>
+                        <a
+                          href={safeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-400 hover:underline"
+                        >
+                          {safeUrl}
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="form-row">
+            <label htmlFor="cfToken" className="text-label">
+              {intl.formatMessage(messages.cloudflareTunnelToken)}
+              <span className="label-tip">
+                {intl.formatMessage(messages.cloudflareTunnelTokenTip)}
+              </span>
+            </label>
+            <div className="form-input-area">
+              <div className="form-input-field">
+                <input
+                  id="cfToken"
+                  type="password"
+                  placeholder="eyJh..."
+                  value={cfToken}
+                  onChange={(e) => setCfToken(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="cfCliCommand" className="text-label">
+              {intl.formatMessage(messages.cloudflareCliCommand)}
+              <span className="label-tip">
+                {intl.formatMessage(messages.cloudflareCliCommandTip)}
+              </span>
+            </label>
+            <div className="form-input-area">
+              <div className="form-input-field">
+                <input
+                  id="cfCliCommand"
+                  type="text"
+                  readOnly
+                  value={cliSetupCommand}
+                  className="rounded-l-only"
+                />
+                <CopyButton
+                  textToCopy={cliSetupCommand}
+                  toastMessage={intl.formatMessage(
+                    messages.cloudflareCopiedCli
+                  )}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="actions">
+            <div className="flex justify-end">
+              <span className="ml-3 inline-flex rounded-md shadow-sm">
+                <Button
+                  buttonType="primary"
+                  type="submit"
+                  disabled={isSubmittingCf || !cfDomain}
+                >
+                  <ArrowDownOnSquareIcon />
+                  <span>
+                    {isSubmittingCf
+                      ? intl.formatMessage(globalMessages.saving)
+                      : intl.formatMessage(messages.cloudflareInstallButton)}
+                  </span>
+                </Button>
+              </span>
+            </div>
+          </div>
+        </form>
       </div>
     </>
   );

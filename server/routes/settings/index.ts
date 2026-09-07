@@ -30,6 +30,8 @@ import { appDataPath } from '@server/utils/appDataVolume';
 import { getAppVersion } from '@server/utils/appVersion';
 import { dnsCache } from '@server/utils/dnsCache';
 import { getHostname } from '@server/utils/getHostname';
+import { execSync } from 'child_process';
+import dns from 'dns';
 import type { DnsEntries, DnsStats } from 'dns-caching';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -96,6 +98,143 @@ settingsRoutes.post('/network', async (req, res) => {
 
   return res.status(200).json(settings.network);
 });
+
+const isCloudflaredInstalled = async (): Promise<boolean> => {
+  try {
+    const isDocker = await new Promise<boolean>((resolve) => {
+      dns.lookup('cloudflared', (err) => resolve(!err));
+    });
+    if (isDocker) {
+      return true;
+    }
+  } catch {
+    // continue
+  }
+
+  try {
+    const isWindows = process.platform === 'win32';
+    const cmd = isWindows ? 'where cloudflared' : 'which cloudflared';
+    execSync(cmd, { stdio: 'ignore', timeout: 3000 });
+    return true;
+  } catch {
+    if (process.platform === 'win32') {
+      const candidates = [
+        'C:\\Program Files\\cloudflared\\cloudflared.exe',
+        'C:\\arr-stack\\bin\\cloudflared.exe',
+        path.join(__dirname, '../../../scripts/cloudflared.exe'),
+      ];
+      return candidates.some((p) => fs.existsSync(p));
+    }
+    return false;
+  }
+};
+
+const isCloudflaredServiceRunning = async (): Promise<boolean> => {
+  try {
+    const isDocker = await new Promise<boolean>((resolve) => {
+      dns.lookup('cloudflared', (err) => resolve(!err));
+    });
+    if (isDocker) {
+      return true;
+    }
+  } catch {
+    // continue
+  }
+
+  try {
+    if (process.platform === 'win32') {
+      const output = execSync('sc query cloudflared', {
+        encoding: 'utf-8',
+        timeout: 3000,
+      });
+      return output.includes('RUNNING');
+    } else {
+      const output = execSync('systemctl is-active cloudflared', {
+        encoding: 'utf-8',
+        timeout: 3000,
+      });
+      return output.trim() === 'active';
+    }
+  } catch {
+    return false;
+  }
+};
+
+settingsRoutes.get('/network/cloudflare/status', async (_req, res) => {
+  const settings = getSettings();
+  const installed = await isCloudflaredInstalled();
+  const serviceRunning = await isCloudflaredServiceRunning();
+
+  return res.status(200).json({
+    installed,
+    serviceRunning,
+    domain: settings.network.cloudflare?.domain || '',
+    subdomain: settings.network.cloudflare?.subdomain || 'nullseerr',
+    enabled: Boolean(settings.network.cloudflare?.enabled),
+    tunnelTokenConfigured: Boolean(settings.network.cloudflare?.tunnelToken),
+    applicationUrl: settings.main.applicationUrl,
+  });
+});
+
+settingsRoutes.post(
+  '/network/cloudflare/install',
+  rateLimit({ windowMs: 60 * 1000, max: 20 }),
+  async (req, res) => {
+    const settings = getSettings();
+    const { domain, tunnelToken, subdomain } = req.body;
+
+    if (!domain) {
+      return res.status(400).json({ message: 'Domain is required' });
+    }
+
+    // Clean domain: strip https://, http://, www., paths, and ports without polynomial regex
+    let cleanInput = String(domain).trim().toLowerCase();
+    if (cleanInput.startsWith('https://')) {
+      cleanInput = cleanInput.slice(8);
+    } else if (cleanInput.startsWith('http://')) {
+      cleanInput = cleanInput.slice(7);
+    }
+    if (cleanInput.startsWith('www.')) {
+      cleanInput = cleanInput.slice(4);
+    }
+    const firstSlash = cleanInput.indexOf('/');
+    if (firstSlash !== -1) {
+      cleanInput = cleanInput.slice(0, firstSlash);
+    }
+    const firstColon = cleanInput.indexOf(':');
+    if (firstColon !== -1) {
+      cleanInput = cleanInput.slice(0, firstColon);
+    }
+    const rawDomain = cleanInput.replace(/[^a-z0-9.-]/g, '');
+
+    const parts = rawDomain.split('.');
+    const apexDomain = parts.length > 2 ? parts.slice(-2).join('.') : rawDomain;
+    const chosenSubdomain = subdomain
+      ? String(subdomain).trim().replace(/[^a-z0-9.-]/gi, '')
+      : 'nullseerr';
+
+    const formattedUrl = `https://${chosenSubdomain}.${apexDomain}`;
+
+    settings.network.cloudflare = {
+      enabled: true,
+      domain: apexDomain,
+      subdomain: chosenSubdomain,
+      tunnelToken: tunnelToken
+        ? String(tunnelToken).trim()
+        : settings.network.cloudflare?.tunnelToken || '',
+    };
+    settings.main.applicationUrl = formattedUrl;
+
+    await settings.save();
+
+    return res.status(200).json({
+      message: 'Cloudflare domain configuration saved successfully',
+      domain: apexDomain,
+      applicationUrl: formattedUrl,
+      serviceInstalled: false,
+    });
+  }
+);
 
 settingsRoutes.post('/main/regenerate', async (req, res, next) => {
   const settings = getSettings();

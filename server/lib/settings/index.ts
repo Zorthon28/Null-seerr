@@ -158,6 +158,8 @@ export interface MainSettings {
   youtubeUrl: string;
   versionCheck: boolean;
   downloadNotifications: boolean;
+  sleepOnIdleEnabled?: boolean;
+  hostWakeOnLanMac?: string;
 }
 
 export interface ProxySettings {
@@ -177,6 +179,13 @@ export interface DnsCacheSettings {
   forceMaxTtl?: number;
 }
 
+export interface CloudflareSettings {
+  enabled: boolean;
+  domain: string;
+  subdomain?: string;
+  tunnelToken?: string;
+}
+
 export interface NetworkSettings {
   csrfProtection: boolean;
   forceIpv4First: boolean;
@@ -184,6 +193,7 @@ export interface NetworkSettings {
   proxy: ProxySettings;
   dnsCache: DnsCacheSettings;
   apiRequestTimeout: number;
+  cloudflare?: CloudflareSettings;
 }
 
 interface PublicSettings {
@@ -435,6 +445,8 @@ class Settings {
         youtubeUrl: '',
         versionCheck: true,
         downloadNotifications: true,
+        sleepOnIdleEnabled: false,
+        hostWakeOnLanMac: '',
       },
       plex: {
         name: '',
@@ -636,6 +648,12 @@ class Settings {
           forceMaxTtl: -1,
         },
         apiRequestTimeout: 10000,
+        cloudflare: {
+          enabled: false,
+          domain: '',
+          subdomain: '',
+          tunnelToken: '',
+        },
       },
       migrations: [],
     };
