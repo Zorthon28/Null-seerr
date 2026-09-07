@@ -2,6 +2,7 @@ import Header from '@app/components/Common/Header';
 import PageTitle from '@app/components/Common/PageTitle';
 import type { NextPage } from 'next';
 import { useEffect, useState } from 'react';
+import useSWR from 'swr';
 import PlexLogo from '@app/assets/services/plex.svg';
 import JellyfinLogo from '@app/assets/services/jellyfin.svg';
 import RadarrLogo from '@app/assets/services/radarr.svg';
@@ -13,7 +14,11 @@ import SuggestarrLogo from '@app/assets/services/suggestarr.svg';
 import FlareSolverrLogo from '@app/assets/services/flaresolverr.svg';
 import TdarrLogo from '@app/assets/services/tdarr.svg';
 import ShokoLogo from '@app/assets/services/shoko.svg';
-import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowTopRightOnSquareIcon,
+  GlobeAltIcon,
+  ServerIcon,
+} from '@heroicons/react/24/outline';
 
 interface AppItem {
   id: string;
@@ -21,9 +26,20 @@ interface AppItem {
   category: 'Media' | 'Management' | 'Indexers & Downloads' | 'Automation & Encoding' | 'Anime';
   port: number;
   path?: string;
+  subdomain?: string;
   logo: React.ComponentType<{ className?: string }>;
   role: string;
   description: string;
+}
+
+interface CloudflareStatusResponse {
+  installed: boolean;
+  serviceRunning: boolean;
+  domain: string;
+  subdomain: string;
+  enabled: boolean;
+  tunnelTokenConfigured: boolean;
+  applicationUrl?: string;
 }
 
 const APPS: AppItem[] = [
@@ -33,6 +49,7 @@ const APPS: AppItem[] = [
     category: 'Media',
     port: 32400,
     path: '/web',
+    subdomain: 'plex',
     logo: PlexLogo,
     role: 'Universal Media Streaming Server',
     description: 'Hardware-accelerated media streaming platform with multi-device sync, smart collections, and unified user profiles.',
@@ -42,6 +59,8 @@ const APPS: AppItem[] = [
     name: 'Jellyfin',
     category: 'Media',
     port: 8096,
+    path: '/web/',
+    subdomain: 'jellyfin',
     logo: JellyfinLogo,
     role: 'Open-Source Media Streaming Server',
     description: 'Personal media server with Jellyskin dark theme, Intro Skipper, and full Spanish/English subtitle & audio track support.',
@@ -51,6 +70,7 @@ const APPS: AppItem[] = [
     name: 'Radarr',
     category: 'Management',
     port: 7878,
+    subdomain: 'radarr',
     logo: RadarrLogo,
     role: 'Movie Collection Manager',
     description: 'Automated movie manager with TRaSH Guides custom format scoring, standardized naming formats, and automatic quality upgrades.',
@@ -60,6 +80,7 @@ const APPS: AppItem[] = [
     name: 'Sonarr',
     category: 'Management',
     port: 8989,
+    subdomain: 'sonarr',
     logo: SonarrLogo,
     role: 'TV & Anime Series Manager',
     description: 'Automated TV series & anime organizer with Japanese audio priority, season tracking, and TRaSH quality profiles.',
@@ -69,6 +90,7 @@ const APPS: AppItem[] = [
     name: 'Prowlarr',
     category: 'Indexers & Downloads',
     port: 9696,
+    subdomain: 'prowlarr',
     logo: ProwlarrLogo,
     role: 'Indexers & Trackers Manager',
     description: 'Pre-seeded with popular public indexers (YTS, Nyaa, The Pirate Bay, AnimeTosho) and FlareSolverr Cloudflare bypass.',
@@ -78,6 +100,7 @@ const APPS: AppItem[] = [
     name: 'qBittorrent',
     category: 'Indexers & Downloads',
     port: 8089,
+    subdomain: 'qbittorrent',
     logo: QBittorrentLogo,
     role: 'High-Speed BitTorrent Client',
     description: 'Optimized download client with automated category routing (movies/tv), tier-1 public trackers, and unified credentials.',
@@ -87,6 +110,7 @@ const APPS: AppItem[] = [
     name: 'Bazarr',
     category: 'Automation & Encoding',
     port: 6767,
+    subdomain: 'bazarr',
     logo: BazarrLogo,
     role: 'Subtitles Automation',
     description: 'Companion for Radarr and Sonarr that automatically searches, downloads, and syncs Spanish and English subtitles.',
@@ -96,6 +120,7 @@ const APPS: AppItem[] = [
     name: 'Suggestarr',
     category: 'Automation & Encoding',
     port: 4455,
+    subdomain: 'suggestarr',
     logo: SuggestarrLogo,
     role: 'AI & Trend Recommendations',
     description: 'Smart discovery service analyzing your library and trends to automatically recommend movies and series.',
@@ -105,6 +130,7 @@ const APPS: AppItem[] = [
     name: 'Tdarr',
     category: 'Automation & Encoding',
     port: 8265,
+    subdomain: 'tdarr',
     logo: TdarrLogo,
     role: 'Transcoding & Space Saver',
     description: 'Automated video compressor converting media to HEVC/AV1 to save 40-60% disk space while keeping preferred audio tracks.',
@@ -114,6 +140,8 @@ const APPS: AppItem[] = [
     name: 'Shoko Server',
     category: 'Anime',
     port: 8111,
+    path: '/webui/',
+    subdomain: 'shoko',
     logo: ShokoLogo,
     role: 'Anime AniDB Engine',
     description: 'Advanced anime collection engine using AniDB hash matching for exact episode titles, specials, and Shokofin sync.',
@@ -123,6 +151,7 @@ const APPS: AppItem[] = [
     name: 'FlareSolverr',
     category: 'Indexers & Downloads',
     port: 8191,
+    subdomain: 'flaresolverr',
     logo: FlareSolverrLogo,
     role: 'Cloudflare Proxy Helper',
     description: 'Proxy service allowing Prowlarr to bypass Cloudflare anti-bot protection and solve challenge pages seamlessly.',
@@ -131,15 +160,94 @@ const APPS: AppItem[] = [
 
 const CATEGORIES = ['All', 'Media', 'Management', 'Indexers & Downloads', 'Automation & Encoding', 'Anime'] as const;
 
+const isLocalHost = (hostname: string): boolean => {
+  if (!hostname) return true;
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname.endsWith('.local')
+  ) {
+    return true;
+  }
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (ipv4Regex.test(hostname)) {
+    return true;
+  }
+  return false;
+};
+
+const getApexDomain = (hostname: string, configuredDomain?: string): string => {
+  let cleanConfigured = (configuredDomain || '').trim().toLowerCase();
+  if (cleanConfigured.startsWith('https://')) {
+    cleanConfigured = cleanConfigured.slice(8);
+  } else if (cleanConfigured.startsWith('http://')) {
+    cleanConfigured = cleanConfigured.slice(7);
+  }
+  if (cleanConfigured.startsWith('www.')) {
+    cleanConfigured = cleanConfigured.slice(4);
+  }
+  const slashIdx = cleanConfigured.indexOf('/');
+  if (slashIdx !== -1) {
+    cleanConfigured = cleanConfigured.slice(0, slashIdx);
+  }
+  const colonIdx = cleanConfigured.indexOf(':');
+  if (colonIdx !== -1) {
+    cleanConfigured = cleanConfigured.slice(0, colonIdx);
+  }
+  cleanConfigured = cleanConfigured.replace(/[^a-z0-9.-]/g, '');
+
+  if (cleanConfigured && (hostname.endsWith(cleanConfigured) || isLocalHost(hostname))) {
+    return cleanConfigured;
+  }
+
+  if (!isLocalHost(hostname)) {
+    const parts = hostname.toLowerCase().split('.');
+    if (parts.length > 2) {
+      return parts.slice(-2).join('.');
+    }
+    return hostname;
+  }
+
+  return cleanConfigured;
+};
+
 const AppsPage: NextPage = () => {
+  const { data: cfStatus } = useSWR<CloudflareStatusResponse>(
+    '/api/v1/settings/network/cloudflare/status'
+  );
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [currentHost, setCurrentHost] = useState<string>('localhost');
+  const [accessMode, setAccessMode] = useState<'domain' | 'local'>('local');
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.location.hostname) {
-      setCurrentHost(window.location.hostname);
+      const host = window.location.hostname;
+      setCurrentHost(host);
+      if (!isLocalHost(host) || window.location.protocol === 'https:') {
+        setAccessMode('domain');
+      }
     }
   }, []);
+
+  const apexDomain = getApexDomain(currentHost, cfStatus?.domain);
+  const hasDomain = Boolean(apexDomain);
+
+  const getAppUrl = (app: AppItem) => {
+    if (accessMode === 'domain' && apexDomain) {
+      const sub = app.subdomain || app.id;
+      return `https://${sub}.${apexDomain}${app.path || ''}`;
+    }
+    return `http://${currentHost}:${app.port}${app.path || ''}`;
+  };
+
+  const getAppDisplayHost = (app: AppItem) => {
+    if (accessMode === 'domain' && apexDomain) {
+      const sub = app.subdomain || app.id;
+      return `${sub}.${apexDomain}`;
+    }
+    return `:${app.port}`;
+  };
 
   const filteredApps =
     selectedCategory === 'All'
@@ -166,9 +274,38 @@ const AppsPage: NextPage = () => {
             {APPS.length} Stack Services Active &amp; Online
           </span>
         </div>
-        <span className="font-mono text-xs text-gray-400">
-          Environment: Media Automation Stack (C:\arr-stack)
-        </span>
+
+        {hasDomain && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 font-medium">Link Mode:</span>
+            <div className="inline-flex rounded-lg bg-gray-800/90 p-1 border border-gray-700/60 text-xs">
+              <button
+                type="button"
+                onClick={() => setAccessMode('domain')}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-semibold transition-all ${
+                  accessMode === 'domain'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                <GlobeAltIcon className="h-3.5 w-3.5" />
+                <span>Cloudflare ({apexDomain})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAccessMode('local')}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1 font-semibold transition-all ${
+                  accessMode === 'local'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                <ServerIcon className="h-3.5 w-3.5" />
+                <span>Local Ports</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Category Filter Navigation */}
@@ -193,7 +330,8 @@ const AppsPage: NextPage = () => {
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pb-12">
         {filteredApps.map((app) => {
           const LogoComponent = app.logo;
-          const serviceUrl = `http://${currentHost}:${app.port}${app.path || ''}`;
+          const serviceUrl = getAppUrl(app);
+          const displayHost = getAppDisplayHost(app);
 
           return (
             <div
@@ -227,17 +365,17 @@ const AppsPage: NextPage = () => {
                 </p>
               </div>
 
-              {/* Footer: Live Port Tag + Direct Open Button */}
+              {/* Footer: Live Port / Domain Tag + Direct Open Button */}
               <div className="mt-5 pt-3.5 border-t border-gray-800/80 flex items-center justify-between gap-2">
-                <span className="font-mono text-xs text-gray-400">
-                  :{app.port}
+                <span className="font-mono text-xs text-gray-400 truncate max-w-[170px]" title={displayHost}>
+                  {displayHost}
                 </span>
 
                 <a
                   href={serviceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-gray-800 hover:bg-indigo-600 border border-gray-700 hover:border-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-gray-200 hover:text-white transition-all duration-150 shadow-sm"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-gray-800 hover:bg-indigo-600 border border-gray-700 hover:border-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-gray-200 hover:text-white transition-all duration-150 shadow-sm flex-shrink-0"
                 >
                   <span>Open</span>
                   <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />

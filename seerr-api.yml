@@ -304,6 +304,21 @@ components:
             forceMaxTtl:
               type: number
               example: -1
+        cloudflare:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              example: false
+            domain:
+              type: string
+              example: ''
+            subdomain:
+              type: string
+              example: ''
+            tunnelToken:
+              type: string
+              example: ''
     PlexLibrary:
       type: object
       properties:
@@ -2271,6 +2286,71 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NetworkSettings'
+  /settings/network/cloudflare/status:
+    get:
+      summary: Get Cloudflare tunnel status
+      description: Retrieves Cloudflare tunnel installation and service status.
+      tags:
+        - settings
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  installed:
+                    type: boolean
+                  serviceRunning:
+                    type: boolean
+                  domain:
+                    type: string
+                  subdomain:
+                    type: string
+                  enabled:
+                    type: boolean
+                  tunnelTokenConfigured:
+                    type: boolean
+                  applicationUrl:
+                    type: string
+  /settings/network/cloudflare/install:
+    post:
+      summary: Install and configure Cloudflare domain and tunnel
+      description: Configures domain, tunnel token, and optionally installs the background service.
+      tags:
+        - settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - domain
+              properties:
+                domain:
+                  type: string
+                tunnelToken:
+                  type: string
+                subdomain:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  domain:
+                    type: string
+                  applicationUrl:
+                    type: string
+                  serviceInstalled:
+                    type: boolean
   /settings/main/regenerate:
     post:
       summary: Get main settings with newly-generated API key

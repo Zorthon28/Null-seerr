@@ -76,6 +76,15 @@ const messages = defineMessages('components.Settings.SettingsMain', {
     'Base URL for YouTube videos if a self-hosted YouTube instance is used.',
   versionCheck: 'Version Check',
   versionCheckTip: 'Automatically check for new versions on GitHub.',
+  sleepOnIdleEnabled: 'Host Power Management (Sleep on Idle)',
+  sleepOnIdleEnabledTip:
+    'Allow the host computer to automatically sleep when idle to save power. Kept awake during active downloads and streaming. Wakeable via Wake-on-Wi-Fi.',
+  wakeOnLanMac: 'Wake-on-LAN MAC Address',
+  wakeOnLanMacCopied: 'Copied Wake-on-LAN MAC address to clipboard.',
+  wakeOnLanMacPlaceholder:
+    'Not detected (run setup_power_guard.ps1 to configure)',
+  wakeOnLanHelp:
+    'Use this MAC address in any mobile Wake-on-LAN app (UDP port 9) to wake your server from sleep in 2 seconds.',
   validationUrl: 'You must provide a valid URL',
   validationUrlTrailingSlash: 'URL must not end in a trailing slash',
 });
@@ -186,6 +195,7 @@ const SettingsMain = () => {
             cacheImages: data?.cacheImages,
             youtubeUrl: data?.youtubeUrl,
             versionCheck: data?.versionCheck,
+            sleepOnIdleEnabled: data?.sleepOnIdleEnabled ?? false,
           }}
           enableReinitialize
           validationSchema={MainSettingsSchema}
@@ -209,6 +219,7 @@ const SettingsMain = () => {
                 cacheImages: values.cacheImages,
                 youtubeUrl: values.youtubeUrl,
                 versionCheck: values?.versionCheck,
+                sleepOnIdleEnabled: values.sleepOnIdleEnabled,
               });
               mutate('/api/v1/settings/public');
               mutate('/api/v1/status');
@@ -629,6 +640,63 @@ const SettingsMain = () => {
                     />
                   </div>
                 </div>
+                <div className="form-row">
+                  <label
+                    htmlFor="sleepOnIdleEnabled"
+                    className="checkbox-label"
+                  >
+                    <span className="mr-2">
+                      {intl.formatMessage(messages.sleepOnIdleEnabled)}
+                    </span>
+                    <span className="label-tip">
+                      {intl.formatMessage(messages.sleepOnIdleEnabledTip)}
+                    </span>
+                  </label>
+                  <div className="form-input-area">
+                    <Field
+                      type="checkbox"
+                      id="sleepOnIdleEnabled"
+                      name="sleepOnIdleEnabled"
+                      onChange={() => {
+                        setFieldValue(
+                          'sleepOnIdleEnabled',
+                          !values.sleepOnIdleEnabled
+                        );
+                      }}
+                    />
+                  </div>
+                </div>
+                {values.sleepOnIdleEnabled && (
+                  <div className="form-row">
+                    <label htmlFor="hostWakeOnLanMac" className="text-label">
+                      {intl.formatMessage(messages.wakeOnLanMac)}
+                      <span className="label-tip">
+                        {intl.formatMessage(messages.wakeOnLanHelp)}
+                      </span>
+                    </label>
+                    <div className="form-input-area">
+                      <div className="form-input-field">
+                        <input
+                          id="hostWakeOnLanMac"
+                          type="text"
+                          readOnly
+                          placeholder={intl.formatMessage(
+                            messages.wakeOnLanMacPlaceholder
+                          )}
+                          value={data?.hostWakeOnLanMac || ''}
+                          className="rounded-l-only"
+                        />
+                        <CopyButton
+                          textToCopy={data?.hostWakeOnLanMac || ''}
+                          disabled={!data?.hostWakeOnLanMac}
+                          toastMessage={intl.formatMessage(
+                            messages.wakeOnLanMacCopied
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="actions">
                   <div className="flex justify-end">
                     <span className="ml-3 inline-flex rounded-md shadow-sm">

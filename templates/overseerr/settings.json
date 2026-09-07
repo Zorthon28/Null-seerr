@@ -29,7 +29,9 @@
   "locale": "en",
   "youtubeUrl": "",
   "versionCheck": true,
-  "downloadNotifications": true
+  "downloadNotifications": true,
+  "sleepOnIdleEnabled": false,
+  "hostWakeOnLanMac": ""
  },
  "plex": {
   "name": "Plex",
