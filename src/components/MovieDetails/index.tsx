@@ -178,7 +178,23 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
     iOSPlexUrl4k: data?.mediaInfo?.iOSPlexUrl4k,
   });
 
-  const { watchStatus } = useWatchStatus('movie', data?.id);
+  const {
+    watchStatus,
+    markWatchStatus,
+    isUpdating: isWatchUpdating,
+  } = useWatchStatus('movie', data?.id);
+
+  const toggleMovieWatch = async () => {
+    if (!watchStatus?.hasMedia) return;
+    const newPlayed = !watchStatus.played;
+    await markWatchStatus({ played: newPlayed });
+    addToast(
+      newPlayed
+        ? 'Marked movie as watched in Jellyfin'
+        : 'Marked movie as unwatched in Jellyfin',
+      { appearance: 'success', autoDismiss: true }
+    );
+  };
 
   if (!data && !error) {
     return <LoadingSpinner />;
@@ -547,7 +563,17 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 />
               )}
             {watchStatus?.hasMedia && (
-              <>
+              <button
+                type="button"
+                disabled={isWatchUpdating}
+                onClick={toggleMovieWatch}
+                title={
+                  watchStatus.played
+                    ? 'Click to mark movie as unwatched in Jellyfin'
+                    : 'Click to mark movie as watched in Jellyfin'
+                }
+                className="transition cursor-pointer hover:opacity-85 focus:outline-none"
+              >
                 {watchStatus.played ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-green-900/60 px-3 py-1 text-xs font-semibold text-green-300 ring-1 ring-inset ring-green-500/40">
                     <svg className="h-3.5 w-3.5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
@@ -564,8 +590,19 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                     <span>👀</span>
                     In Progress ({watchStatus.playbackPositionPercentage}%)
                   </span>
-                ) : null}
-              </>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-800/80 px-3 py-1 text-xs font-semibold text-gray-400 ring-1 ring-inset ring-gray-700 hover:text-gray-200">
+                    <svg className="h-3.5 w-3.5 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    Mark Watched
+                  </span>
+                )}
+              </button>
             )}
           </div>
           {((data.mediaInfo?.downloadStatus ?? []).length > 0 ||
@@ -663,6 +700,41 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 )}
               </>
             )}
+          {watchStatus?.hasMedia && (
+            <Tooltip
+              content={
+                watchStatus.played
+                  ? 'Mark movie as unwatched in Jellyfin'
+                  : 'Mark movie as watched in Jellyfin'
+              }
+            >
+              <Button
+                buttonType={'ghost'}
+                className="z-40 mr-2"
+                buttonSize={'md'}
+                disabled={isWatchUpdating}
+                onClick={toggleMovieWatch}
+              >
+                {isWatchUpdating ? (
+                  <Spinner />
+                ) : (
+                  <svg
+                    className={`h-5 w-5 ${
+                      watchStatus.played ? 'text-green-400' : 'text-gray-400 hover:text-green-400'
+                    }`}
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+              </Button>
+            </Tooltip>
+          )}
           <div className="z-20">
             <PlayButton links={mediaLinks} />
           </div>
