@@ -32,7 +32,7 @@ param(
     [string]$Token,
 
     [Parameter(Mandatory = $false)]
-    [string]$Subdomain = "seerr",
+    [string]$Subdomain = "nullseerr",
 
     [Parameter(Mandatory = $false)]
     [string]$JellyfinSubdomain = "jellyfin",
@@ -78,19 +78,24 @@ if ($cloudflaredCmd) {
 
 # 2. Prompt for Domain if not provided
 if (-not $Domain) {
-    $Domain = Read-Host "`n[?] Enter your custom domain (e.g. example.com or seerr.example.com)"
+    $Domain = Read-Host "`n[?] Enter your custom domain (e.g. https://www.nullraccoon.com/ or nullraccoon.com)"
     if (-not $Domain) {
         Write-Host "[ERROR] A domain name is required to proceed." -ForegroundColor Red
         Exit 1
     }
 }
 
-$Domain = $Domain.Trim().ToLower() -replace "^https?://", "" -replace "/$", ""
-$fullSeerrHostname = if ($Domain -match "\.") {
-    if ($Domain.StartsWith("$Subdomain.")) { $Domain } else { "$Subdomain.$Domain" }
-} else {
-    "$Subdomain.$Domain"
+# Clean domain: strip https://, http://, www., and trailing slash/paths
+$rawDomain = $Domain.Trim().ToLower() -replace "^https?://", "" -replace "/.*$", "" -replace "^www\.", ""
+$parts = $rawDomain.Split('.')
+$apexDomain = if ($parts.Count -gt 2) { ($parts[-2..-1]) -join '.' } else { $rawDomain }
+
+if (-not $Subdomain) {
+    $Subdomain = "nullseerr"
 }
+
+$fullSeerrHostname = "$Subdomain.$apexDomain"
+$jellyfinHostname = "$JellyfinSubdomain.$apexDomain"
 
 # 3. Setup Tunnel
 if ($Token) {
@@ -138,9 +143,6 @@ if ($Token) {
         $configFile = Join-Path $cfDir "config.yml"
         $credFile = Join-Path $cfDir "$tunnelId.json"
 
-        $apexDomain = $Domain -replace "^$Subdomain\.", ""
-        $jellyfinHostname = "$JellyfinSubdomain.$apexDomain"
-
         $configLines = @(
             "tunnel: $tunnelId",
             "credentials-file: $credFile",
@@ -148,18 +150,33 @@ if ($Token) {
             "ingress:",
             "  - hostname: $fullSeerrHostname",
             "    service: http://localhost:$Port",
+            "  - hostname: seerr.$apexDomain",
+            "    service: http://localhost:$Port",
             "  - hostname: $jellyfinHostname",
             "    service: http://localhost:8096",
+            "  - hostname: radarr.$apexDomain",
+            "    service: http://localhost:7878",
+            "  - hostname: sonarr.$apexDomain",
+            "    service: http://localhost:8989",
+            "  - hostname: qbittorrent.$apexDomain",
+            "    service: http://localhost:8089",
+            "  - hostname: prowlarr.$apexDomain",
+            "    service: http://localhost:9696",
             "  - service: http_status:404"
         )
         $configContent = $configLines -join [Environment]::NewLine
         Set-Content -Path $configFile -Value $configContent -Encoding UTF8
         Write-Host "[OK] Created tunnel configuration: $configFile" -ForegroundColor Green
 
-        # Route DNS
+        # Route DNS for all stack services
         Write-Host "`n[*] Step 3: Routing DNS records for hostnames..." -ForegroundColor Cyan
         & $cloudflaredExe tunnel route dns $tunnelName $fullSeerrHostname
+        & $cloudflaredExe tunnel route dns $tunnelName "seerr.$apexDomain"
         & $cloudflaredExe tunnel route dns $tunnelName $jellyfinHostname
+        & $cloudflaredExe tunnel route dns $tunnelName "radarr.$apexDomain"
+        & $cloudflaredExe tunnel route dns $tunnelName "sonarr.$apexDomain"
+        & $cloudflaredExe tunnel route dns $tunnelName "qbittorrent.$apexDomain"
+        & $cloudflaredExe tunnel route dns $tunnelName "prowlarr.$apexDomain"
 
         # Install & start service
         Write-Host "`n[*] Step 4: Installing Cloudflare background Windows service..." -ForegroundColor Cyan

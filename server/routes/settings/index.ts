@@ -31,6 +31,7 @@ import { getAppVersion } from '@server/utils/appVersion';
 import { dnsCache } from '@server/utils/dnsCache';
 import { getHostname } from '@server/utils/getHostname';
 import { execSync } from 'child_process';
+import dns from 'dns';
 import type { DnsEntries, DnsStats } from 'dns-caching';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -98,7 +99,18 @@ settingsRoutes.post('/network', async (req, res) => {
   return res.status(200).json(settings.network);
 });
 
-const isCloudflaredInstalled = (): boolean => {
+const isCloudflaredInstalled = async (): Promise<boolean> => {
+  try {
+    const isDocker = await new Promise<boolean>((resolve) => {
+      dns.lookup('cloudflared', (err) => resolve(!err));
+    });
+    if (isDocker) {
+      return true;
+    }
+  } catch {
+    // continue
+  }
+
   try {
     const isWindows = process.platform === 'win32';
     const cmd = isWindows ? 'where cloudflared' : 'which cloudflared';
@@ -117,7 +129,18 @@ const isCloudflaredInstalled = (): boolean => {
   }
 };
 
-const isCloudflaredServiceRunning = (): boolean => {
+const isCloudflaredServiceRunning = async (): Promise<boolean> => {
+  try {
+    const isDocker = await new Promise<boolean>((resolve) => {
+      dns.lookup('cloudflared', (err) => resolve(!err));
+    });
+    if (isDocker) {
+      return true;
+    }
+  } catch {
+    // continue
+  }
+
   try {
     if (process.platform === 'win32') {
       const output = execSync('sc query cloudflared', {
@@ -137,16 +160,16 @@ const isCloudflaredServiceRunning = (): boolean => {
   }
 };
 
-settingsRoutes.get('/network/cloudflare/status', (_req, res) => {
+settingsRoutes.get('/network/cloudflare/status', async (_req, res) => {
   const settings = getSettings();
-  const installed = isCloudflaredInstalled();
-  const serviceRunning = isCloudflaredServiceRunning();
+  const installed = await isCloudflaredInstalled();
+  const serviceRunning = await isCloudflaredServiceRunning();
 
   return res.status(200).json({
     installed,
     serviceRunning,
     domain: settings.network.cloudflare?.domain || '',
-    subdomain: settings.network.cloudflare?.subdomain || '',
+    subdomain: settings.network.cloudflare?.subdomain || 'nullseerr',
     enabled: Boolean(settings.network.cloudflare?.enabled),
     tunnelTokenConfigured: Boolean(settings.network.cloudflare?.tunnelToken),
     applicationUrl: settings.main.applicationUrl,
@@ -161,16 +184,30 @@ settingsRoutes.post('/network/cloudflare/install', async (req, res) => {
     return res.status(400).json({ message: 'Domain is required' });
   }
 
-  const cleanDomain = String(domain)
+  // Clean domain: strip https://, http://, www., and paths
+  const rawDomain = String(domain)
     .trim()
+    .toLowerCase()
     .replace(/^https?:\/\//, '')
-    .replace(/\/$/, '');
-  const formattedUrl = `https://${cleanDomain}`;
+    .replace(/\/.*$/, '')
+    .replace(/^www\./, '');
+
+  let apexDomain = rawDomain;
+  const chosenSubdomain = subdomain ? String(subdomain).trim() : 'nullseerr';
+
+  const parts = rawDomain.split('.');
+  if (parts.length > 2) {
+    apexDomain = parts.slice(-2).join('.');
+  } else {
+    apexDomain = rawDomain;
+  }
+
+  const formattedUrl = `https://${chosenSubdomain}.${apexDomain}`;
 
   settings.network.cloudflare = {
     enabled: true,
-    domain: cleanDomain,
-    subdomain: subdomain ? String(subdomain).trim() : '',
+    domain: apexDomain,
+    subdomain: chosenSubdomain,
     tunnelToken: tunnelToken
       ? String(tunnelToken).trim()
       : settings.network.cloudflare?.tunnelToken || '',
@@ -194,7 +231,7 @@ settingsRoutes.post('/network/cloudflare/install', async (req, res) => {
 
   return res.status(200).json({
     message: 'Cloudflare domain configuration saved successfully',
-    domain: cleanDomain,
+    domain: apexDomain,
     applicationUrl: formattedUrl,
     serviceInstalled,
   });
