@@ -33,6 +33,12 @@ interface QueueItem {
   downloadSpeed?: string;
   protocol: string;
   is4k: boolean;
+  seedsConnected?: number | null;
+  seedsTotal?: number | null;
+  peersConnected?: number | null;
+  peersTotal?: number | null;
+  torrentState?: string | null;
+  swarmHealth?: 'healthy' | 'slow' | 'stalled' | 'idle' | null;
   details?: {
     monitored: boolean;
     status: string;
@@ -159,10 +165,57 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                 </Badge>
               </div>
 
-              {/* Status Badge */}
-              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColor}`}>
-                <StatusIcon className="w-3.5 h-3.5" />
-                <span>{statusText}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Status Badge */}
+                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColor}`}>
+                  <StatusIcon className="w-3.5 h-3.5" />
+                  <span>{statusText}</span>
+                </div>
+
+                {/* Swarm Health Badge */}
+                {item.swarmHealth && item.status !== 'searching' && (
+                  <div
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                      item.swarmHealth === 'healthy'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        : item.swarmHealth === 'slow'
+                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                        : item.swarmHealth === 'stalled'
+                        ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                        : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
+                    }`}
+                    title={
+                      item.swarmHealth === 'stalled'
+                        ? 'No active seeders sending data. Torrent is stalled.'
+                        : item.swarmHealth === 'healthy'
+                        ? 'Strong swarm with active seeders.'
+                        : 'Moderate or slow swarm speed.'
+                    }
+                  >
+                    <span className="relative flex h-2 w-2">
+                      <span
+                        className={`inline-flex h-full w-full rounded-full ${
+                          item.swarmHealth === 'healthy'
+                            ? 'bg-emerald-400'
+                            : item.swarmHealth === 'slow'
+                            ? 'bg-amber-400'
+                            : item.swarmHealth === 'stalled'
+                            ? 'bg-red-400 animate-ping'
+                            : 'bg-gray-400'
+                        }`}
+                      />
+                    </span>
+                    <span>
+                      {item.swarmHealth === 'healthy'
+                        ? `Swarm Healthy (${item.seedsConnected ?? 0} seeds)`
+                        : item.swarmHealth === 'slow'
+                        ? `Slow Swarm (${item.seedsConnected ?? 0} seeds)`
+                        : item.swarmHealth === 'stalled'
+                        ? 'Stalled (0 Seeds)'
+                        : 'Seeding / Idle'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -203,6 +256,16 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                 />
               </div>
 
+              {/* Swarm Stalled Warning Banner */}
+              {item.swarmHealth === 'stalled' && (
+                <div className="mb-2 rounded-lg border border-red-500/20 bg-red-950/20 px-3 py-1.5 text-xs text-red-400 flex items-center gap-2">
+                  <ExclamationCircleIcon className="h-4 w-4 shrink-0 text-red-400" />
+                  <span>
+                    <strong>Swarm Stalled:</strong> 0 seeders currently connected ({item.seedsTotal ?? 0} listed in tracker). Public tracker seeds may be offline or unconnectable.
+                  </span>
+                </div>
+              )}
+
               {/* Stats Footer */}
               <div className="flex flex-wrap justify-between text-xs text-gray-400 gap-y-1">
                 <div className="flex flex-wrap gap-4">
@@ -216,6 +279,40 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                       ↓ {item.downloadSpeed}
                     </span>
                   )}
+                  {item.seedsConnected !== undefined && item.seedsConnected !== null && (
+                    <span
+                      className="inline-flex items-center gap-1"
+                      title={`${item.seedsConnected} seeds connected out of ${item.seedsTotal ?? 0} in swarm`}
+                    >
+                      <span className="text-gray-400">🌱 Seeds:</span>
+                      <strong
+                        className={
+                          (item.seedsConnected ?? 0) > 0
+                            ? 'text-emerald-400'
+                            : 'text-red-400 font-bold'
+                        }
+                      >
+                        {item.seedsConnected}
+                      </strong>
+                      <span className="text-gray-500">
+                        /{item.seedsTotal ?? 0}
+                      </span>
+                    </span>
+                  )}
+                  {item.peersConnected !== undefined && item.peersConnected !== null && (
+                    <span
+                      className="inline-flex items-center gap-1"
+                      title={`${item.peersConnected} peers connected out of ${item.peersTotal ?? 0} in swarm`}
+                    >
+                      <span className="text-gray-400">👥 Peers:</span>
+                      <strong className="text-gray-200">
+                        {item.peersConnected}
+                      </strong>
+                      <span className="text-gray-500">
+                        /{item.peersTotal ?? 0}
+                      </span>
+                    </span>
+                  )}
                   {item.downloadClient && (
                     <span>
                       Client: <strong className="text-gray-200">{item.downloadClient}</strong>
@@ -223,7 +320,13 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                   )}
                 </div>
                 {item.timeLeft && (
-                  <span className="text-blue-400 font-semibold">
+                  <span
+                    className={`font-semibold ${
+                      item.swarmHealth === 'stalled'
+                        ? 'text-red-400'
+                        : 'text-blue-400'
+                    }`}
+                  >
                     ETA: {item.timeLeft}
                   </span>
                 )}
@@ -389,8 +492,14 @@ const DownloadsPage: NextPage = () => {
   // Filter items
   const filteredItems = items.filter((item) => {
     // Status Filter
-    if (statusFilter !== 'all' && item.status !== statusFilter) {
-      return false;
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'stalled') {
+        if (item.swarmHealth !== 'stalled' && item.status !== 'failed') {
+          return false;
+        }
+      } else if (item.status !== statusFilter) {
+        return false;
+      }
     }
     // Search filter
     if (searchFilter) {
@@ -501,7 +610,7 @@ const DownloadsPage: NextPage = () => {
         {/* Filter Status */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center rounded-xl bg-gray-900 border border-gray-700/50 p-1">
-            {['all', 'searching', 'downloading', 'processing', 'failed'].map((status) => (
+            {['all', 'downloading', 'stalled', 'searching', 'processing', 'failed'].map((status) => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
@@ -511,7 +620,13 @@ const DownloadsPage: NextPage = () => {
                     : 'text-gray-400 hover:text-gray-200'
                 }`}
               >
-                {status === 'all' ? 'All' : status === 'processing' ? 'Importing' : status}
+                {status === 'all'
+                  ? 'All'
+                  : status === 'processing'
+                  ? 'Importing'
+                  : status === 'stalled'
+                  ? 'Stalled (0 Seeds)'
+                  : status}
               </button>
             ))}
           </div>

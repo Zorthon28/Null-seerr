@@ -237,6 +237,12 @@ mediaRoutes.get('/queue', async (req, res, next) => {
                 protocol: item.protocol || 'torrent',
                 is4k: server.is4k,
                 downloadId: (item as any).downloadId || null,
+                seedsConnected: null,
+                seedsTotal: null,
+                peersConnected: null,
+                peersTotal: null,
+                torrentState: null,
+                swarmHealth: null,
               });
             }
           }
@@ -340,6 +346,12 @@ mediaRoutes.get('/queue', async (req, res, next) => {
                 protocol: item.protocol || 'torrent',
                 is4k: server.is4k,
                 downloadId: (item as any).downloadId || null,
+                seedsConnected: null,
+                seedsTotal: null,
+                peersConnected: null,
+                peersTotal: null,
+                torrentState: null,
+                swarmHealth: null,
               });
             }
           }
@@ -389,14 +401,36 @@ mediaRoutes.get('/queue', async (req, res, next) => {
               const progress = Math.round((qbt.progress || 0) * 100);
               const totalSize = qbt.total_size || qbt.size || 0;
               const downloaded = qbt.downloaded || 0;
-              const remaining = totalSize - downloaded;
+              const remaining = Math.max(0, totalSize - downloaded);
+
+              const seedsConnected = qbt.num_seeds ?? 0;
+              const seedsTotal = qbt.num_complete ?? 0;
+              const peersConnected = qbt.num_leechs ?? 0;
+              const peersTotal = qbt.num_incomplete ?? 0;
+              const torrentState = qbt.state || 'downloading';
+
+              // Determine swarm health
+              let swarmHealth: 'healthy' | 'slow' | 'stalled' | 'idle' = 'slow';
+              if (torrentState.includes('UP') || progress >= 100) {
+                swarmHealth = 'idle';
+              } else if (torrentState === 'stalledDL' || (seedsConnected === 0 && dlSpeed === 0)) {
+                swarmHealth = 'stalled';
+              } else if (seedsConnected >= 5 || dlSpeed >= 1048576) {
+                swarmHealth = 'healthy';
+              } else {
+                swarmHealth = 'slow';
+              }
 
               // Format ETA from qBit's seconds value
               let etaFormatted = '';
-              if (eta && eta < 8640000) {
+              if (swarmHealth === 'stalled') {
+                etaFormatted = 'Stalled (0 seeds)';
+              } else if (eta && eta < 8640000) {
                 const h = Math.floor(eta / 3600);
                 const m = Math.floor((eta % 3600) / 60);
                 etaFormatted = h > 0 ? `~${h}h ${m}m` : `~${m}m`;
+              } else if (seedsConnected === 0 && !torrentState.includes('UP')) {
+                etaFormatted = 'Waiting for seeds';
               }
 
               // Format speed
@@ -423,8 +457,16 @@ mediaRoutes.get('/queue', async (req, res, next) => {
               item.sizeLeft = formatBytes(remaining);
               item.downloadSpeed = speedFormatted;
               item.downloadClient = `qBittorrent (${qbt.state})`;
+              item.seedsConnected = seedsConnected;
+              item.seedsTotal = seedsTotal;
+              item.peersConnected = peersConnected;
+              item.peersTotal = peersTotal;
+              item.torrentState = torrentState;
+              item.swarmHealth = swarmHealth;
 
-              logger.debug(`[Queue API] qBit enriched ${item.tmdbId}: state=${qbt.state}, progress=${progress}%, eta=${etaFormatted}, speed=${speedFormatted}`);
+              logger.debug(
+                `[Queue API] qBit enriched ${item.tmdbId}: state=${qbt.state}, seeds=${seedsConnected}/${seedsTotal}, peers=${peersConnected}/${peersTotal}, progress=${progress}%, eta=${etaFormatted}, speed=${speedFormatted}, health=${swarmHealth}`
+              );
             }
             break; // Stop trying hosts once we get a response
           }
