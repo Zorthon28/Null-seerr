@@ -179,6 +179,13 @@ export interface DnsCacheSettings {
   forceMaxTtl?: number;
 }
 
+export interface CloudflareSettings {
+  enabled: boolean;
+  domain: string;
+  subdomain?: string;
+  tunnelToken?: string;
+}
+
 export interface NetworkSettings {
   csrfProtection: boolean;
   forceIpv4First: boolean;
@@ -186,6 +193,7 @@ export interface NetworkSettings {
   proxy: ProxySettings;
   dnsCache: DnsCacheSettings;
   apiRequestTimeout: number;
+  cloudflare?: CloudflareSettings;
 }
 
 interface PublicSettings {
@@ -640,6 +648,12 @@ class Settings {
           forceMaxTtl: -1,
         },
         apiRequestTimeout: 10000,
+        cloudflare: {
+          enabled: false,
+          domain: '',
+          subdomain: '',
+          tunnelToken: '',
+        },
       },
       migrations: [],
     };

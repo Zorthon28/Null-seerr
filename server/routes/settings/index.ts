@@ -30,7 +30,7 @@ import { appDataPath } from '@server/utils/appDataVolume';
 import { getAppVersion } from '@server/utils/appVersion';
 import { dnsCache } from '@server/utils/dnsCache';
 import { getHostname } from '@server/utils/getHostname';
-import type { DnsEntries, DnsStats } from 'dns-caching';
+import { execSync } from 'child_process';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import fs from 'fs';
@@ -95,6 +95,108 @@ settingsRoutes.post('/network', async (req, res) => {
   await settings.save();
 
   return res.status(200).json(settings.network);
+});
+
+const isCloudflaredInstalled = (): boolean => {
+  try {
+    const isWindows = process.platform === 'win32';
+    const cmd = isWindows ? 'where cloudflared' : 'which cloudflared';
+    execSync(cmd, { stdio: 'ignore', timeout: 3000 });
+    return true;
+  } catch {
+    if (process.platform === 'win32') {
+      const candidates = [
+        'C:\\Program Files\\cloudflared\\cloudflared.exe',
+        'C:\\arr-stack\\bin\\cloudflared.exe',
+        path.join(__dirname, '../../../scripts/cloudflared.exe'),
+      ];
+      return candidates.some((p) => fs.existsSync(p));
+    }
+    return false;
+  }
+};
+
+const isCloudflaredServiceRunning = (): boolean => {
+  try {
+    if (process.platform === 'win32') {
+      const output = execSync('sc query cloudflared', {
+        encoding: 'utf-8',
+        timeout: 3000,
+      });
+      return output.includes('RUNNING');
+    } else {
+      const output = execSync('systemctl is-active cloudflared', {
+        encoding: 'utf-8',
+        timeout: 3000,
+      });
+      return output.trim() === 'active';
+    }
+  } catch {
+    return false;
+  }
+};
+
+settingsRoutes.get('/network/cloudflare/status', (_req, res) => {
+  const settings = getSettings();
+  const installed = isCloudflaredInstalled();
+  const serviceRunning = isCloudflaredServiceRunning();
+
+  return res.status(200).json({
+    installed,
+    serviceRunning,
+    domain: settings.network.cloudflare?.domain || '',
+    subdomain: settings.network.cloudflare?.subdomain || '',
+    enabled: Boolean(settings.network.cloudflare?.enabled),
+    tunnelTokenConfigured: Boolean(settings.network.cloudflare?.tunnelToken),
+    applicationUrl: settings.main.applicationUrl,
+  });
+});
+
+settingsRoutes.post('/network/cloudflare/install', async (req, res) => {
+  const settings = getSettings();
+  const { domain, tunnelToken, subdomain } = req.body;
+
+  if (!domain) {
+    return res.status(400).json({ message: 'Domain is required' });
+  }
+
+  const cleanDomain = String(domain)
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '');
+  const formattedUrl = `https://${cleanDomain}`;
+
+  settings.network.cloudflare = {
+    enabled: true,
+    domain: cleanDomain,
+    subdomain: subdomain ? String(subdomain).trim() : '',
+    tunnelToken: tunnelToken
+      ? String(tunnelToken).trim()
+      : settings.network.cloudflare?.tunnelToken || '',
+  };
+  settings.main.applicationUrl = formattedUrl;
+
+  await settings.save();
+
+  let serviceInstalled = false;
+  if (tunnelToken && process.platform === 'win32') {
+    try {
+      execSync(`cloudflared service install ${tunnelToken.trim()}`, {
+        stdio: 'ignore',
+        timeout: 10000,
+      });
+      serviceInstalled = true;
+    } catch {
+      // Ignored if cloudflared binary is not in global PATH yet
+    }
+  }
+
+  return res.status(200).json({
+    message: 'Cloudflare domain configuration saved successfully',
+    domain: cleanDomain,
+    applicationUrl: formattedUrl,
+    serviceInstalled,
+  });
 });
 
 settingsRoutes.post('/main/regenerate', async (req, res, next) => {
