@@ -254,15 +254,26 @@ class Media {
         }
       }
     } else {
+      const settings = getSettings();
       const pageName =
-        getSettings().main.mediaServerType == MediaServerType.EMBY
+        settings.main.mediaServerType == MediaServerType.EMBY
           ? 'item'
           : 'details';
-      const { serverId, externalHostname } = getSettings().jellyfin;
-      const jellyfinHost =
+      const { serverId, externalHostname } = settings.jellyfin;
+      let jellyfinHost =
         externalHostname && externalHostname.length > 0
           ? externalHostname
           : getHostname();
+
+      const apexDomain = settings.network?.cloudflare?.domain;
+      if (
+        apexDomain &&
+        (!externalHostname ||
+          externalHostname.includes('localhost') ||
+          externalHostname.includes('127.0.0.1'))
+      ) {
+        jellyfinHost = `https://jellyfin.${apexDomain}`;
+      }
 
       if (this.jellyfinMediaId) {
         this.mediaUrl = `${jellyfinHost}/web/index.html#!/${pageName}?id=${this.jellyfinMediaId}&context=home&serverId=${serverId}`;

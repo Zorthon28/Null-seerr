@@ -645,12 +645,31 @@ mediaRoutes.get('/queue', async (req, res, next) => {
       const cooldownMs = 30_000; // Don't trigger more than once per 30s
       if (now - lastScanTriggeredAt > cooldownMs) {
         lastScanTriggeredAt = now;
-        logger.info(`[Queue API] Download(s) completed for tmdbIds: ${completedIds.join(', ')}. Triggering Plex scan + availability sync.`);
-        // Fire-and-forget: run Plex recently-added scan and availability sync
-        setImmediate(() => {
-          plexRecentScanner.run().catch((e: Error) =>
-            logger.warn('[Queue API] Plex scan after completion failed:', { error: e.message })
-          );
+        logger.info(`[Queue API] Download(s) completed for tmdbIds: ${completedIds.join(', ')}. Triggering media server scan + availability sync.`);
+        // Fire-and-forget: run media server scan and availability sync
+        setImmediate(async () => {
+          if (
+            settings.main.mediaServerType === MediaServerType.JELLYFIN ||
+            settings.main.mediaServerType === MediaServerType.EMBY
+          ) {
+            if (settings.jellyfin.apiKey) {
+              const jfClient = new JellyfinAPI(
+                getHostname(settings.jellyfin),
+                settings.jellyfin.apiKey,
+                settings.clientId
+              );
+              await jfClient.refreshLibrary().catch((e: Error) =>
+                logger.warn('[Queue API] Jellyfin library refresh failed:', { error: e.message })
+              );
+            }
+            jellyfinRecentScanner.run().catch((e: Error) =>
+              logger.warn('[Queue API] Jellyfin scan after completion failed:', { error: e.message })
+            );
+          } else {
+            plexRecentScanner.run().catch((e: Error) =>
+              logger.warn('[Queue API] Plex scan after completion failed:', { error: e.message })
+            );
+          }
           availabilitySync.run().catch((e: Error) =>
             logger.warn('[Queue API] Availability sync after completion failed:', { error: e.message })
           );
