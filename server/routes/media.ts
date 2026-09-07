@@ -843,6 +843,169 @@ mediaRoutes.post(
   }
 );
 
+// GET /api/v1/media/:mediaType/:id/watch-status — get real-time watch status from Jellyfin for logged-in user
+mediaRoutes.get(
+  '/:mediaType/:id/watch-status',
+  async (req, res, next) => {
+    try {
+      const mediaType = req.params.mediaType as MediaType;
+      const tmdbId = Number(req.params.id);
+      const is4k = String(req.query.is4k) === 'true';
+
+      const media = await getRepository(Media).findOne({
+        where: { tmdbId, mediaType },
+      });
+
+      if (!media) {
+        return res.status(200).json({
+          mediaType,
+          tmdbId,
+          hasMedia: false,
+          played: false,
+          playCount: 0,
+        });
+      }
+
+      const settings = getSettings();
+      const jellyfinMediaId = is4k ? media.jellyfinMediaId4k : media.jellyfinMediaId;
+
+      if (
+        (settings.main.mediaServerType === MediaServerType.JELLYFIN ||
+          settings.main.mediaServerType === MediaServerType.EMBY) &&
+        jellyfinMediaId &&
+        settings.jellyfin.apiKey
+      ) {
+        const userId = req.user?.jellyfinUserId || settings.jellyfin.userId;
+        if (!userId) {
+          return res.status(200).json({
+            mediaType,
+            tmdbId,
+            hasMedia: true,
+            played: false,
+            playCount: 0,
+          });
+        }
+
+        const axios = (await import('axios')).default;
+        const jfBaseUrl = getHostname(settings.jellyfin);
+        const headers = { 'X-Emby-Token': settings.jellyfin.apiKey };
+
+        if (mediaType === MediaType.MOVIE) {
+          try {
+            const itemRes = await axios.get(
+              `${jfBaseUrl}/Users/${userId}/Items/${jellyfinMediaId}`,
+              { headers, timeout: 3000 }
+            );
+            const userData = itemRes.data.UserData;
+            const played = !!userData?.Played;
+            const playCount = userData?.PlayCount ?? 0;
+            const playbackPositionPercentage =
+              userData?.PlayedPercentage ??
+              (userData?.PlaybackPositionTicks && itemRes.data.RunTimeTicks
+                ? Math.round(
+                    (userData.PlaybackPositionTicks / itemRes.data.RunTimeTicks) * 100
+                  )
+                : undefined);
+
+            return res.status(200).json({
+              mediaType: 'movie',
+              tmdbId,
+              hasMedia: true,
+              played,
+              playCount,
+              playbackPositionPercentage,
+            });
+          } catch (e) {
+            logger.debug('[Watch Status] Failed to fetch movie watch status from Jellyfin', {
+              errorMessage: e.message,
+            });
+          }
+        } else if (mediaType === MediaType.TV) {
+          try {
+            const episodesRes = await axios.get(
+              `${jfBaseUrl}/Users/${userId}/Items`,
+              {
+                headers,
+                params: {
+                  seriesId: jellyfinMediaId,
+                  includeItemTypes: 'Episode',
+                  recursive: true,
+                  fields: 'UserData,IndexNumber,ParentIndexNumber,RunTimeTicks',
+                },
+                timeout: 4000,
+              }
+            );
+
+            const items: any[] = episodesRes.data.Items ?? [];
+            const episodesMap: Record<string, any> = {};
+            let watchedCount = 0;
+
+            for (const ep of items) {
+              const sNum = ep.ParentIndexNumber;
+              const eNum = ep.IndexNumber;
+              if (sNum !== undefined && eNum !== undefined) {
+                const key = `s${sNum}e${eNum}`;
+                const played = !!ep.UserData?.Played;
+                if (played) watchedCount++;
+
+                const playbackPositionPercentage =
+                  ep.UserData?.PlayedPercentage ??
+                  (ep.UserData?.PlaybackPositionTicks && ep.RunTimeTicks
+                    ? Math.round(
+                        (ep.UserData.PlaybackPositionTicks / ep.RunTimeTicks) * 100
+                      )
+                    : undefined);
+
+                episodesMap[key] = {
+                  seasonNumber: sNum,
+                  episodeNumber: eNum,
+                  played,
+                  playCount: ep.UserData?.PlayCount ?? 0,
+                  playbackPositionPercentage,
+                };
+              }
+            }
+
+            const totalEpisodesCount = items.length;
+            const played = totalEpisodesCount > 0 && watchedCount === totalEpisodesCount;
+
+            return res.status(200).json({
+              mediaType: 'tv',
+              tmdbId,
+              hasMedia: true,
+              played,
+              watchedEpisodesCount: watchedCount,
+              totalEpisodesCount,
+              episodes: episodesMap,
+            });
+          } catch (e) {
+            logger.debug('[Watch Status] Failed to fetch TV watch status from Jellyfin', {
+              errorMessage: e.message,
+            });
+          }
+        }
+      }
+
+      return res.status(200).json({
+        mediaType,
+        tmdbId,
+        hasMedia: !!(media.jellyfinMediaId || media.ratingKey),
+        played: false,
+        playCount: 0,
+      });
+    } catch (e) {
+      logger.error('[Watch Status] Error retrieving watch status', {
+        errorMessage: e.message,
+      });
+      return res.status(200).json({
+        hasMedia: false,
+        played: false,
+        playCount: 0,
+      });
+    }
+  }
+);
+
 mediaRoutes.get('/:id/stream', async (req, res, next) => {
   logger.info(`[Stream API] Resolving stream for TMDB ID: ${req.params.id}`, { query: req.query });
   try {

@@ -26,6 +26,7 @@ import useDeepLinks from '@app/hooks/useDeepLinks';
 import useLocale from '@app/hooks/useLocale';
 import useSettings from '@app/hooks/useSettings';
 import useToasts from '@app/hooks/useToasts';
+import useWatchStatus from '@app/hooks/useWatchStatus';
 import { Permission, UserType, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import ErrorPage from '@app/pages/_error';
@@ -176,6 +177,8 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
     iOSPlexUrl: data?.mediaInfo?.iOSPlexUrl,
     iOSPlexUrl4k: data?.mediaInfo?.iOSPlexUrl4k,
   });
+
+  const { watchStatus } = useWatchStatus('movie', data?.id);
 
   if (!data && !error) {
     return <LoadingSpinner />;
@@ -543,6 +546,27 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                   serviceUrl={data.mediaInfo?.serviceUrl4k}
                 />
               )}
+            {watchStatus?.hasMedia && (
+              <>
+                {watchStatus.played ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-green-900/60 px-3 py-1 text-xs font-semibold text-green-300 ring-1 ring-inset ring-green-500/40">
+                    <svg className="h-3.5 w-3.5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    Watched {watchStatus.playCount > 1 ? `(${watchStatus.playCount}x)` : ''}
+                  </span>
+                ) : (watchStatus.playbackPositionPercentage ?? 0) > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-900/60 px-3 py-1 text-xs font-semibold text-blue-300 ring-1 ring-inset ring-blue-500/40">
+                    <span>👀</span>
+                    In Progress ({watchStatus.playbackPositionPercentage}%)
+                  </span>
+                ) : null}
+              </>
+            )}
           </div>
           {((data.mediaInfo?.downloadStatus ?? []).length > 0 ||
             (data.mediaInfo?.downloadStatus4k ?? []).length > 0) &&

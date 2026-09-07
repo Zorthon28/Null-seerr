@@ -227,7 +227,8 @@ app
       OpenApiValidator.middleware({
         apiSpec: API_SPEC_PATH,
         validateRequests: true,
-        ignorePaths: /scan-now|qbittorrent-seeding|retention|stream|queue/,
+        ignorePaths:
+          /scan-now|qbittorrent-seeding|retention|stream|queue|watch-status/,
       })
     );
     /**
