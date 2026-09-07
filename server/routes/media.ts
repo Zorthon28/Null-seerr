@@ -1119,6 +1119,455 @@ mediaRoutes.post(
   }
 );
 
+async function deleteWatchedMediaFile({
+  mediaType,
+  tmdbId,
+  seasonNumber,
+  episodeNumber,
+  is4k = false,
+}: {
+  mediaType: MediaType;
+  tmdbId: number;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  is4k?: boolean;
+}): Promise<{ freedBytes: number; remainingMonitoredCount: number }> {
+  const media = await getRepository(Media).findOne({
+    where: { tmdbId, mediaType },
+    relations: ['seasons'],
+  });
+
+  if (!media) {
+    throw new Error('Media not found');
+  }
+
+  const settings = getSettings();
+  let freedBytes = 0;
+  let remainingMonitoredCount = 0;
+
+  if (mediaType === MediaType.TV) {
+    const sonarrSettings =
+      settings.sonarr.find((s) => s.id === (is4k ? media.serviceId4k : media.serviceId)) ??
+      settings.sonarr.find((s) => s.isDefault) ??
+      settings.sonarr[0];
+
+    if (!sonarrSettings) {
+      throw new Error('No Sonarr server configured');
+    }
+
+    const sonarr = new SonarrAPI({
+      apiKey: sonarrSettings.apiKey,
+      url: SonarrAPI.buildUrl(sonarrSettings, '/api/v3'),
+    });
+
+    let tvdbId = media.tvdbId;
+    if (!tvdbId) {
+      const tmdb = new TheMovieDb();
+      const seriesTmdb = await tmdb.getTvShow({ tvId: tmdbId });
+      tvdbId = seriesTmdb.external_ids.tvdb_id;
+    }
+
+    if (!tvdbId) {
+      throw new Error('TVDB ID could not be determined for series');
+    }
+
+    const { id: sonarrSeriesId } = await sonarr.getSeriesByTvdbId(tvdbId);
+    if (!sonarrSeriesId) {
+      throw new Error('Series not found in Sonarr');
+    }
+
+    const [episodes, episodeFiles] = await Promise.all([
+      sonarr.getEpisodes(sonarrSeriesId),
+      sonarr.getEpisodeFiles(sonarrSeriesId),
+    ]);
+
+    const fileMap = new Map<number, { id: number; size: number }>();
+    for (const ef of episodeFiles) {
+      fileMap.set(ef.id, ef);
+    }
+
+    let targetEpisodes = episodes.filter((ep) => ep.hasFile && ep.episodeFileId);
+
+    if (seasonNumber !== undefined && episodeNumber !== undefined) {
+      targetEpisodes = targetEpisodes.filter(
+        (ep) => ep.seasonNumber === seasonNumber && ep.episodeNumber === episodeNumber
+      );
+    } else if (seasonNumber !== undefined) {
+      targetEpisodes = targetEpisodes.filter((ep) => ep.seasonNumber === seasonNumber);
+    }
+
+    const episodeIdsToUnmonitor: number[] = [];
+
+    for (const ep of targetEpisodes) {
+      if (ep.episodeFileId) {
+        const fileInfo = fileMap.get(ep.episodeFileId);
+        if (fileInfo) {
+          freedBytes += fileInfo.size;
+        }
+        try {
+          await sonarr.deleteEpisodeFile(ep.episodeFileId);
+          episodeIdsToUnmonitor.push(ep.id);
+        } catch (err) {
+          logger.warn(
+            `Failed to delete episode file ${ep.episodeFileId} for series ${tmdbId}: ${err.message}`
+          );
+        }
+      }
+    }
+
+    // CRITICAL: Unmonitor ONLY the deleted episode IDs
+    // The series and all remaining/upcoming episodes stay monitored!
+    if (episodeIdsToUnmonitor.length > 0) {
+      await sonarr.unmonitorEpisodes(episodeIdsToUnmonitor);
+    }
+
+    const remainingEpisodes = episodes.filter(
+      (ep) => !episodeIdsToUnmonitor.includes(ep.id) && ep.monitored
+    );
+    remainingMonitoredCount = remainingEpisodes.length;
+
+    logger.info(
+      `[Media Cleanup] Deleted ${episodeIdsToUnmonitor.length} episode files for series ${tmdbId} (freed ${(freedBytes / (1024 * 1024)).toFixed(1)} MB). ${remainingMonitoredCount} remaining episodes stay monitored for auto-download.`
+    );
+  } else if (mediaType === MediaType.MOVIE) {
+    const radarrSettings =
+      settings.radarr.find((r) => r.id === (is4k ? media.serviceId4k : media.serviceId)) ??
+      settings.radarr.find((r) => r.isDefault) ??
+      settings.radarr[0];
+
+    if (!radarrSettings) {
+      throw new Error('No Radarr server configured');
+    }
+
+    const radarr = new RadarrAPI({
+      apiKey: radarrSettings.apiKey,
+      url: RadarrAPI.buildUrl(radarrSettings, '/api/v3'),
+    });
+
+    const { id: radarrMovieId, movieFile } = await radarr.getMovieByTmdbId(tmdbId);
+    if (!radarrMovieId) {
+      throw new Error('Movie not found in Radarr');
+    }
+
+    if (movieFile) {
+      freedBytes = movieFile.size || 0;
+      await radarr.deleteMovieFile(movieFile.id);
+    }
+    await radarr.unmonitorMovie(radarrMovieId);
+
+    logger.info(
+      `[Media Cleanup] Deleted movie file for movie ${tmdbId} (freed ${(freedBytes / (1024 * 1024)).toFixed(1)} MB) and unmonitored.`
+    );
+  }
+
+  return { freedBytes, remainingMonitoredCount };
+}
+
+// DELETE /api/v1/media/:mediaType/:id/watched — delete watched media files and unmonitor in Sonarr/Radarr
+mediaRoutes.delete(
+  '/:mediaType/:id/watched',
+  async (req, res, next) => {
+    try {
+      const mediaType = req.params.mediaType as MediaType;
+      const tmdbId = Number(req.params.id);
+      const is4k = String(req.query.is4k) === 'true';
+      const seasonNumber =
+        req.query.seasonNumber !== undefined ? Number(req.query.seasonNumber) : undefined;
+      const episodeNumber =
+        req.query.episodeNumber !== undefined ? Number(req.query.episodeNumber) : undefined;
+
+      const result = await deleteWatchedMediaFile({
+        mediaType,
+        tmdbId,
+        seasonNumber,
+        episodeNumber,
+        is4k,
+      });
+
+      const settings = getSettings();
+      if (settings.jellyfin.apiKey) {
+        try {
+          const jellyfin = new JellyfinAPI(
+            getHostname(settings.jellyfin),
+            settings.jellyfin.apiKey
+          );
+          await jellyfin.refreshLibrary();
+        } catch {
+          // ignore
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (e) {
+      logger.error('Error deleting watched media', {
+        errorMessage: e.message,
+      });
+      return res.status(500).json({ message: e.message || 'Failed to delete watched media' });
+    }
+  }
+);
+
+// GET /api/v1/media/storage-reclaim — scan all watched media taking up disk space
+mediaRoutes.get(
+  '/storage-reclaim',
+  async (req, res, next) => {
+    try {
+      const settings = getSettings();
+      const userId = req.user?.jellyfinUserId || settings.jellyfin.userId;
+
+      if (!userId || !settings.jellyfin.apiKey) {
+        return res.status(200).json({ totalReclaimableBytes: 0, items: [] });
+      }
+
+      const mediaRepository = getRepository(Media);
+      const allMedia = await mediaRepository.find({
+        where: [
+          { status: MediaStatus.AVAILABLE },
+          { status: MediaStatus.PARTIALLY_AVAILABLE },
+          { status4k: MediaStatus.AVAILABLE },
+          { status4k: MediaStatus.PARTIALLY_AVAILABLE },
+        ],
+        relations: ['seasons'],
+      });
+
+      const tmdb = new TheMovieDb();
+      const reclaimableItems: any[] = [];
+      let totalReclaimableBytes = 0;
+
+      for (const media of allMedia) {
+        if (!media.jellyfinMediaId && !media.jellyfinMediaId4k) {
+          continue;
+        }
+
+        const is4k = !!media.jellyfinMediaId4k && !media.jellyfinMediaId;
+        const watchStatus = await getJellyfinWatchStatus(
+          media,
+          media.tmdbId,
+          media.mediaType,
+          is4k,
+          userId
+        );
+
+        if (media.mediaType === MediaType.MOVIE) {
+          if (watchStatus.played) {
+            try {
+              const radarrSettings =
+                settings.radarr.find((r) => r.id === (is4k ? media.serviceId4k : media.serviceId)) ??
+                settings.radarr.find((r) => r.isDefault) ??
+                settings.radarr[0];
+
+              if (radarrSettings) {
+                const radarr = new RadarrAPI({
+                  apiKey: radarrSettings.apiKey,
+                  url: RadarrAPI.buildUrl(radarrSettings, '/api/v3'),
+                });
+
+                const { movieFile } = await radarr.getMovieByTmdbId(media.tmdbId);
+                const size = movieFile?.size || 0;
+
+                if (size > 0) {
+                  let title = 'Movie';
+                  let posterPath: string | undefined;
+                  let releaseDate: string | undefined;
+                  try {
+                    const tmdbMovie = await tmdb.getMovie({ movieId: media.tmdbId });
+                    title = tmdbMovie.title;
+                    posterPath = tmdbMovie.poster_path;
+                    releaseDate = tmdbMovie.release_date;
+                  } catch {
+                    // fallback
+                  }
+
+                  totalReclaimableBytes += size;
+                  reclaimableItems.push({
+                    mediaType: 'movie',
+                    tmdbId: media.tmdbId,
+                    title,
+                    posterPath,
+                    releaseDate,
+                    reclaimableBytes: size,
+                    played: true,
+                  });
+                }
+              }
+            } catch (err) {
+              logger.debug(`Failed to fetch movie details for reclaim: ${err.message}`);
+            }
+          }
+        } else if (media.mediaType === MediaType.TV) {
+          const watchedEpisodesCount = watchStatus.watchedEpisodesCount || 0;
+          if (watchedEpisodesCount > 0 && watchStatus.episodes) {
+            try {
+              const sonarrSettings =
+                settings.sonarr.find((s) => s.id === (is4k ? media.serviceId4k : media.serviceId)) ??
+                settings.sonarr.find((s) => s.isDefault) ??
+                settings.sonarr[0];
+
+              if (sonarrSettings) {
+                const sonarr = new SonarrAPI({
+                  apiKey: sonarrSettings.apiKey,
+                  url: SonarrAPI.buildUrl(sonarrSettings, '/api/v3'),
+                });
+
+                let tvdbId = media.tvdbId;
+                if (!tvdbId) {
+                  const tmdbShow = await tmdb.getTvShow({ tvId: media.tmdbId });
+                  tvdbId = tmdbShow.external_ids.tvdb_id;
+                }
+
+                if (tvdbId) {
+                  const { id: sonarrSeriesId } = await sonarr.getSeriesByTvdbId(tvdbId);
+                  if (sonarrSeriesId) {
+                    const [episodes, episodeFiles] = await Promise.all([
+                      sonarr.getEpisodes(sonarrSeriesId),
+                      sonarr.getEpisodeFiles(sonarrSeriesId),
+                    ]);
+
+                    const fileMap = new Map<number, { id: number; size: number }>();
+                    for (const ef of episodeFiles) {
+                      fileMap.set(ef.id, ef);
+                    }
+
+                    const watchedList: Array<{
+                      seasonNumber: number;
+                      episodeNumber: number;
+                      title: string;
+                      size: number;
+                    }> = [];
+                    let seriesReclaimable = 0;
+
+                    for (const ep of episodes) {
+                      const epKey = `s${ep.seasonNumber}e${ep.episodeNumber}`;
+                      const isWatched = watchStatus.episodes[epKey]?.played;
+                      if (isWatched && ep.hasFile && ep.episodeFileId) {
+                        const fileInfo = fileMap.get(ep.episodeFileId);
+                        const epSize = fileInfo?.size || 0;
+                        if (epSize > 0) {
+                          seriesReclaimable += epSize;
+                          watchedList.push({
+                            seasonNumber: ep.seasonNumber,
+                            episodeNumber: ep.episodeNumber,
+                            title: ep.title,
+                            size: epSize,
+                          });
+                        }
+                      }
+                    }
+
+                    if (seriesReclaimable > 0) {
+                      let title = 'Series';
+                      let posterPath: string | undefined;
+                      let releaseDate: string | undefined;
+                      try {
+                        const tmdbShow = await tmdb.getTvShow({ tvId: media.tmdbId });
+                        title = tmdbShow.name;
+                        posterPath = tmdbShow.poster_path;
+                        releaseDate = tmdbShow.first_air_date;
+                      } catch {
+                        // fallback
+                      }
+
+                      const remainingMonitoredCount = episodes.filter(
+                        (ep) =>
+                          ep.monitored &&
+                          !watchedList.some(
+                            (w) =>
+                              w.seasonNumber === ep.seasonNumber &&
+                              w.episodeNumber === ep.episodeNumber
+                          )
+                      ).length;
+
+                      totalReclaimableBytes += seriesReclaimable;
+                      reclaimableItems.push({
+                        mediaType: 'tv',
+                        tmdbId: media.tmdbId,
+                        title,
+                        posterPath,
+                        releaseDate,
+                        reclaimableBytes: seriesReclaimable,
+                        watchedEpisodesCount: watchedList.length,
+                        totalEpisodesCount: episodes.length,
+                        remainingMonitoredCount,
+                        watchedEpisodes: watchedList,
+                      });
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              logger.debug(`Failed to fetch series episodes for reclaim: ${err.message}`);
+            }
+          }
+        }
+      }
+
+      return res.status(200).json({
+        totalReclaimableBytes,
+        items: reclaimableItems,
+      });
+    } catch (e) {
+      logger.error('Error fetching storage reclaim data', {
+        errorMessage: e.message,
+      });
+      return res.status(500).json({ message: 'Failed to fetch storage reclaim data' });
+    }
+  }
+);
+
+// POST /api/v1/media/storage-reclaim/batch-delete — batch delete watched media
+mediaRoutes.post(
+  '/storage-reclaim/batch-delete',
+  async (req, res, next) => {
+    try {
+      const items: Array<{
+        mediaType: MediaType;
+        tmdbId: number;
+        seasonNumber?: number;
+        episodeNumber?: number;
+      }> = req.body.items ?? [];
+
+      let totalFreed = 0;
+      for (const item of items) {
+        try {
+          const result = await deleteWatchedMediaFile(item);
+          totalFreed += result.freedBytes;
+        } catch (err) {
+          logger.warn(
+            `Failed to delete watched item ${item.mediaType} ${item.tmdbId}: ${err.message}`
+          );
+        }
+      }
+
+      const settings = getSettings();
+      if (settings.jellyfin.apiKey) {
+        try {
+          const jellyfin = new JellyfinAPI(
+            getHostname(settings.jellyfin),
+            settings.jellyfin.apiKey
+          );
+          await jellyfin.refreshLibrary();
+        } catch {
+          // ignore
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        freedBytes: totalFreed,
+        deletedCount: items.length,
+      });
+    } catch (e) {
+      logger.error('Failed to batch delete watched media', {
+        errorMessage: e.message,
+      });
+      return res.status(500).json({ message: 'Failed to batch delete watched media' });
+    }
+  }
+);
+
 mediaRoutes.get('/:id/stream', async (req, res, next) => {
   logger.info(`[Stream API] Resolving stream for TMDB ID: ${req.params.id}`, { query: req.query });
   try {

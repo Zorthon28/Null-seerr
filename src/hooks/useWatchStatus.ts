@@ -75,11 +75,48 @@ export const useWatchStatus = (
     [mediaType, tmdbId, is4k, mutate]
   );
 
+  const deleteWatchedMedia = useCallback(
+    async ({
+      seasonNumber,
+      episodeNumber,
+    }: {
+      seasonNumber?: number;
+      episodeNumber?: number;
+    } = {}) => {
+      if (!mediaType || !tmdbId) return;
+
+      setIsUpdating(true);
+      try {
+        const queryParams = new URLSearchParams();
+        queryParams.set('is4k', String(is4k));
+        if (seasonNumber !== undefined) {
+          queryParams.set('seasonNumber', String(seasonNumber));
+        }
+        if (episodeNumber !== undefined) {
+          queryParams.set('episodeNumber', String(episodeNumber));
+        }
+
+        const res = await axios.delete<{
+          success: boolean;
+          freedBytes: number;
+          remainingMonitoredCount: number;
+        }>(`/api/v1/media/${mediaType}/${tmdbId}/watched?${queryParams.toString()}`);
+
+        await mutate();
+        return res.data;
+      } finally {
+        setIsUpdating(false);
+      }
+    },
+    [mediaType, tmdbId, is4k, mutate]
+  );
+
   return {
     watchStatus: data,
     isLoading: !data && !error,
     isUpdating,
     markWatchStatus,
+    deleteWatchedMedia,
     error,
     mutate,
   };

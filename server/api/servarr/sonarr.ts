@@ -388,6 +388,55 @@ class SonarrAPI extends ServarrBase<{
     }
   }
 
+  public async unmonitorEpisodes(episodeIds: number[]): Promise<void> {
+    try {
+      await this.axios.put('/episode/monitor', {
+        episodeIds,
+        monitored: false,
+      });
+    } catch (e) {
+      logger.error('Failed to unmonitor episodes', {
+        label: 'Sonarr API',
+        errorMessage: e.message,
+        episodeIds,
+      });
+      throw new Error('Failed to unmonitor episodes', { cause: e });
+    }
+  }
+
+  public async deleteEpisodeFile(episodeFileId: number): Promise<void> {
+    try {
+      await this.axios.delete(`/episodefile/${episodeFileId}`);
+    } catch (e) {
+      logger.error('Failed to delete episode file', {
+        label: 'Sonarr API',
+        errorMessage: e.message,
+        episodeFileId,
+      });
+      throw new Error('Failed to delete episode file', { cause: e });
+    }
+  }
+
+  public async getEpisodeFiles(
+    seriesId: number
+  ): Promise<{ id: number; size: number; relativePath: string }[]> {
+    try {
+      const response = await this.axios.get<
+        { id: number; size: number; relativePath: string }[]
+      >('/episodefile', {
+        params: { seriesId },
+      });
+      return response.data;
+    } catch (e) {
+      logger.error('Failed to get episode files', {
+        label: 'Sonarr API',
+        errorMessage: e.message,
+        seriesId,
+      });
+      return [];
+    }
+  }
+
   private buildSeasonList(
     seasons: number[],
     existingSeasons?: SonarrSeason[]

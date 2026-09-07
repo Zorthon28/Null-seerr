@@ -228,7 +228,7 @@ app
         apiSpec: API_SPEC_PATH,
         validateRequests: true,
         ignorePaths:
-          /scan-now|qbittorrent-seeding|retention|stream|queue|watch-status/,
+          /scan-now|qbittorrent-seeding|retention|stream|queue|watch-status|storage-reclaim|watched/,
       })
     );
     /**
