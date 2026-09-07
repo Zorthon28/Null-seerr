@@ -86,7 +86,8 @@ if (-not $Domain) {
 }
 
 # Clean domain: strip https://, http://, www., and trailing slash/paths
-$rawDomain = $Domain.Trim().ToLower() -replace "^https?://", "" -replace "/.*$", "" -replace "^www\.", ""
+$rawDomain = $Domain.Trim().ToLower() -replace "^https?://", "" -replace "^www\.", ""
+$rawDomain = $rawDomain.Split('/')[0].Split(':')[0] -replace "[^a-z0-9.-]", ""
 $parts = $rawDomain.Split('.')
 $apexDomain = if ($parts.Count -gt 2) { ($parts[-2..-1]) -join '.' } else { $rawDomain }
 

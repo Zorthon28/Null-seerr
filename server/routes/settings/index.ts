@@ -176,66 +176,65 @@ settingsRoutes.get('/network/cloudflare/status', async (_req, res) => {
   });
 });
 
-settingsRoutes.post('/network/cloudflare/install', async (req, res) => {
-  const settings = getSettings();
-  const { domain, tunnelToken, subdomain } = req.body;
+settingsRoutes.post(
+  '/network/cloudflare/install',
+  rateLimit({ windowMs: 60 * 1000, max: 20 }),
+  async (req, res) => {
+    const settings = getSettings();
+    const { domain, tunnelToken, subdomain } = req.body;
 
-  if (!domain) {
-    return res.status(400).json({ message: 'Domain is required' });
-  }
-
-  // Clean domain: strip https://, http://, www., and paths
-  const rawDomain = String(domain)
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/.*$/, '')
-    .replace(/^www\./, '');
-
-  let apexDomain = rawDomain;
-  const chosenSubdomain = subdomain ? String(subdomain).trim() : 'nullseerr';
-
-  const parts = rawDomain.split('.');
-  if (parts.length > 2) {
-    apexDomain = parts.slice(-2).join('.');
-  } else {
-    apexDomain = rawDomain;
-  }
-
-  const formattedUrl = `https://${chosenSubdomain}.${apexDomain}`;
-
-  settings.network.cloudflare = {
-    enabled: true,
-    domain: apexDomain,
-    subdomain: chosenSubdomain,
-    tunnelToken: tunnelToken
-      ? String(tunnelToken).trim()
-      : settings.network.cloudflare?.tunnelToken || '',
-  };
-  settings.main.applicationUrl = formattedUrl;
-
-  await settings.save();
-
-  let serviceInstalled = false;
-  if (tunnelToken && process.platform === 'win32') {
-    try {
-      execSync(`cloudflared service install ${tunnelToken.trim()}`, {
-        stdio: 'ignore',
-        timeout: 10000,
-      });
-      serviceInstalled = true;
-    } catch {
-      // Ignored if cloudflared binary is not in global PATH yet
+    if (!domain) {
+      return res.status(400).json({ message: 'Domain is required' });
     }
-  }
 
-  return res.status(200).json({
-    message: 'Cloudflare domain configuration saved successfully',
-    domain: apexDomain,
-    applicationUrl: formattedUrl,
-    serviceInstalled,
-  });
-});
+    // Clean domain: strip https://, http://, www., paths, and ports without polynomial regex
+    let cleanInput = String(domain).trim().toLowerCase();
+    if (cleanInput.startsWith('https://')) {
+      cleanInput = cleanInput.slice(8);
+    } else if (cleanInput.startsWith('http://')) {
+      cleanInput = cleanInput.slice(7);
+    }
+    if (cleanInput.startsWith('www.')) {
+      cleanInput = cleanInput.slice(4);
+    }
+    const firstSlash = cleanInput.indexOf('/');
+    if (firstSlash !== -1) {
+      cleanInput = cleanInput.slice(0, firstSlash);
+    }
+    const firstColon = cleanInput.indexOf(':');
+    if (firstColon !== -1) {
+      cleanInput = cleanInput.slice(0, firstColon);
+    }
+    const rawDomain = cleanInput.replace(/[^a-z0-9.-]/g, '');
+
+    const parts = rawDomain.split('.');
+    const apexDomain = parts.length > 2 ? parts.slice(-2).join('.') : rawDomain;
+    const chosenSubdomain = subdomain
+      ? String(subdomain).trim().replace(/[^a-z0-9.-]/gi, '')
+      : 'nullseerr';
+
+    const formattedUrl = `https://${chosenSubdomain}.${apexDomain}`;
+
+    settings.network.cloudflare = {
+      enabled: true,
+      domain: apexDomain,
+      subdomain: chosenSubdomain,
+      tunnelToken: tunnelToken
+        ? String(tunnelToken).trim()
+        : settings.network.cloudflare?.tunnelToken || '',
+    };
+    settings.main.applicationUrl = formattedUrl;
+
+    await settings.save();
+
+    return res.status(200).json({
+      message: 'Cloudflare domain configuration saved successfully',
+      domain: apexDomain,
+      applicationUrl: formattedUrl,
+      serviceInstalled: false,
+    });
+  }
+);
 
 settingsRoutes.post('/main/regenerate', async (req, res, next) => {
   const settings = getSettings();

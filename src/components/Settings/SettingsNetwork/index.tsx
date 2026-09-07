@@ -147,18 +147,35 @@ const SettingsNetwork = () => {
     }
   };
 
-  const getCleanApexDomain = (input: string) => {
-    const raw = (input || '')
-      .trim()
-      .toLowerCase()
-      .replace(/^https?:\/\//, '')
-      .replace(/\/.*$/, '')
-      .replace(/^www\./, '');
-    const parts = raw.split('.');
-    return parts.length > 2 ? parts.slice(-2).join('.') : raw;
+  const getCleanApexDomain = (input: string): string => {
+    let raw = (input || '').trim().toLowerCase();
+    if (raw.startsWith('https://')) {
+      raw = raw.slice(8);
+    } else if (raw.startsWith('http://')) {
+      raw = raw.slice(7);
+    }
+    if (raw.startsWith('www.')) {
+      raw = raw.slice(4);
+    }
+    const slashIdx = raw.indexOf('/');
+    if (slashIdx !== -1) {
+      raw = raw.slice(0, slashIdx);
+    }
+    const colonIdx = raw.indexOf(':');
+    if (colonIdx !== -1) {
+      raw = raw.slice(0, colonIdx);
+    }
+    const sanitized = raw.replace(/[^a-z0-9.-]/g, '');
+    const parts = sanitized.split('.');
+    return parts.length > 2 ? parts.slice(-2).join('.') : sanitized;
   };
 
   const cleanApex = getCleanApexDomain(cfDomain || cfStatus?.domain || '');
+  const isValidApexDomain =
+    /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(cleanApex) &&
+    cleanApex.includes('.') &&
+    !cleanApex.startsWith('.') &&
+    !cleanApex.endsWith('.');
 
   const cliSetupCommand = `powershell -ExecutionPolicy Bypass -File .\\scripts\\setup_cloudflare_tunnel.ps1 -Domain ${
     cleanApex || 'nullraccoon.com'
@@ -744,79 +761,46 @@ const SettingsNetwork = () => {
             </div>
           </div>
 
-          {cleanApex && (
+          {isValidApexDomain && (
             <div className="form-row">
               <span className="text-label">
                 {intl.formatMessage(messages.cloudflareMappedUrls)}
               </span>
               <div className="form-input-area">
                 <div className="rounded-md bg-gray-800 p-3 text-xs space-y-1.5 text-gray-300 border border-gray-700">
-                  <div className="flex justify-between py-0.5 border-b border-gray-700">
-                    <span className="font-semibold text-white">Null-seerr</span>
-                    <a
-                      href={`https://nullseerr.${cleanApex}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-400 hover:underline"
-                    >
-                      {`https://nullseerr.${cleanApex}`}
-                    </a>
-                  </div>
-                  <div className="flex justify-between py-0.5 border-b border-gray-700">
-                    <span className="font-semibold text-white">Jellyfin</span>
-                    <a
-                      href={`https://jellyfin.${cleanApex}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-400 hover:underline"
-                    >
-                      {`https://jellyfin.${cleanApex}`}
-                    </a>
-                  </div>
-                  <div className="flex justify-between py-0.5 border-b border-gray-700">
-                    <span className="font-semibold text-white">Radarr</span>
-                    <a
-                      href={`https://radarr.${cleanApex}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-400 hover:underline"
-                    >
-                      {`https://radarr.${cleanApex}`}
-                    </a>
-                  </div>
-                  <div className="flex justify-between py-0.5 border-b border-gray-700">
-                    <span className="font-semibold text-white">Sonarr</span>
-                    <a
-                      href={`https://sonarr.${cleanApex}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-400 hover:underline"
-                    >
-                      {`https://sonarr.${cleanApex}`}
-                    </a>
-                  </div>
-                  <div className="flex justify-between py-0.5 border-b border-gray-700">
-                    <span className="font-semibold text-white">qBittorrent</span>
-                    <a
-                      href={`https://qbittorrent.${cleanApex}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-400 hover:underline"
-                    >
-                      {`https://qbittorrent.${cleanApex}`}
-                    </a>
-                  </div>
-                  <div className="flex justify-between py-0.5">
-                    <span className="font-semibold text-white">Prowlarr</span>
-                    <a
-                      href={`https://prowlarr.${cleanApex}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-400 hover:underline"
-                    >
-                      {`https://prowlarr.${cleanApex}`}
-                    </a>
-                  </div>
+                  {[
+                    { name: 'Null-seerr', sub: 'nullseerr' },
+                    { name: 'Jellyfin', sub: 'jellyfin' },
+                    { name: 'Radarr', sub: 'radarr' },
+                    { name: 'Sonarr', sub: 'sonarr' },
+                    { name: 'qBittorrent', sub: 'qbittorrent' },
+                    { name: 'Prowlarr', sub: 'prowlarr' },
+                  ].map((service, idx, arr) => {
+                    const safeHost = `${encodeURIComponent(service.sub)}.${encodeURIComponent(cleanApex)}`;
+                    const safeUrl = `https://${safeHost}`;
+                    const isLast = idx === arr.length - 1;
+
+                    return (
+                      <div
+                        key={service.sub}
+                        className={`flex justify-between py-0.5 ${
+                          !isLast ? 'border-b border-gray-700' : ''
+                        }`}
+                      >
+                        <span className="font-semibold text-white">
+                          {service.name}
+                        </span>
+                        <a
+                          href={safeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-400 hover:underline"
+                        >
+                          {safeUrl}
+                        </a>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>

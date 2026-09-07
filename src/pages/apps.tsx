@@ -178,12 +178,24 @@ const isLocalHost = (hostname: string): boolean => {
 };
 
 const getApexDomain = (hostname: string, configuredDomain?: string): string => {
-  const cleanConfigured = (configuredDomain || '')
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/.*$/, '')
-    .replace(/^www\./, '');
+  let cleanConfigured = (configuredDomain || '').trim().toLowerCase();
+  if (cleanConfigured.startsWith('https://')) {
+    cleanConfigured = cleanConfigured.slice(8);
+  } else if (cleanConfigured.startsWith('http://')) {
+    cleanConfigured = cleanConfigured.slice(7);
+  }
+  if (cleanConfigured.startsWith('www.')) {
+    cleanConfigured = cleanConfigured.slice(4);
+  }
+  const slashIdx = cleanConfigured.indexOf('/');
+  if (slashIdx !== -1) {
+    cleanConfigured = cleanConfigured.slice(0, slashIdx);
+  }
+  const colonIdx = cleanConfigured.indexOf(':');
+  if (colonIdx !== -1) {
+    cleanConfigured = cleanConfigured.slice(0, colonIdx);
+  }
+  cleanConfigured = cleanConfigured.replace(/[^a-z0-9.-]/g, '');
 
   if (cleanConfigured && (hostname.endsWith(cleanConfigured) || isLocalHost(hostname))) {
     return cleanConfigured;
