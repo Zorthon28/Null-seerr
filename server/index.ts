@@ -79,6 +79,14 @@ app
       }
     }
 
+    try {
+      await dbConnection.query(
+        'ALTER TABLE season_request ADD COLUMN episodes TEXT'
+      );
+    } catch {
+      // Column already exists or already added
+    }
+
     // Load Settings
     const settings = await getSettings().load();
     restartFlag.initializeSettings(settings);

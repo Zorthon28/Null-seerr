@@ -102,6 +102,7 @@ export interface AddSeriesOptions {
   monitored?: boolean;
   monitorNewItems?: SonarrSeries['monitorNewItems'];
   searchNow?: boolean;
+  seasonEpisodes?: Record<number, number[]>;
 }
 
 export interface LanguageProfile {
@@ -218,18 +219,63 @@ class SonarrAPI extends ServarrBase<{
             series: newSeriesResponse.data,
           });
 
+          const hasSpecificEpisodes =
+            options.seasonEpisodes &&
+            Object.keys(options.seasonEpisodes).length > 0;
+
           try {
             const episodes = await this.getEpisodes(newSeriesResponse.data.id);
-            const episodeIdsToMonitor = episodes
-              .filter(
-                (ep) =>
-                  options.seasons.includes(ep.seasonNumber) && !ep.monitored
-              )
-              .map((ep) => ep.id);
+            const episodeIdsToMonitor: number[] = [];
+            const episodeIdsToUnmonitor: number[] = [];
+
+            if (hasSpecificEpisodes) {
+              for (const seasonNum of options.seasons) {
+                const targetEps = options.seasonEpisodes![seasonNum];
+                const seasonEpisodes = episodes.filter(
+                  (ep) => ep.seasonNumber === seasonNum
+                );
+                if (targetEps && targetEps.length > 0) {
+                  episodeIdsToMonitor.push(
+                    ...seasonEpisodes
+                      .filter((ep) => targetEps.includes(ep.episodeNumber) && !ep.monitored)
+                      .map((ep) => ep.id)
+                  );
+                  episodeIdsToUnmonitor.push(
+                    ...seasonEpisodes
+                      .filter((ep) => !targetEps.includes(ep.episodeNumber) && ep.monitored)
+                      .map((ep) => ep.id)
+                  );
+                } else {
+                  episodeIdsToMonitor.push(
+                    ...seasonEpisodes
+                      .filter((ep) => !ep.monitored)
+                      .map((ep) => ep.id)
+                  );
+                }
+              }
+            } else {
+              episodeIdsToMonitor.push(
+                ...episodes
+                  .filter(
+                    (ep) =>
+                      options.seasons.includes(ep.seasonNumber) && !ep.monitored
+                  )
+                  .map((ep) => ep.id)
+              );
+            }
+
+            if (episodeIdsToUnmonitor.length > 0) {
+              logger.debug('Unmonitoring non-requested episodes.', {
+                label: 'Sonarr',
+                seriesId: newSeriesResponse.data.id,
+                episodeCount: episodeIdsToUnmonitor.length,
+              });
+              await this.unmonitorEpisodes(episodeIdsToUnmonitor);
+            }
 
             if (episodeIdsToMonitor.length > 0) {
               logger.debug(
-                'Re-monitoring unmonitored episodes for requested seasons.',
+                'Re-monitoring requested episodes.',
                 {
                   label: 'Sonarr',
                   seriesId: newSeriesResponse.data.id,
@@ -238,16 +284,27 @@ class SonarrAPI extends ServarrBase<{
               );
               await this.monitorEpisodes(episodeIdsToMonitor);
             }
+
+            if (options.searchNow) {
+              if (hasSpecificEpisodes && episodeIdsToMonitor.length > 0) {
+                logger.info('Executing targeted episode search command in Sonarr', {
+                  label: 'Sonarr',
+                  seriesId: newSeriesResponse.data.id,
+                  episodeIds: episodeIdsToMonitor,
+                });
+                await this.runCommand('EpisodeSearch', {
+                  episodeIds: episodeIdsToMonitor,
+                });
+              } else {
+                this.searchSeries(newSeriesResponse.data.id);
+              }
+            }
           } catch (e) {
-            logger.warn('Failed to re-monitor episodes', {
+            logger.warn('Failed to configure episode monitoring for updated series', {
               label: 'Sonarr',
               errorMessage: e.message,
               seriesId: newSeriesResponse.data.id,
             });
-          }
-
-          if (options.searchNow) {
-            this.searchSeries(newSeriesResponse.data.id);
           }
 
           return newSeriesResponse.data;
@@ -259,6 +316,10 @@ class SonarrAPI extends ServarrBase<{
           throw new Error('Failed to update series in Sonarr');
         }
       }
+
+      const hasSpecificEpisodes =
+        options.seasonEpisodes &&
+        Object.keys(options.seasonEpisodes).length > 0;
 
       const createdSeriesResponse = await this.axios.post<SonarrSeries>(
         '/series',
@@ -283,7 +344,9 @@ class SonarrAPI extends ServarrBase<{
           seriesType: options.seriesType,
           addOptions: {
             ignoreEpisodesWithFiles: true,
-            searchForMissingEpisodes: options.searchNow,
+            searchForMissingEpisodes: hasSpecificEpisodes
+              ? false
+              : options.searchNow,
           },
         } as Partial<SonarrSeries>
       );
@@ -294,6 +357,62 @@ class SonarrAPI extends ServarrBase<{
           label: 'Sonarr',
           series: createdSeriesResponse.data,
         });
+
+        if (hasSpecificEpisodes) {
+          try {
+            const episodes = await this.getEpisodes(
+              createdSeriesResponse.data.id
+            );
+            const episodeIdsToMonitor: number[] = [];
+            const episodeIdsToUnmonitor: number[] = [];
+
+            for (const seasonNum of options.seasons) {
+              const targetEps = options.seasonEpisodes![seasonNum];
+              const seasonEpisodes = episodes.filter(
+                (ep) => ep.seasonNumber === seasonNum
+              );
+              if (targetEps && targetEps.length > 0) {
+                episodeIdsToMonitor.push(
+                  ...seasonEpisodes
+                    .filter((ep) => targetEps.includes(ep.episodeNumber) && !ep.monitored)
+                    .map((ep) => ep.id)
+                );
+                episodeIdsToUnmonitor.push(
+                  ...seasonEpisodes
+                    .filter((ep) => !targetEps.includes(ep.episodeNumber) && ep.monitored)
+                    .map((ep) => ep.id)
+                );
+              }
+            }
+
+            if (episodeIdsToUnmonitor.length > 0) {
+              await this.unmonitorEpisodes(episodeIdsToUnmonitor);
+            }
+            if (episodeIdsToMonitor.length > 0) {
+              await this.monitorEpisodes(episodeIdsToMonitor);
+            }
+
+            if (options.searchNow && episodeIdsToMonitor.length > 0) {
+              logger.info(
+                'Executing targeted episode search for newly added series in Sonarr',
+                {
+                  label: 'Sonarr',
+                  seriesId: createdSeriesResponse.data.id,
+                  episodeIds: episodeIdsToMonitor,
+                }
+              );
+              await this.runCommand('EpisodeSearch', {
+                episodeIds: episodeIdsToMonitor,
+              });
+            }
+          } catch (e) {
+            logger.warn('Failed to configure targeted episode monitoring on new series', {
+              label: 'Sonarr',
+              errorMessage: e.message,
+              seriesId: createdSeriesResponse.data.id,
+            });
+          }
+        }
       } else {
         logger.error('Failed to add series to Sonarr', {
           label: 'Sonarr',

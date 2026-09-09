@@ -521,6 +521,7 @@ export class MediaRequest {
           (sn) =>
             new SeasonRequest({
               seasonNumber: sn,
+              episodes: requestBody.seasonEpisodes?.[sn],
               status: user.hasPermission(
                 [
                   requestBody.is4k
