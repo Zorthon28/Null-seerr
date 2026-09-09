@@ -701,6 +701,13 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
           }
         }
 
+        const targetEpisodesBySeason: Record<number, number[]> = {};
+        entity.seasons.forEach((season) => {
+          if (season.episodes && season.episodes.length > 0) {
+            targetEpisodesBySeason[season.seasonNumber] = season.episodes;
+          }
+        });
+
         const sonarrSeriesOptions: AddSeriesOptions = {
           profileId: qualityProfile,
           languageProfileId: languageProfile,
@@ -714,6 +721,10 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
           monitored: true,
           monitorNewItems: sonarrSettings.monitorNewItems,
           searchNow: !sonarrSettings.preventSearch,
+          seasonEpisodes:
+            Object.keys(targetEpisodesBySeason).length > 0
+              ? targetEpisodesBySeason
+              : undefined,
         };
 
         // Run entity asynchronously so we don't wait for it on the UI side

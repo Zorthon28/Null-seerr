@@ -55,6 +55,7 @@ export interface JellyfinSettings {
   libraries: Library[];
   serverId: string;
   apiKey: string;
+  userId?: string;
 }
 export interface TautulliSettings {
   hostname?: string;

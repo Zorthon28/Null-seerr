@@ -496,9 +496,21 @@ class JellyfinAPI extends ExternalAPI {
 
   public async getSeasons(seriesID: string): Promise<JellyfinLibraryItem[]> {
     try {
-      const seasonResponse = await this.get<any>(`/Shows/${seriesID}/Seasons`);
+      let seasonResponse = await this.get<any>(`/Shows/${seriesID}/Seasons`);
 
-      return seasonResponse.Items;
+      if (!seasonResponse?.Items || seasonResponse.Items.length === 0) {
+        // Fallback for Jellyfin 10.9+ / 10.10+ / 10.11+ where /Shows/{seriesId}/Seasons returns empty without active user session
+        seasonResponse = await this.get<any>('/Items', {
+          params: {
+            seriesId: seriesID,
+            includeItemTypes: 'Season',
+            recursive: true,
+            fields: 'IndexNumber,ProviderIds',
+          },
+        });
+      }
+
+      return seasonResponse?.Items ?? [];
     } catch (e) {
       logger.error(
         `Something went wrong while getting the list of seasons from the Jellyfin server: ${e.message}`,
@@ -517,7 +529,7 @@ class JellyfinAPI extends ExternalAPI {
     options?: T
   ): Promise<EpisodeReturn<T>> {
     try {
-      const episodeResponse = await this.get<any>(
+      let episodeResponse = await this.get<any>(
         `/Shows/${seriesID}/Episodes`,
         {
           params: {
@@ -527,7 +539,21 @@ class JellyfinAPI extends ExternalAPI {
         }
       );
 
-      return episodeResponse.Items.filter(
+      if (!episodeResponse?.Items || episodeResponse.Items.length === 0) {
+        // Fallback for Jellyfin 10.9+ / 10.10+ / 10.11+
+        episodeResponse = await this.get<any>('/Items', {
+          params: {
+            seasonId: seasonID,
+            includeItemTypes: 'Episode',
+            recursive: true,
+            fields: `IndexNumber,IndexNumberEnd,LocationType${
+              options?.includeMediaInfo ? ',MediaSources' : ''
+            }`,
+          },
+        });
+      }
+
+      return (episodeResponse?.Items ?? []).filter(
         (item: JellyfinLibraryItem) => item.LocationType !== 'Virtual'
       );
     } catch (e) {
@@ -537,6 +563,16 @@ class JellyfinAPI extends ExternalAPI {
       );
 
       throw new ApiError(e.response?.status, ApiErrorCode.InvalidAuthToken);
+    }
+  }
+
+  public async refreshLibrary(): Promise<void> {
+    try {
+      await this.post('/Library/Refresh');
+    } catch (e) {
+      logger.warn(`Failed to trigger Jellyfin library refresh: ${e.message}`, {
+        label: 'Jellyfin API',
+      });
     }
   }
 

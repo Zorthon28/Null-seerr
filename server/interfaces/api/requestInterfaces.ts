@@ -27,4 +27,5 @@ export type MediaRequestBody = {
   userId?: number;
   tags?: number[];
   ignoreQuota?: boolean;
+  seasonEpisodes?: Record<number, number[]>;
 };

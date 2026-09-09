@@ -29,6 +29,7 @@ import useDeepLinks from '@app/hooks/useDeepLinks';
 import useLocale from '@app/hooks/useLocale';
 import useSettings from '@app/hooks/useSettings';
 import useToasts from '@app/hooks/useToasts';
+import useWatchStatus from '@app/hooks/useWatchStatus';
 import { Permission, UserType, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import ErrorPage from '@app/pages/_error';
@@ -174,6 +175,43 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
     iOSPlexUrl: data?.mediaInfo?.iOSPlexUrl,
     iOSPlexUrl4k: data?.mediaInfo?.iOSPlexUrl4k,
   });
+
+  const {
+    watchStatus,
+    markWatchStatus,
+    deleteWatchedMedia,
+    isUpdating: isWatchUpdating,
+  } = useWatchStatus('tv', data?.id);
+
+  const toggleSeriesWatch = async () => {
+    if (!watchStatus?.hasMedia) return;
+    const newPlayed = !watchStatus.played;
+    await markWatchStatus({ played: newPlayed });
+    addToast(
+      newPlayed
+        ? 'Marked series as watched in Jellyfin'
+        : 'Marked series as unwatched in Jellyfin',
+      { appearance: 'success', autoDismiss: true }
+    );
+  };
+
+  const cleanWatchedSeries = async () => {
+    if (!watchStatus?.hasMedia || !watchStatus.watchedEpisodesCount) return;
+    if (
+      window.confirm(
+        `Delete all ${watchStatus.watchedEpisodesCount} watched episode files for this series? Remaining/upcoming episodes will remain monitored and continue to auto-download.`
+      )
+    ) {
+      const res = await deleteWatchedMedia();
+      if (res) {
+        const mb = (res.freedBytes / (1024 * 1024)).toFixed(1);
+        addToast(
+          `Deleted watched episode files (${mb} MB freed). ${res.remainingMonitoredCount} remaining episodes are monitored for auto-download.`,
+          { appearance: 'success', autoDismiss: true }
+        );
+      }
+    }
+  };
 
   if (!data && !error) {
     return <LoadingSpinner />;
@@ -587,6 +625,48 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                   serviceUrl={data.mediaInfo?.serviceUrl4k}
                 />
               )}
+            {watchStatus?.hasMedia && (watchStatus.totalEpisodesCount ?? 0) > 0 && (
+              <button
+                type="button"
+                disabled={isWatchUpdating}
+                onClick={toggleSeriesWatch}
+                title={
+                  watchStatus.played
+                    ? 'Click to mark series as unwatched in Jellyfin'
+                    : 'Click to mark all episodes as watched in Jellyfin'
+                }
+                className="transition cursor-pointer hover:opacity-85 focus:outline-none"
+              >
+                {watchStatus.played ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-green-900/60 px-3 py-1 text-xs font-semibold text-green-300 ring-1 ring-inset ring-green-500/40">
+                    <svg className="h-3.5 w-3.5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    Watched ({watchStatus.totalEpisodesCount}/{watchStatus.totalEpisodesCount})
+                  </span>
+                ) : (watchStatus.watchedEpisodesCount ?? 0) > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-900/60 px-3 py-1 text-xs font-semibold text-purple-300 ring-1 ring-inset ring-purple-500/40">
+                    <span>👀</span>
+                    Watched {watchStatus.watchedEpisodesCount} / {watchStatus.totalEpisodesCount} Episodes ({Math.round(((watchStatus.watchedEpisodesCount ?? 0) / (watchStatus.totalEpisodesCount || 1)) * 100)}%)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-800/80 px-3 py-1 text-xs font-semibold text-gray-400 ring-1 ring-inset ring-gray-700 hover:text-gray-200">
+                    <svg className="h-3.5 w-3.5 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    Mark All Watched
+                  </span>
+                )}
+              </button>
+            )}
           </div>
           {((data.mediaInfo?.downloadStatus ?? []).length > 0 ||
             (data.mediaInfo?.downloadStatus4k ?? []).length > 0) &&
@@ -683,6 +763,72 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                 )}
               </>
             )}
+          {watchStatus?.hasMedia && (
+            <Tooltip
+              content={
+                watchStatus.played
+                  ? 'Mark series as unwatched in Jellyfin'
+                  : 'Mark series as watched in Jellyfin'
+              }
+            >
+              <Button
+                buttonType={'ghost'}
+                className="z-40 mr-2"
+                buttonSize={'md'}
+                disabled={isWatchUpdating}
+                onClick={toggleSeriesWatch}
+              >
+                {isWatchUpdating ? (
+                  <Spinner />
+                ) : (
+                  <svg
+                    className={`h-5 w-5 ${
+                      watchStatus.played ? 'text-green-400' : 'text-gray-400 hover:text-green-400'
+                    }`}
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+              </Button>
+            </Tooltip>
+          )}
+          {watchStatus?.hasMedia && (watchStatus.watchedEpisodesCount ?? 0) > 0 && (
+            <Tooltip
+              content={`Delete ${watchStatus.watchedEpisodesCount} watched episode files (remaining episodes will stay monitored)`}
+            >
+              <Button
+                buttonType={'danger'}
+                className="z-40 mr-2"
+                buttonSize={'md'}
+                disabled={isWatchUpdating}
+                onClick={cleanWatchedSeries}
+              >
+                {isWatchUpdating ? (
+                  <Spinner />
+                ) : (
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                    />
+                  </svg>
+                )}
+              </Button>
+            </Tooltip>
+          )}
           <div className="z-20">
             <PlayButton links={mediaLinks} />
           </div>

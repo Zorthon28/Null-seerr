@@ -20,6 +20,42 @@ const useDeepLinks = ({
   const settings = useSettings();
 
   useEffect(() => {
+    let resolvedMediaUrl = mediaUrl;
+    let resolvedMediaUrl4k = mediaUrl4k;
+
+    const isBrowser = typeof window !== 'undefined';
+    const hostname = isBrowser ? window.location.hostname : '';
+    const isLocal =
+      !hostname ||
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.endsWith('.local') ||
+      /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+
+    if (
+      (settings.currentSettings.mediaServerType === MediaServerType.JELLYFIN ||
+        settings.currentSettings.mediaServerType === MediaServerType.EMBY) &&
+      isBrowser &&
+      !isLocal
+    ) {
+      const parts = hostname.split('.');
+      const apexDomain =
+        parts.length >= 2 ? parts.slice(-2).join('.') : hostname;
+      if (resolvedMediaUrl) {
+        resolvedMediaUrl = resolvedMediaUrl.replace(
+          /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/,
+          `https://jellyfin.${apexDomain}`
+        );
+      }
+      if (resolvedMediaUrl4k) {
+        resolvedMediaUrl4k = resolvedMediaUrl4k.replace(
+          /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/,
+          `https://jellyfin.${apexDomain}`
+        );
+      }
+    }
+
     if (
       settings.currentSettings.mediaServerType === MediaServerType.PLEX &&
       (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -28,8 +64,8 @@ const useDeepLinks = ({
       setReturnedMediaUrl(iOSPlexUrl);
       setReturnedMediaUrl4k(iOSPlexUrl4k);
     } else {
-      setReturnedMediaUrl(mediaUrl);
-      setReturnedMediaUrl4k(mediaUrl4k);
+      setReturnedMediaUrl(resolvedMediaUrl);
+      setReturnedMediaUrl4k(resolvedMediaUrl4k);
     }
   }, [
     iOSPlexUrl,

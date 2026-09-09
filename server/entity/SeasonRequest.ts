@@ -21,6 +21,26 @@ class SeasonRequest {
   @Column({ type: 'int', default: MediaRequestStatus.PENDING })
   public status: MediaRequestStatus;
 
+  @Column({
+    type: 'text',
+    nullable: true,
+    transformer: {
+      from: (value: string | null): number[] | null => {
+        if (value) {
+          return value.split(',').map((v) => Number(v));
+        }
+        return null;
+      },
+      to: (value: number[] | null): string | null => {
+        if (value && value.length > 0) {
+          return value.join(',');
+        }
+        return null;
+      },
+    },
+  })
+  public episodes?: number[];
+
   @ManyToOne(() => MediaRequest, (request) => request.seasons, {
     onDelete: 'CASCADE',
   })

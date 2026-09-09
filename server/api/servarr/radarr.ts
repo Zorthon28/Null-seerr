@@ -298,6 +298,36 @@ class RadarrAPI extends ServarrBase<{ movieId: number }> {
     }
   };
 
+  public unmonitorMovie = async (movieId: number): Promise<void> => {
+    try {
+      const movie = await this.getMovie({ id: movieId });
+      await this.axios.put('/movie', {
+        ...movie,
+        monitored: false,
+      });
+    } catch (e) {
+      logger.error('Failed to unmonitor movie in Radarr', {
+        label: 'Radarr API',
+        errorMessage: e.message,
+        movieId,
+      });
+      throw new Error('Failed to unmonitor movie', { cause: e });
+    }
+  };
+
+  public deleteMovieFile = async (movieFileId: number): Promise<void> => {
+    try {
+      await this.axios.delete(`/moviefile/${movieFileId}`);
+    } catch (e) {
+      logger.error('Failed to delete movie file in Radarr', {
+        label: 'Radarr API',
+        errorMessage: e.message,
+        movieFileId,
+      });
+      throw new Error('Failed to delete movie file', { cause: e });
+    }
+  };
+
   public clearCache = ({
     tmdbId,
     externalId,

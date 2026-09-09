@@ -79,6 +79,14 @@ app
       }
     }
 
+    try {
+      await dbConnection.query(
+        'ALTER TABLE season_request ADD COLUMN episodes TEXT'
+      );
+    } catch {
+      // Column already exists or already added
+    }
+
     // Load Settings
     const settings = await getSettings().load();
     restartFlag.initializeSettings(settings);
@@ -227,7 +235,8 @@ app
       OpenApiValidator.middleware({
         apiSpec: API_SPEC_PATH,
         validateRequests: true,
-        ignorePaths: /scan-now|qbittorrent-seeding|retention|stream|queue/,
+        ignorePaths:
+          /scan-now|qbittorrent-seeding|retention|stream|queue|watch-status|storage-reclaim|watched/,
       })
     );
     /**
