@@ -19,6 +19,8 @@ import { mapWatchProviderDetails } from '@server/models/common';
 import overrideRuleRoutes from '@server/routes/overrideRule';
 import settingsRoutes from '@server/routes/settings';
 import watchlistRoutes from '@server/routes/watchlist';
+import watchedRoutes from '@server/routes/watched';
+import streamRoutes from '@server/routes/stream';
 import {
   appDataPath,
   appDataPermissions,
@@ -158,6 +160,8 @@ router.use('/search', isAuthenticated(), searchRoutes);
 router.use('/discover', isAuthenticated(), discoverRoutes);
 router.use('/request', isAuthenticated(), requestRoutes);
 router.use('/watchlist', isAuthenticated(), watchlistRoutes);
+router.use('/watched', isAuthenticated(), watchedRoutes);
+router.use('/stream', isAuthenticated(), streamRoutes);
 router.use('/blocklist', isAuthenticated(), blocklistRoutes);
 router.use(
   '/blacklist',

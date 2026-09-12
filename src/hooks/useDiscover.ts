@@ -6,6 +6,7 @@ import { useIntl } from 'react-intl';
 import useSWRInfinite from 'swr/infinite';
 import useSettings from './useSettings';
 import { Permission, useUser } from './useUser';
+import useWatched from './useWatched';
 
 export interface BaseSearchResult<T> {
   page: number;
@@ -19,6 +20,7 @@ interface BaseMedia {
   mediaType: string;
   mediaInfo?: {
     status: MediaStatus;
+    watched?: any[] | null;
   };
 }
 
@@ -62,6 +64,7 @@ const useDiscover = <
 ): DiscoverResult<T, S> => {
   const settings = useSettings();
   const { hasPermission } = useUser();
+  const { hideWatched, isWatched } = useWatched();
   const { addToast } = useToasts();
   const intl = useIntl();
   const { data, error, size, setSize, isValidating, mutate } = useSWRInfinite<
@@ -139,6 +142,15 @@ const useDiscover = <
       (i) =>
         (i.mediaType === 'movie' || i.mediaType === 'tv') &&
         i.mediaInfo?.status !== MediaStatus.BLOCKLISTED
+    );
+  }
+
+  if (hideWatched) {
+    titles = titles.filter(
+      (i) =>
+        (i.mediaType !== 'movie' && i.mediaType !== 'tv') ||
+        (!isWatched(i.id, i.mediaType) &&
+          !(i.mediaInfo?.watched && i.mediaInfo.watched.length > 0))
     );
   }
 

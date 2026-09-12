@@ -37,7 +37,13 @@ import { sortCrewPriority } from '@app/utils/creditHelpers';
 import defineMessages from '@app/utils/defineMessages';
 import { refreshIntervalHelper } from '@app/utils/refreshIntervalHelper';
 import { Disclosure, Transition } from '@headlessui/react';
-import { ChevronDownIcon } from '@heroicons/react/24/outline';
+import {
+  ChevronDownIcon,
+  CheckCircleIcon,
+  ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
+  GlobeAltIcon,
+} from '@heroicons/react/24/outline';
 import {
   ArrowRightCircleIcon,
   CogIcon,
@@ -47,7 +53,9 @@ import {
   MinusCircleIcon,
   PlayIcon,
   StarIcon,
+  CheckCircleIcon as CheckCircleSolidIcon,
 } from '@heroicons/react/24/solid';
+import useWatched from '@app/hooks/useWatched';
 import type { RTRating } from '@server/api/rating/rottentomatoes';
 import { ANIME_KEYWORD_ID } from '@server/api/themoviedb/constants';
 import { IssueStatus } from '@server/constants/issue';
@@ -106,6 +114,10 @@ const messages = defineMessages('components.TvDetails', {
   watchlistError: 'Something went wrong. Please try again.',
   removefromwatchlist: 'Remove From Watchlist',
   addtowatchlist: 'Add To Watchlist',
+  streamSource: 'Stream Source',
+  streamQuality: 'Stream Quality',
+  streamAudio: 'Stream Audio',
+  streamDownloadProgress: 'Stream Download',
 });
 
 interface TvDetailsProps {
@@ -183,16 +195,49 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
     isUpdating: isWatchUpdating,
   } = useWatchStatus('tv', data?.id);
 
-  const toggleSeriesWatch = async () => {
-    if (!watchStatus?.hasMedia) return;
-    const newPlayed = !watchStatus.played;
-    await markWatchStatus({ played: newPlayed });
-    addToast(
-      newPlayed
-        ? 'Marked series as watched in Jellyfin'
-        : 'Marked series as unwatched in Jellyfin',
-      { appearance: 'success', autoDismiss: true }
-    );
+  const { isWatched, markWatched, unmarkWatched } = useWatched();
+  const [isWatchedUpdating, setIsWatchedUpdating] = useState(false);
+  const isSeriesWatched =
+    isWatched(data?.id, 'tv') ||
+    Boolean(data?.mediaInfo?.watched?.length) ||
+    Boolean(watchStatus?.played);
+
+  const toggleSeriesWatched = async () => {
+    if (!data) return;
+    setIsWatchedUpdating(true);
+    try {
+      if (isSeriesWatched) {
+        await unmarkWatched(data.id, 'tv');
+        if (watchStatus?.hasMedia && watchStatus.played) {
+          await markWatchStatus({ played: false });
+        }
+        addToast(
+          <span>
+            Marked <strong>{data.name}</strong> as unwatched
+          </span>,
+          { appearance: 'info', autoDismiss: true }
+        );
+      } else {
+        await markWatched(data.id, 'tv', data.name);
+        if (watchStatus?.hasMedia && !watchStatus.played) {
+          await markWatchStatus({ played: true });
+        }
+        addToast(
+          <span>
+            Marked <strong>{data.name}</strong> as watched!
+          </span>,
+          { appearance: 'success', autoDismiss: true }
+        );
+      }
+      revalidate();
+    } catch {
+      addToast('Something went wrong updating watched status', {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    } finally {
+      setIsWatchedUpdating(false);
+    }
   };
 
   const cleanWatchedSeries = async () => {
@@ -625,47 +670,37 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                   serviceUrl={data.mediaInfo?.serviceUrl4k}
                 />
               )}
-            {watchStatus?.hasMedia && (watchStatus.totalEpisodesCount ?? 0) > 0 && (
+            {isSeriesWatched ? (
               <button
                 type="button"
-                disabled={isWatchUpdating}
-                onClick={toggleSeriesWatch}
-                title={
-                  watchStatus.played
-                    ? 'Click to mark series as unwatched in Jellyfin'
-                    : 'Click to mark all episodes as watched in Jellyfin'
-                }
+                disabled={isWatchedUpdating}
+                onClick={toggleSeriesWatched}
+                title="Click to mark series as unwatched"
                 className="transition cursor-pointer hover:opacity-85 focus:outline-none"
               >
-                {watchStatus.played ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-green-900/60 px-3 py-1 text-xs font-semibold text-green-300 ring-1 ring-inset ring-green-500/40">
-                    <svg className="h-3.5 w-3.5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    Watched ({watchStatus.totalEpisodesCount}/{watchStatus.totalEpisodesCount})
-                  </span>
-                ) : (watchStatus.watchedEpisodesCount ?? 0) > 0 ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-900/60 px-3 py-1 text-xs font-semibold text-purple-300 ring-1 ring-inset ring-purple-500/40">
-                    <span>👀</span>
-                    Watched {watchStatus.watchedEpisodesCount} / {watchStatus.totalEpisodesCount} Episodes ({Math.round(((watchStatus.watchedEpisodesCount ?? 0) / (watchStatus.totalEpisodesCount || 1)) * 100)}%)
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-800/80 px-3 py-1 text-xs font-semibold text-gray-400 ring-1 ring-inset ring-gray-700 hover:text-gray-200">
-                    <svg className="h-3.5 w-3.5 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    Mark All Watched
-                  </span>
-                )}
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-900/60 px-3 py-1 text-xs font-semibold text-emerald-300 ring-1 ring-inset ring-emerald-500/40">
+                  <CheckCircleSolidIcon className="h-3.5 w-3.5 text-emerald-400" />
+                  Watched {watchStatus?.totalEpisodesCount ? `(${watchStatus.totalEpisodesCount} eps)` : ''}
+                </span>
               </button>
+            ) : (watchStatus?.watchedEpisodesCount ?? 0) > 0 ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-900/60 px-3 py-1 text-xs font-semibold text-purple-300 ring-1 ring-inset ring-purple-500/40">
+                <span>👀</span>
+                Watched {watchStatus?.watchedEpisodesCount} / {watchStatus?.totalEpisodesCount} Episodes
+              </span>
+            ) : null}
+            {data?.streamInfo?.isStream && (
+              data.streamInfo.status === 'downloading' ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-900/70 px-3 py-1 text-xs font-semibold text-sky-300 ring-1 ring-inset ring-sky-500/50 animate-pulse">
+                  <ArrowDownTrayIcon className="h-3.5 w-3.5 animate-bounce text-sky-400" />
+                  Descargando Stream ({data.streamInfo.progress ?? 0}%)
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-900/60 px-3 py-1 text-xs font-semibold text-purple-300 ring-1 ring-inset ring-purple-500/40">
+                  <GlobeAltIcon className="h-3.5 w-3.5 text-purple-400" />
+                  Web Stream ({data.streamInfo.source?.includes('OK.ru') ? 'OK.ru' : data.streamInfo.source?.includes('Hackstore') ? 'Hackstore' : 'Latino'})
+                </span>
+              )
             )}
           </div>
           {((data.mediaInfo?.downloadStatus ?? []).length > 0 ||
@@ -763,37 +798,31 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                 )}
               </>
             )}
-          {watchStatus?.hasMedia && (
+          {user && (
             <Tooltip
               content={
-                watchStatus.played
-                  ? 'Mark series as unwatched in Jellyfin'
-                  : 'Mark series as watched in Jellyfin'
+                isSeriesWatched
+                  ? 'Mark series as unwatched'
+                  : 'Mark series as watched'
               }
             >
               <Button
-                buttonType={'ghost'}
-                className="z-40 mr-2"
+                buttonType={isSeriesWatched ? 'primary' : 'ghost'}
+                className={`z-40 mr-2 ${
+                  isSeriesWatched
+                    ? '!bg-emerald-600 hover:!bg-emerald-700 text-white'
+                    : ''
+                }`}
                 buttonSize={'md'}
-                disabled={isWatchUpdating}
-                onClick={toggleSeriesWatch}
+                disabled={isWatchedUpdating}
+                onClick={toggleSeriesWatched}
               >
-                {isWatchUpdating ? (
+                {isWatchedUpdating ? (
                   <Spinner />
+                ) : isSeriesWatched ? (
+                  <CheckCircleSolidIcon className="h-5 w-5 text-white" />
                 ) : (
-                  <svg
-                    className={`h-5 w-5 ${
-                      watchStatus.played ? 'text-green-400' : 'text-gray-400 hover:text-green-400'
-                    }`}
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <CheckCircleIcon className="h-5 w-5 text-emerald-400" />
                 )}
               </Button>
             </Tooltip>
@@ -1339,6 +1368,66 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
               <span>{intl.formatMessage(globalMessages.status)}</span>
               <span className="media-fact-value">{data.status}</span>
             </div>
+            {data.streamInfo?.isStream && (
+              <>
+                <div className="media-fact bg-purple-950/30 border-l-2 border-l-purple-500">
+                  <span className="flex items-center gap-1.5 font-medium text-purple-300">
+                    <GlobeAltIcon className="h-4 w-4 text-purple-400" />
+                    {intl.formatMessage(messages.streamSource)}
+                  </span>
+                  <span className="media-fact-value font-medium text-purple-200">
+                    {data.streamInfo.streamUrl ? (
+                      <a
+                        href={data.streamInfo.streamUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center justify-end gap-1 text-purple-300 hover:text-purple-100 hover:underline"
+                        title={data.streamInfo.streamUrl}
+                      >
+                        <span>{data.streamInfo.source || 'Web Stream (Latino)'}</span>
+                        <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
+                      </a>
+                    ) : (
+                      data.streamInfo.source || 'Web Stream (Latino)'
+                    )}
+                  </span>
+                </div>
+                {data.streamInfo.quality && (
+                  <div className="media-fact">
+                    <span>{intl.formatMessage(messages.streamQuality)}</span>
+                    <span className="media-fact-value">
+                      <span className="rounded bg-gray-800 px-2 py-0.5 text-xs font-semibold text-gray-200 border border-gray-700">
+                        {data.streamInfo.quality}
+                      </span>
+                      {data.streamInfo.resolution && (
+                        <span className="ml-1.5 text-xs text-gray-400">
+                          ({data.streamInfo.resolution})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+                {data.streamInfo.audioLanguage && (
+                  <div className="media-fact">
+                    <span>{intl.formatMessage(messages.streamAudio)}</span>
+                    <span className="media-fact-value text-emerald-400 font-medium">
+                      {data.streamInfo.audioLanguage}
+                    </span>
+                  </div>
+                )}
+                {data.streamInfo.status === 'downloading' && (
+                  <div className="media-fact bg-sky-950/30 border-l-2 border-l-sky-500">
+                    <span className="flex items-center gap-1.5 font-medium text-sky-300">
+                      <ArrowDownTrayIcon className="h-4 w-4 animate-bounce text-sky-400" />
+                      {intl.formatMessage(messages.streamDownloadProgress)}
+                    </span>
+                    <span className="media-fact-value font-bold text-sky-400">
+                      {data.streamInfo.progress ?? 0}% {data.streamInfo.speed ? `• ${data.streamInfo.speed}` : ''}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
             {data.firstAirDate && (
               <div className="media-fact">
                 <span>{intl.formatMessage(messages.firstAirDate)}</span>

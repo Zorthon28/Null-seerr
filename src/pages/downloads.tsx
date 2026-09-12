@@ -65,6 +65,7 @@ interface QueueItem {
   downloadSpeed?: string;
   protocol: string;
   is4k: boolean;
+  downloadId?: string | null;
   seedsConnected?: number | null;
   seedsTotal?: number | null;
   peersConnected?: number | null;
@@ -195,6 +196,11 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                 <Badge badgeType={item.mediaType === 'movie' ? 'success' : 'danger'}>
                   {item.mediaType === 'movie' ? 'Movie' : 'Series'}
                 </Badge>
+                {item.protocol === 'stream' && (
+                  <Badge badgeType="warning">
+                    Audio Latino
+                  </Badge>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -204,69 +210,100 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                   <span>{statusText}</span>
                 </div>
 
-                {/* Swarm Health Badge */}
-                {item.swarmHealth && item.status !== 'searching' && (
-                  <div
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                      item.swarmHealth === 'healthy'
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                        : item.swarmHealth === 'slow'
-                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                        : item.swarmHealth === 'stalled'
-                        ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                        : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
-                    }`}
-                    title={
-                      item.swarmHealth === 'stalled'
-                        ? 'No active seeders sending data. Torrent is stalled.'
-                        : item.swarmHealth === 'healthy'
-                        ? 'Strong swarm with active seeders.'
-                        : 'Moderate or slow swarm speed.'
-                    }
-                  >
+                {/* Protocol: Stream vs Swarm Health Badge */}
+                {item.protocol === 'stream' ? (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border bg-gradient-to-r from-purple-500/15 via-pink-500/15 to-purple-500/15 text-pink-300 border-pink-500/30">
                     <span className="relative flex h-2 w-2">
                       <span
-                        className={`inline-flex h-full w-full rounded-full ${
-                          item.swarmHealth === 'healthy'
-                            ? 'bg-emerald-400'
-                            : item.swarmHealth === 'slow'
-                            ? 'bg-amber-400'
-                            : item.swarmHealth === 'stalled'
-                            ? 'bg-red-400 animate-ping'
-                            : 'bg-gray-400'
+                        className={`inline-flex h-full w-full rounded-full bg-pink-400 ${
+                          item.status === 'downloading' ? 'animate-ping' : ''
                         }`}
                       />
                     </span>
                     <span>
-                      {item.swarmHealth === 'healthy'
-                        ? `Swarm Healthy (${item.seedsConnected ?? 0} seeds)`
-                        : item.swarmHealth === 'slow'
-                        ? `Slow Swarm (${item.seedsConnected ?? 0} seeds)`
-                        : item.swarmHealth === 'stalled'
-                        ? 'Stalled (0 Seeds)'
-                        : 'Seeding / Idle'}
+                      ⚡ {item.status === 'downloading' ? 'Stream Latino en vivo' : item.status === 'processing' ? 'Stream Listo / Importado' : 'Stream Latino'}
                     </span>
                   </div>
+                ) : (
+                  item.swarmHealth && item.status !== 'searching' && (
+                    <div
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                        item.swarmHealth === 'healthy'
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          : item.swarmHealth === 'slow'
+                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          : item.swarmHealth === 'stalled'
+                          ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                          : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
+                      }`}
+                      title={
+                        item.swarmHealth === 'stalled'
+                          ? 'No active seeders sending data. Torrent is stalled.'
+                          : item.swarmHealth === 'healthy'
+                          ? 'Strong swarm with active seeders.'
+                          : 'Moderate or slow swarm speed.'
+                      }
+                    >
+                      <span className="relative flex h-2 w-2">
+                        <span
+                          className={`inline-flex h-full w-full rounded-full ${
+                            item.swarmHealth === 'healthy'
+                              ? 'bg-emerald-400'
+                              : item.swarmHealth === 'slow'
+                              ? 'bg-amber-400'
+                              : item.swarmHealth === 'stalled'
+                              ? 'bg-red-400 animate-ping'
+                              : 'bg-gray-400'
+                          }`}
+                        />
+                      </span>
+                      <span>
+                        {item.swarmHealth === 'healthy'
+                          ? `Swarm Healthy (${item.seedsConnected ?? 0} seeds)`
+                          : item.swarmHealth === 'slow'
+                          ? `Slow Swarm (${item.seedsConnected ?? 0} seeds)`
+                          : item.swarmHealth === 'stalled'
+                          ? 'Stalled (0 Seeds)'
+                          : 'Seeding / Idle'}
+                      </span>
+                    </div>
+                  )
                 )}
               </div>
             </div>
 
-            {/* Retention Selector */}
-            <div className="flex flex-col gap-1 items-start sm:items-end">
-              <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Retention Policy</span>
-              <select
-                value={policy}
-                onChange={(e) => handlePolicyChange(e.target.value)}
-                className="text-xs bg-gray-900 border border-gray-700/60 hover:border-gray-600 text-gray-300 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 transition duration-200 cursor-pointer"
-              >
-                <option value="dont_delete">💾 Keep Indefinitely</option>
-                <option value="delete_after_watched">🗑️ Delete After Watched</option>
-                <option value="delete_after_7_days">🕒 Delete After 7 Days</option>
-              </select>
+            {/* Actions & Retention Selector */}
+            <div className="flex flex-col gap-2 items-start sm:items-end">
+              <div className="flex flex-col gap-1 items-start sm:items-end">
+                <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Retention Policy</span>
+                <select
+                  value={policy}
+                  onChange={(e) => handlePolicyChange(e.target.value)}
+                  className="text-xs bg-gray-900 border border-gray-700/60 hover:border-gray-600 text-gray-300 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 transition duration-200 cursor-pointer"
+                >
+                  <option value="dont_delete">💾 Keep Indefinitely</option>
+                  <option value="delete_after_watched">🗑️ Delete After Watched</option>
+                  <option value="delete_after_7_days">🕒 Delete After 7 Days</option>
+                </select>
+              </div>
+
+              {item.protocol === 'stream' && item.status === 'downloading' && item.downloadId && (
+                <button
+                  onClick={async () => {
+                    if (confirm(`¿Deseas cancelar la descarga de "${item.title}"?`)) {
+                      await axios.post(`/api/v1/stream/cancel/${item.downloadId}`);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-400 hover:text-red-300 bg-red-950/30 hover:bg-red-900/50 border border-red-800/40 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                  title="Cancelar descarga del stream"
+                >
+                  <span>⏹ Cancelar Stream</span>
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Release Title (torrent filename) */}
+          {/* Release Title (torrent filename or stream details) */}
           {item.title && (
             <div className="text-xs font-mono text-gray-400/80 line-clamp-1 break-all mb-2" title={item.title}>
               {item.title}
@@ -281,7 +318,11 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
               {/* Progress Bar */}
               <div className="relative w-full h-2.5 bg-gray-900/60 rounded-full overflow-hidden mb-2">
                 <div
-                  className={`h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-500 ${
+                  className={`h-full ${
+                    item.protocol === 'stream'
+                      ? 'bg-gradient-to-r from-purple-500 via-pink-500 to-indigo-500'
+                      : 'bg-gradient-to-r from-blue-500 to-indigo-600'
+                  } rounded-full transition-all duration-500 ${
                     item.status === 'downloading' ? 'animate-pulse' : ''
                   }`}
                   style={{ width: `${item.progress}%` }}
@@ -525,7 +566,11 @@ const DownloadsPage: NextPage = () => {
   const filteredItems = items.filter((item) => {
     // Status Filter
     if (statusFilter !== 'all') {
-      if (statusFilter === 'stalled') {
+      if (statusFilter === 'stream') {
+        if (item.protocol !== 'stream') {
+          return false;
+        }
+      } else if (statusFilter === 'stalled') {
         if (item.swarmHealth !== 'stalled' && item.status !== 'failed') {
           return false;
         }
@@ -539,6 +584,8 @@ const DownloadsPage: NextPage = () => {
       return (
         item.title.toLowerCase().includes(term) ||
         item.downloadClient.toLowerCase().includes(term) ||
+        (item.protocol && item.protocol.toLowerCase().includes(term)) ||
+        (item.protocol === 'stream' && ('latino'.includes(term) || 'stream'.includes(term))) ||
         item.tmdbId.toString().includes(term)
       );
     }
@@ -801,7 +848,7 @@ const DownloadsPage: NextPage = () => {
             {/* Filter Status */}
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center rounded-xl bg-gray-900 border border-gray-700/50 p-1">
-                {['all', 'downloading', 'stalled', 'searching', 'processing', 'failed'].map((status) => (
+                {['all', 'downloading', 'stream', 'stalled', 'searching', 'processing', 'failed'].map((status) => (
                   <button
                     key={status}
                     onClick={() => setStatusFilter(status)}
@@ -813,6 +860,8 @@ const DownloadsPage: NextPage = () => {
                   >
                     {status === 'all'
                       ? 'All'
+                      : status === 'stream'
+                      ? '⚡ Stream Latino'
                       : status === 'processing'
                       ? 'Importing'
                       : status === 'stalled'

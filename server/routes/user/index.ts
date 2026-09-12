@@ -10,6 +10,7 @@ import { MediaRequest } from '@server/entity/MediaRequest';
 import { User } from '@server/entity/User';
 import { UserPushSubscription } from '@server/entity/UserPushSubscription';
 import { Watchlist } from '@server/entity/Watchlist';
+import { Watched } from '@server/entity/Watched';
 import type { WatchlistResponse } from '@server/interfaces/api/discoverInterfaces';
 import type {
   QuotaResponse,
@@ -1005,6 +1006,55 @@ router.get<{ id: string }, WatchlistResponse>(
         title: item.title,
         mediaType: item.type === 'show' ? 'tv' : 'movie',
         tmdbId: item.tmdbId,
+      })),
+    });
+  }
+);
+
+router.get<{ id: string }>(
+  '/:id/watched',
+  async (req, res, next) => {
+    if (
+      Number(req.params.id) !== req.user?.id &&
+      !req.user?.hasPermission(
+        [Permission.MANAGE_REQUESTS, Permission.WATCHLIST_VIEW],
+        {
+          type: 'or',
+        }
+      )
+    ) {
+      return next({
+        status: 403,
+        message: "You do not have permission to view this user's watched list.",
+      });
+    }
+
+    const itemsPerPage = 20;
+    const page = req.query.page ? Number(req.query.page) : 1;
+    const offset = (page - 1) * itemsPerPage;
+
+    const user = await getRepository(User).findOneOrFail({
+      where: { id: Number(req.params.id) },
+      select: ['id'],
+    });
+
+    const [result, total] = await getRepository(Watched).findAndCount({
+      where: { userId: user.id },
+      order: { createdAt: 'DESC' },
+      take: itemsPerPage,
+      skip: offset,
+    });
+
+    return res.json({
+      page,
+      totalPages: Math.ceil(total / itemsPerPage),
+      totalResults: total,
+      results: result.map((item) => ({
+        id: item.tmdbId,
+        tmdbId: item.tmdbId,
+        title: item.title,
+        mediaType: item.mediaType,
+        createdAt: item.createdAt,
       })),
     });
   }

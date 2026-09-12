@@ -1668,5 +1668,9 @@
   "components.Settings.metadataProviderSettings": "",
   "components.Settings.metadataSettings": "",
   "components.Settings.metadataSettingsSaved": "",
-  "components.Settings.noSpecialCharacters": ""
+  "components.Settings.noSpecialCharacters": "",
+  "i18n.upcoming": "Próximamente",
+  "i18n.inCinemas": "En Cines",
+  "components.TitleCard.upcoming": "Próximamente",
+  "components.TitleCard.inCinemas": "En Cines"
 }

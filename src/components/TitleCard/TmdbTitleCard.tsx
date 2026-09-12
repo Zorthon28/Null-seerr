@@ -65,12 +65,14 @@ const TmdbTitleCard = ({
       isAddedToWatchlist={
         title.mediaInfo?.watchlists?.length || isAddedToWatchlist
       }
+      isWatchedItem={Boolean(title.mediaInfo?.watched?.length)}
       image={title.posterPath}
       status={title.mediaInfo?.status}
       summary={title.overview}
       title={title.title}
       userScore={title.voteAverage}
       year={title.releaseDate}
+      releaseDate={title.releaseDate}
       mediaType={'movie'}
       canExpand={canExpand}
       mutateParent={mutateParent}
@@ -82,12 +84,14 @@ const TmdbTitleCard = ({
       isAddedToWatchlist={
         title.mediaInfo?.watchlists?.length || isAddedToWatchlist
       }
+      isWatchedItem={Boolean(title.mediaInfo?.watched?.length)}
       image={title.posterPath}
       status={title.mediaInfo?.status}
       summary={title.overview}
       title={title.name}
       userScore={title.voteAverage}
       year={title.firstAirDate}
+      releaseDate={title.firstAirDate}
       mediaType={'tv'}
       canExpand={canExpand}
       mutateParent={mutateParent}

@@ -30,6 +30,8 @@ import { jellyfinRecentScanner } from '@server/lib/scanners/jellyfin';
 import { radarrScanner } from '@server/lib/scanners/radarr';
 import { sonarrScanner } from '@server/lib/scanners/sonarr';
 import availabilitySync from '@server/lib/availabilitySync';
+import { streamDownloader } from '@server/lib/stream/streamDownloader';
+import { torrentManager } from '@server/lib/torrentManager';
 
 const mappingCache = new NodeCache({ stdTTL: 300 }); // 5 minutes TTL
 
@@ -148,6 +150,78 @@ mediaRoutes.get('/queue', async (req, res, next) => {
     const tvdbToTmdb = new Map<number, number>();
     for (const m of localMedia) {
       if (m.tvdbId) tvdbToTmdb.set(m.tvdbId, m.tmdbId);
+    }
+
+    // Process active and recently completed Stream Downloader jobs
+    const streamJobs = streamDownloader.getJobs();
+    for (const job of streamJobs) {
+      const isRecentCompleted =
+        job.status === 'completed' &&
+        job.completedAt &&
+        Date.now() - job.completedAt.getTime() < 600000; // 10 minutes
+
+      const isRecentFailed =
+        job.status === 'failed' &&
+        job.completedAt &&
+        Date.now() - job.completedAt.getTime() < 300000; // 5 minutes
+
+      if (
+        job.status === 'downloading' ||
+        job.status === 'pending' ||
+        isRecentCompleted ||
+        isRecentFailed
+      ) {
+        const sizeBytes =
+          job.size ||
+          (job.duration ? Math.round(job.duration * 250000) : 1140000000);
+        const progress = job.progress ?? (job.status === 'completed' ? 100 : 0);
+        const downloadedBytes =
+          job.bytesDownloaded || Math.round(sizeBytes * (progress / 100));
+        const sizeLeftBytes = Math.max(0, sizeBytes - downloadedBytes);
+
+        let currentStatus:
+          | 'downloading'
+          | 'processing'
+          | 'paused'
+          | 'queued'
+          | 'failed' = 'downloading';
+        if (job.status === 'completed') {
+          currentStatus = 'processing';
+        } else if (job.status === 'failed') {
+          currentStatus = 'failed';
+        }
+
+        rawQueueItems.push({
+          tmdbId: job.tmdbId,
+          mediaType: 'movie',
+          status: currentStatus,
+          progress,
+          timeLeft:
+            job.status === 'completed'
+              ? 'Finalizado'
+              : job.status === 'failed'
+              ? 'Error / Cancelado'
+              : job.timeLeft || '~1m',
+          estimatedCompletionTime: null,
+          title: `${job.title}${job.year ? ` (${job.year})` : ''}`,
+          size: formatBytes(sizeBytes),
+          sizeLeft: formatBytes(sizeLeftBytes),
+          downloadClient: 'Stream Downloader (Audio Latino)',
+          downloadSpeed:
+            job.status === 'completed' || job.status === 'failed'
+              ? ''
+              : job.speed || '18.5 MB/s',
+          protocol: 'stream',
+          is4k: false,
+          downloadId: job.id,
+          seedsConnected: null,
+          seedsTotal: null,
+          peersConnected: null,
+          peersTotal: null,
+          torrentState: job.status === 'completed' ? 'completed' : job.status,
+          swarmHealth: null,
+        });
+      }
     }
 
     // 1. Process Radarr servers
@@ -1171,7 +1245,8 @@ async function deleteWatchedMediaFile({
       throw new Error('TVDB ID could not be determined for series');
     }
 
-    const { id: sonarrSeriesId } = await sonarr.getSeriesByTvdbId(tvdbId);
+    const { id: sonarrSeriesId, title: sonarrTitle } =
+      await sonarr.getSeriesByTvdbId(tvdbId);
     if (!sonarrSeriesId) {
       throw new Error('Series not found in Sonarr');
     }
@@ -1226,6 +1301,24 @@ async function deleteWatchedMediaFile({
     );
     remainingMonitoredCount = remainingEpisodes.length;
 
+    if (remainingMonitoredCount === 0) {
+      const knownHashes: string[] = [];
+      try {
+        const history = await sonarr.getSeriesHistory(sonarrSeriesId);
+        for (const item of history) {
+          if (item.downloadId) knownHashes.push(item.downloadId);
+        }
+      } catch {
+        // ignore
+      }
+
+      await torrentManager.deleteMediaTorrents({
+        title: sonarrTitle,
+        category: 'sonarr',
+        knownHashes,
+      });
+    }
+
     logger.info(
       `[Media Cleanup] Deleted ${episodeIdsToUnmonitor.length} episode files for series ${tmdbId} (freed ${(freedBytes / (1024 * 1024)).toFixed(1)} MB). ${remainingMonitoredCount} remaining episodes stay monitored for auto-download.`
     );
@@ -1244,10 +1337,29 @@ async function deleteWatchedMediaFile({
       url: RadarrAPI.buildUrl(radarrSettings, '/api/v3'),
     });
 
-    const { id: radarrMovieId, movieFile } = await radarr.getMovieByTmdbId(tmdbId);
+    const { id: radarrMovieId, movieFile, title: movieTitle, year: movieYear } = await radarr.getMovieByTmdbId(tmdbId);
     if (!radarrMovieId) {
       throw new Error('Movie not found in Radarr');
     }
+
+    // Collect torrent hashes from Radarr history
+    const knownHashes: string[] = [];
+    try {
+      const history = await radarr.getMovieHistory(radarrMovieId);
+      for (const item of history) {
+        if (item.downloadId) knownHashes.push(item.downloadId);
+      }
+    } catch {
+      // ignore
+    }
+
+    // Purge matching torrents and downloaded payload from qBittorrent
+    await torrentManager.deleteMediaTorrents({
+      title: movieTitle,
+      year: movieYear,
+      category: 'radarr',
+      knownHashes,
+    });
 
     if (movieFile) {
       freedBytes = movieFile.size || 0;
@@ -1256,7 +1368,7 @@ async function deleteWatchedMediaFile({
     await radarr.unmonitorMovie(radarrMovieId);
 
     logger.info(
-      `[Media Cleanup] Deleted movie file for movie ${tmdbId} (freed ${(freedBytes / (1024 * 1024)).toFixed(1)} MB) and unmonitored.`
+      `[Media Cleanup] Deleted movie file and purged torrent for movie ${tmdbId} (freed ${(freedBytes / (1024 * 1024)).toFixed(1)} MB) and unmonitored.`
     );
   }
 
@@ -1999,6 +2111,50 @@ mediaRoutes.delete(
       }
 
       if (isMovie) {
+        // 1. Purge from qBittorrent & StreamDownloader
+        const knownHashes: string[] = [];
+        let movieTitle = '';
+        let movieYear: number | undefined;
+
+        try {
+          const radarrMovie = await (service as RadarrAPI).getMovieByTmdbId(media.tmdbId);
+          if (radarrMovie?.id) {
+            movieTitle = radarrMovie.title;
+            movieYear = radarrMovie.year;
+
+            // Get hashes from history
+            const history = await (service as RadarrAPI).getMovieHistory(radarrMovie.id);
+            for (const item of history) {
+              if (item.downloadId) knownHashes.push(item.downloadId);
+            }
+
+            // Get hashes from active queue
+            const queue = await (service as RadarrAPI).getQueue();
+            for (const item of queue) {
+              if (item.movieId === radarrMovie.id && item.downloadId) {
+                knownHashes.push(item.downloadId);
+              }
+            }
+          }
+        } catch {
+          // ignore lookup errors
+        }
+
+        // Cancel any active stream downloads for this movie
+        const activeStreamJob = streamDownloader.getActiveJobForMovie(media.tmdbId);
+        if (activeStreamJob) {
+          streamDownloader.cancelJob(activeStreamJob.id);
+        }
+
+        // Purge matching torrents and files from qBittorrent
+        await torrentManager.deleteMediaTorrents({
+          title: movieTitle,
+          year: movieYear,
+          category: 'radarr',
+          knownHashes,
+        });
+
+        // Remove from Radarr and delete movie files from disk
         await (service as RadarrAPI).removeMovie(media.tmdbId);
       } else {
         const tmdb = new TheMovieDb();
@@ -2007,10 +2163,56 @@ mediaRoutes.delete(
         if (!tvdbId) {
           throw new Error('TVDB ID not found');
         }
+
+        // Collect torrent hashes from Sonarr history & queue
+        const knownHashes: string[] = [];
+        let seriesTitle = series.name;
+
+        try {
+          const sonarrSeries = await (service as SonarrAPI).getSeriesByTvdbId(tvdbId);
+          if (sonarrSeries?.id) {
+            seriesTitle = sonarrSeries.title || seriesTitle;
+            const history = await (service as SonarrAPI).getSeriesHistory(sonarrSeries.id);
+            for (const item of history) {
+              if (item.downloadId) knownHashes.push(item.downloadId);
+            }
+
+            const queue = await (service as SonarrAPI).getQueue();
+            for (const item of queue) {
+              if (item.seriesId === sonarrSeries.id && item.downloadId) {
+                knownHashes.push(item.downloadId);
+              }
+            }
+          }
+        } catch {
+          // ignore lookup errors
+        }
+
+        // Purge matching torrents and files from qBittorrent
+        await torrentManager.deleteMediaTorrents({
+          title: seriesTitle,
+          category: 'sonarr',
+          knownHashes,
+        });
+
+        // Remove series from Sonarr and delete all files from disk
         await (service as SonarrAPI).removeSeries(tvdbId);
 
         for (const season of media.seasons) {
           season[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
+        }
+      }
+
+      // Refresh Jellyfin library if configured
+      if (settings.jellyfin.apiKey) {
+        try {
+          const jellyfin = new JellyfinAPI(
+            getHostname(settings.jellyfin),
+            settings.jellyfin.apiKey
+          );
+          await jellyfin.refreshLibrary();
+        } catch {
+          // ignore
         }
       }
 

@@ -1671,5 +1671,9 @@
   "i18n.blocklist": "",
   "components.Settings.Notifications.validationWebhookThreadId": "Debes proporcionar un ID de hilo de Discord válido",
   "components.Settings.Notifications.webhookThreadId": "ID de hilo",
-  "components.Settings.Notifications.webhookThreadIdTip": "El ID del canal de hilo donde publicar las notificaciones. Déjalo vacío para publicar en el canal del webhook"
+  "components.Settings.Notifications.webhookThreadIdTip": "El ID del canal de hilo donde publicar las notificaciones. Déjalo vacío para publicar en el canal del webhook",
+  "i18n.upcoming": "Próximamente",
+  "i18n.inCinemas": "En Cines",
+  "components.TitleCard.upcoming": "Próximamente",
+  "components.TitleCard.inCinemas": "En Cines"
 }

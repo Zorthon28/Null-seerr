@@ -3,6 +3,7 @@ import TitleCard from '@app/components/TitleCard';
 import TmdbTitleCard from '@app/components/TitleCard/TmdbTitleCard';
 import { Permission, useUser } from '@app/hooks/useUser';
 import useVerticalScroll from '@app/hooks/useVerticalScroll';
+import useWatched from '@app/hooks/useWatched';
 import globalMessages from '@app/i18n/globalMessages';
 import { MediaStatus } from '@server/constants/media';
 import type { WatchlistItem } from '@server/interfaces/api/discoverInterfaces';
@@ -35,6 +36,7 @@ const ListView = ({
 }: ListViewProps) => {
   const intl = useIntl();
   const { hasPermission } = useUser();
+  const { isWatched } = useWatched();
   useVerticalScroll(onScrollBottom, !isLoading && !isEmpty && !isReachingEnd);
 
   const blocklistVisibility = hasPermission(
@@ -85,6 +87,10 @@ const ListView = ({
                     isAddedToWatchlist={
                       title.mediaInfo?.watchlists?.length ?? 0
                     }
+                    isWatchedItem={
+                      isWatched(title.id, title.mediaType) ||
+                      Boolean(title.mediaInfo?.watched?.length)
+                    }
                     image={title.posterPath}
                     status={title.mediaInfo?.status}
                     summary={title.overview}
@@ -106,6 +112,10 @@ const ListView = ({
                     id={title.id}
                     isAddedToWatchlist={
                       title.mediaInfo?.watchlists?.length ?? 0
+                    }
+                    isWatchedItem={
+                      isWatched(title.id, title.mediaType) ||
+                      Boolean(title.mediaInfo?.watched?.length)
                     }
                     image={title.posterPath}
                     status={title.mediaInfo?.status}

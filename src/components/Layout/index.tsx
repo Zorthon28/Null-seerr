@@ -4,10 +4,12 @@ import SearchInput from '@app/components/Layout/SearchInput';
 import Sidebar from '@app/components/Layout/Sidebar';
 import UserDropdown from '@app/components/Layout/UserDropdown';
 import UserWarnings from '@app/components/Layout/UserWarnings';
+import Tooltip from '@app/components/Common/Tooltip';
 import useLocale from '@app/hooks/useLocale';
 import useSettings from '@app/hooks/useSettings';
 import { useUser } from '@app/hooks/useUser';
-import { ArrowLeftIcon, Bars3BottomLeftIcon } from '@heroicons/react/24/solid';
+import useWatched from '@app/hooks/useWatched';
+import { ArrowLeftIcon, Bars3BottomLeftIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/solid';
 import type { AvailableLocale } from '@server/types/languages';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
@@ -23,6 +25,7 @@ const Layout = ({ children }: LayoutProps) => {
   const { user } = useUser();
   const router = useRouter();
   const { currentSettings } = useSettings();
+  const { hideWatched, toggleHideWatched } = useWatched();
   const { setLocale } = useLocale();
   const { data: requestResponse, mutate: revalidateRequestsCount } = useSWR(
     '/api/v1/request/count',
@@ -118,6 +121,37 @@ const Layout = ({ children }: LayoutProps) => {
             </button>
             <SearchInput />
             <div className="flex items-center">
+              {user && (
+                <Tooltip
+                  content={
+                    hideWatched
+                      ? 'Seen titles are currently hidden. Tap to show all.'
+                      : 'Tap to hide seen titles from Discover.'
+                  }
+                >
+                  <button
+                    onClick={toggleHideWatched}
+                    className={`mr-2.5 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide transition-all border shadow-sm ${
+                      hideWatched
+                        ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                        : 'border-gray-700 bg-gray-800/80 text-gray-400 hover:border-gray-600 hover:text-gray-200'
+                    }`}
+                    aria-label="Toggle hide watched titles"
+                  >
+                    {hideWatched ? (
+                      <>
+                        <EyeSlashIcon className="h-4 w-4 text-emerald-400" />
+                        <span className="hidden sm:inline">Seen Hidden</span>
+                      </>
+                    ) : (
+                      <>
+                        <EyeIcon className="h-4 w-4 text-gray-400" />
+                        <span className="hidden sm:inline">Hide Seen</span>
+                      </>
+                    )}
+                  </button>
+                </Tooltip>
+              )}
               <UserDropdown />
             </div>
           </div>

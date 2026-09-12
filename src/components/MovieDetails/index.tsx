@@ -44,11 +44,18 @@ import {
   PlayIcon,
   StarIcon,
   TicketIcon,
+  CheckCircleIcon,
+  ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
+  GlobeAltIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import {
   ChevronDoubleDownIcon,
   ChevronDoubleUpIcon,
+  CheckCircleIcon as CheckCircleSolidIcon,
 } from '@heroicons/react/24/solid';
+import useWatched from '@app/hooks/useWatched';
 import { type RatingResponse } from '@server/api/ratings';
 import { IssueStatus } from '@server/constants/issue';
 import { MediaStatus, MediaType } from '@server/constants/media';
@@ -93,8 +100,12 @@ const messages = defineMessages('components.MovieDetails', {
   productioncountries:
     'Production {countryCount, plural, one {Country} other {Countries}}',
   theatricalrelease: 'Theatrical Release',
-  digitalrelease: 'Digital Release',
-  physicalrelease: 'Physical Release',
+  digitalrelease: 'Digital / Streaming',
+  physicalrelease: 'DVD / Blu-ray',
+  notAnnounced: 'TBA',
+  unannounced: 'TBA (In Cinemas)',
+  leakMonitoring: '1080p Leak Search',
+  leakMonitoringDesc: 'Active RSS monitoring for 1080p leaks (CAM/TS blocked)',
   reportissue: 'Report an Issue',
   managemovie: 'Manage Movie',
   rtcriticsscore: 'Rotten Tomatoes Tomatometer',
@@ -107,6 +118,10 @@ const messages = defineMessages('components.MovieDetails', {
   watchlistError: 'Something went wrong. Please try again.',
   removefromwatchlist: 'Remove From Watchlist',
   addtowatchlist: 'Add To Watchlist',
+  streamSource: 'Stream Source',
+  streamQuality: 'Stream Quality',
+  streamAudio: 'Stream Audio',
+  streamDownloadProgress: 'Stream Download',
 });
 
 interface MovieDetailsProps {
@@ -185,16 +200,49 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
     isUpdating: isWatchUpdating,
   } = useWatchStatus('movie', data?.id);
 
-  const toggleMovieWatch = async () => {
-    if (!watchStatus?.hasMedia) return;
-    const newPlayed = !watchStatus.played;
-    await markWatchStatus({ played: newPlayed });
-    addToast(
-      newPlayed
-        ? 'Marked movie as watched in Jellyfin'
-        : 'Marked movie as unwatched in Jellyfin',
-      { appearance: 'success', autoDismiss: true }
-    );
+  const { isWatched, markWatched, unmarkWatched } = useWatched();
+  const [isWatchedUpdating, setIsWatchedUpdating] = useState(false);
+  const isMovieWatched =
+    isWatched(data?.id, 'movie') ||
+    Boolean(data?.mediaInfo?.watched?.length) ||
+    Boolean(watchStatus?.played);
+
+  const toggleMovieWatched = async () => {
+    if (!data) return;
+    setIsWatchedUpdating(true);
+    try {
+      if (isMovieWatched) {
+        await unmarkWatched(data.id, 'movie');
+        if (watchStatus?.hasMedia && watchStatus.played) {
+          await markWatchStatus({ played: false });
+        }
+        addToast(
+          <span>
+            Marked <strong>{data.title}</strong> as unwatched
+          </span>,
+          { appearance: 'info', autoDismiss: true }
+        );
+      } else {
+        await markWatched(data.id, 'movie', data.title);
+        if (watchStatus?.hasMedia && !watchStatus.played) {
+          await markWatchStatus({ played: true });
+        }
+        addToast(
+          <span>
+            Marked <strong>{data.title}</strong> as watched!
+          </span>,
+          { appearance: 'success', autoDismiss: true }
+        );
+      }
+      revalidate();
+    } catch {
+      addToast('Something went wrong updating watched status', {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    } finally {
+      setIsWatchedUpdating(false);
+    }
   };
 
   const deleteWatchedMovie = async () => {
@@ -277,8 +325,12 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
       ? settings.currentSettings.discoverRegion
       : 'US';
 
-  const releases = data.releases.results.find(
+  const userRegionReleases = data.releases.results.find(
     (r) => r.iso_3166_1 === discoverRegion
+  )?.release_dates;
+
+  const usRegionReleases = data.releases.results.find(
+    (r) => r.iso_3166_1 === 'US'
   )?.release_dates;
 
   // Release date types:
@@ -288,14 +340,50 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
   // 4. Digital
   // 5. Physical
   // 6. TV
-  const filteredReleases = uniqBy(
-    releases?.filter((r) => r.type > 2 && r.type < 6),
-    'type'
+  const findReleaseByType = (types: number[]) => {
+    const local = userRegionReleases?.find(
+      (r) => types.includes(r.type) && r.release_date
+    );
+    if (local) return local;
+    const us = usRegionReleases?.find(
+      (r) => types.includes(r.type) && r.release_date
+    );
+    if (us) return us;
+    for (const r of data.releases.results) {
+      const match = r.release_dates?.find(
+        (d) => types.includes(d.type) && d.release_date
+      );
+      if (match) return match;
+    }
+    return undefined;
+  };
+
+  const theatricalRelease = findReleaseByType([3, 2, 1]);
+  const digitalRelease = findReleaseByType([4]);
+  const physicalRelease = findReleaseByType([5]);
+
+  const now = new Date();
+  const theatricalDate = theatricalRelease
+    ? new Date(theatricalRelease.release_date)
+    : data.releaseDate
+      ? new Date(data.releaseDate)
+      : null;
+  const digitalDate = digitalRelease
+    ? new Date(digitalRelease.release_date)
+    : null;
+
+  const isInCinemas = Boolean(
+    theatricalDate &&
+      theatricalDate <= now &&
+      (!digitalDate || digitalDate > now) &&
+      data.mediaInfo?.status !== MediaStatus.AVAILABLE
   );
 
   const movieAttributes: React.ReactNode[] = [];
 
-  const certification = releases?.find((r) => r.certification)?.certification;
+  const certification = (userRegionReleases ?? usRegionReleases)?.find(
+    (r) => r.certification
+  )?.certification;
   if (certification) {
     movieAttributes.push(
       <span className="rounded-md border p-0.5 py-0">{certification}</span>
@@ -581,47 +669,40 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                   serviceUrl={data.mediaInfo?.serviceUrl4k}
                 />
               )}
-            {watchStatus?.hasMedia && (
+            {isMovieWatched ? (
               <button
                 type="button"
-                disabled={isWatchUpdating}
-                onClick={toggleMovieWatch}
-                title={
-                  watchStatus.played
-                    ? 'Click to mark movie as unwatched in Jellyfin'
-                    : 'Click to mark movie as watched in Jellyfin'
-                }
+                disabled={isWatchedUpdating}
+                onClick={toggleMovieWatched}
+                title="Click to mark movie as unwatched"
                 className="transition cursor-pointer hover:opacity-85 focus:outline-none"
               >
-                {watchStatus.played ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-green-900/60 px-3 py-1 text-xs font-semibold text-green-300 ring-1 ring-inset ring-green-500/40">
-                    <svg className="h-3.5 w-3.5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    Watched {watchStatus.playCount > 1 ? `(${watchStatus.playCount}x)` : ''}
-                  </span>
-                ) : (watchStatus.playbackPositionPercentage ?? 0) > 0 ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-900/60 px-3 py-1 text-xs font-semibold text-blue-300 ring-1 ring-inset ring-blue-500/40">
-                    <span>👀</span>
-                    In Progress ({watchStatus.playbackPositionPercentage}%)
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-800/80 px-3 py-1 text-xs font-semibold text-gray-400 ring-1 ring-inset ring-gray-700 hover:text-gray-200">
-                    <svg className="h-3.5 w-3.5 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    Mark Watched
-                  </span>
-                )}
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-900/60 px-3 py-1 text-xs font-semibold text-emerald-300 ring-1 ring-inset ring-emerald-500/40">
+                  <CheckCircleSolidIcon className="h-3.5 w-3.5 text-emerald-400" />
+                  Watched {watchStatus?.playCount && watchStatus.playCount > 1 ? `(${watchStatus.playCount}x)` : ''}
+                </span>
               </button>
+            ) : (watchStatus?.playbackPositionPercentage ?? 0) > 0 ? (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full bg-blue-900/60 px-3 py-1 text-xs font-semibold text-blue-300 ring-1 ring-inset ring-blue-500/40"
+                title="Progreso de reproducción en Jellyfin / Plex"
+              >
+                <span>▶️</span>
+                Viendo ({Math.round(watchStatus?.playbackPositionPercentage ?? 0)}%)
+              </span>
+            ) : null}
+            {data?.streamInfo?.isStream && (
+              data.streamInfo.status === 'downloading' ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-900/70 px-3 py-1 text-xs font-semibold text-sky-300 ring-1 ring-inset ring-sky-500/50 animate-pulse">
+                  <ArrowDownTrayIcon className="h-3.5 w-3.5 animate-bounce text-sky-400" />
+                  Descargando Stream ({data.streamInfo.progress ?? 0}%)
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-900/60 px-3 py-1 text-xs font-semibold text-purple-300 ring-1 ring-inset ring-purple-500/40">
+                  <GlobeAltIcon className="h-3.5 w-3.5 text-purple-400" />
+                  Web Stream ({data.streamInfo.source?.includes('OK.ru') ? 'OK.ru' : data.streamInfo.source?.includes('Hackstore') ? 'Hackstore' : 'Latino'})
+                </span>
+              )
             )}
           </div>
           {((data.mediaInfo?.downloadStatus ?? []).length > 0 ||
@@ -719,37 +800,31 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 )}
               </>
             )}
-          {watchStatus?.hasMedia && (
+          {user && (
             <Tooltip
               content={
-                watchStatus.played
-                  ? 'Mark movie as unwatched in Jellyfin'
-                  : 'Mark movie as watched in Jellyfin'
+                isMovieWatched
+                  ? 'Mark movie as unwatched'
+                  : 'Mark movie as watched'
               }
             >
               <Button
-                buttonType={'ghost'}
-                className="z-40 mr-2"
+                buttonType={isMovieWatched ? 'primary' : 'ghost'}
+                className={`z-40 mr-2 ${
+                  isMovieWatched
+                    ? '!bg-emerald-600 hover:!bg-emerald-700 text-white'
+                    : ''
+                }`}
                 buttonSize={'md'}
-                disabled={isWatchUpdating}
-                onClick={toggleMovieWatch}
+                disabled={isWatchedUpdating}
+                onClick={toggleMovieWatched}
               >
-                {isWatchUpdating ? (
+                {isWatchedUpdating ? (
                   <Spinner />
+                ) : isMovieWatched ? (
+                  <CheckCircleSolidIcon className="h-5 w-5 text-white" />
                 ) : (
-                  <svg
-                    className={`h-5 w-5 ${
-                      watchStatus.played ? 'text-green-400' : 'text-gray-400 hover:text-green-400'
-                    }`}
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <CheckCircleIcon className="h-5 w-5 text-emerald-400" />
                 )}
               </Button>
             </Tooltip>
@@ -1032,82 +1107,181 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
               <span>{intl.formatMessage(globalMessages.status)}</span>
               <span className="media-fact-value">{data.status}</span>
             </div>
-            {filteredReleases && filteredReleases.length > 0 ? (
+            {data.streamInfo?.isStream && (
+              <>
+                <div className="media-fact bg-purple-950/30 border-l-2 border-l-purple-500">
+                  <span className="flex items-center gap-1.5 font-medium text-purple-300">
+                    <GlobeAltIcon className="h-4 w-4 text-purple-400" />
+                    {intl.formatMessage(messages.streamSource)}
+                  </span>
+                  <span className="media-fact-value font-medium text-purple-200">
+                    {data.streamInfo.streamUrl ? (
+                      <a
+                        href={data.streamInfo.streamUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center justify-end gap-1 text-purple-300 hover:text-purple-100 hover:underline"
+                        title={data.streamInfo.streamUrl}
+                      >
+                        <span>{data.streamInfo.source || 'Web Stream (Latino)'}</span>
+                        <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
+                      </a>
+                    ) : (
+                      data.streamInfo.source || 'Web Stream (Latino)'
+                    )}
+                  </span>
+                </div>
+                {data.streamInfo.quality && (
+                  <div className="media-fact">
+                    <span>{intl.formatMessage(messages.streamQuality)}</span>
+                    <span className="media-fact-value">
+                      <span className="rounded bg-gray-800 px-2 py-0.5 text-xs font-semibold text-gray-200 border border-gray-700">
+                        {data.streamInfo.quality}
+                      </span>
+                      {data.streamInfo.resolution && (
+                        <span className="ml-1.5 text-xs text-gray-400">
+                          ({data.streamInfo.resolution})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+                {data.streamInfo.audioLanguage && (
+                  <div className="media-fact">
+                    <span>{intl.formatMessage(messages.streamAudio)}</span>
+                    <span className="media-fact-value text-emerald-400 font-medium">
+                      {data.streamInfo.audioLanguage}
+                    </span>
+                  </div>
+                )}
+                {data.streamInfo.status === 'downloading' && (
+                  <div className="media-fact bg-sky-950/30 border-l-2 border-l-sky-500">
+                    <span className="flex items-center gap-1.5 font-medium text-sky-300">
+                      <ArrowDownTrayIcon className="h-4 w-4 animate-bounce text-sky-400" />
+                      {intl.formatMessage(messages.streamDownloadProgress)}
+                    </span>
+                    <span className="media-fact-value font-bold text-sky-400">
+                      {data.streamInfo.progress ?? 0}% {data.streamInfo.speed ? `• ${data.streamInfo.speed}` : ''}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+            {/* Theatrical Release */}
+            {theatricalRelease ? (
               <div className="media-fact">
-                <span>
-                  {intl.formatMessage(messages.releasedate, {
-                    releaseCount: filteredReleases.length,
+                <span className="flex items-center gap-1.5">
+                  <TicketIcon className="h-4 w-4 text-amber-400" />
+                  {intl.formatMessage(messages.theatricalrelease)}
+                </span>
+                <span className="media-fact-value font-medium text-gray-200">
+                  {intl.formatDate(theatricalRelease.release_date, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    timeZone: 'UTC',
                   })}
                 </span>
-                <span className="media-fact-value">
-                  {filteredReleases.map((r, i) => (
-                    <span
-                      className="flex items-center justify-end"
-                      key={`release-date-${i}`}
-                    >
-                      {r.type === 3 ? (
-                        // Theatrical
-                        <Tooltip
-                          content={intl.formatMessage(
-                            messages.theatricalrelease
-                          )}
-                        >
-                          <TicketIcon className="h-4 w-4" />
-                        </Tooltip>
-                      ) : r.type === 4 ? (
-                        // Digital
-                        <Tooltip
-                          content={intl.formatMessage(messages.digitalrelease)}
-                        >
-                          <CloudIcon className="h-4 w-4" />
-                        </Tooltip>
-                      ) : (
-                        // Physical
-                        <Tooltip
-                          content={intl.formatMessage(messages.physicalrelease)}
-                        >
-                          <svg
-                            className="h-4 w-4"
-                            viewBox="0 0 24 24"
-                            xmlns="http://www.w3.org/2000/svg"
-                          >
-                            <path
-                              d="m12 2c-5.5242 0-10 4.4758-10 10 0 5.5242 4.4758 10 10 10 5.5242 0 10-4.4758 10-10 0-5.5242-4.4758-10-10-10zm0 18.065c-4.4476 0-8.0645-3.6169-8.0645-8.0645 0-4.4476 3.6169-8.0645 8.0645-8.0645 4.4476 0 8.0645 3.6169 8.0645 8.0645 0 4.4476-3.6169 8.0645-8.0645 8.0645zm0-14.516c-3.5565 0-6.4516 2.8952-6.4516 6.4516h1.2903c0-2.8468 2.3145-5.1613 5.1613-5.1613zm0 2.9032c-1.9597 0-3.5484 1.5887-3.5484 3.5484s1.5887 3.5484 3.5484 3.5484 3.5484-1.5887 3.5484-3.5484-1.5887-3.5484-3.5484-3.5484zm0 4.8387c-0.71371 0-1.2903-0.57661-1.2903-1.2903s0.57661-1.2903 1.2903-1.2903 1.2903 0.57661 1.2903 1.2903-0.57661 1.2903-1.2903 1.2903z"
-                              fill="currentColor"
-                            />
-                          </svg>
-                        </Tooltip>
-                      )}
-                      <span className="ml-1.5">
-                        {intl.formatDate(r.release_date, {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                          timeZone: 'UTC',
-                        })}
-                      </span>
-                    </span>
-                  ))}
+              </div>
+            ) : data.releaseDate ? (
+              <div className="media-fact">
+                <span className="flex items-center gap-1.5">
+                  <TicketIcon className="h-4 w-4 text-amber-400" />
+                  {intl.formatMessage(messages.theatricalrelease)}
+                </span>
+                <span className="media-fact-value font-medium text-gray-200">
+                  {intl.formatDate(data.releaseDate, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    timeZone: 'UTC',
+                  })}
                 </span>
               </div>
-            ) : (
-              data.releaseDate && (
-                <div className="media-fact">
-                  <span>
-                    {intl.formatMessage(messages.releasedate, {
-                      releaseCount: 1,
-                    })}
-                  </span>
-                  <span className="media-fact-value">
-                    {intl.formatDate(data.releaseDate, {
+            ) : null}
+
+            {/* Digital / Streaming Release */}
+            <div className="media-fact">
+              <span className="flex items-center gap-1.5">
+                <CloudIcon className="h-4 w-4 text-sky-400" />
+                {intl.formatMessage(messages.digitalrelease)}
+              </span>
+              <span className="media-fact-value font-medium text-right">
+                {digitalRelease ? (
+                  <span className="text-sky-300">
+                    {intl.formatDate(digitalRelease.release_date, {
                       year: 'numeric',
-                      month: 'long',
+                      month: 'short',
                       day: 'numeric',
                       timeZone: 'UTC',
                     })}
+                    {digitalRelease.note ? (
+                      <span className="ml-1 text-xs text-sky-400/80 font-normal">
+                        ({digitalRelease.note})
+                      </span>
+                    ) : null}
                   </span>
-                </div>
-              )
+                ) : (
+                  <span className="text-gray-400 italic text-xs">
+                    {isInCinemas
+                      ? intl.formatMessage(messages.unannounced)
+                      : intl.formatMessage(messages.notAnnounced)}
+                  </span>
+                )}
+              </span>
+            </div>
+
+            {/* Physical (DVD / Blu-ray) Release */}
+            {(physicalRelease || isInCinemas) && (
+              <div className="media-fact">
+                <span className="flex items-center gap-1.5">
+                  <svg
+                    className="h-4 w-4 text-indigo-400"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="m12 2c-5.5242 0-10 4.4758-10 10 0 5.5242 4.4758 10 10 10 5.5242 0 10-4.4758 10-10 0-5.5242-4.4758-10-10-10zm0 18.065c-4.4476 0-8.0645-3.6169-8.0645-8.0645 0-4.4476 3.6169-8.0645 8.0645-8.0645 4.4476 0 8.0645 3.6169 8.0645 8.0645 0 4.4476-3.6169 8.0645-8.0645 8.0645zm0-14.516c-3.5565 0-6.4516 2.8952-6.4516 6.4516h1.2903c0-2.8468 2.3145-5.1613 5.1613-5.1613zm0 2.9032c-1.9597 0-3.5484 1.5887-3.5484 3.5484s1.5887 3.5484 3.5484 3.5484 3.5484-1.5887 3.5484-3.5484-1.5887-3.5484-3.5484-3.5484zm0 4.8387c-0.71371 0-1.2903-0.57661-1.2903-1.2903s0.57661-1.2903 1.2903-1.2903 1.2903 0.57661 1.2903 1.2903-0.57661 1.2903-1.2903 1.2903z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                  {intl.formatMessage(messages.physicalrelease)}
+                </span>
+                <span className="media-fact-value font-medium text-right">
+                  {physicalRelease ? (
+                    <span className="text-indigo-300">
+                      {intl.formatDate(physicalRelease.release_date, {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        timeZone: 'UTC',
+                      })}
+                      {physicalRelease.note ? (
+                        <span className="ml-1 text-xs text-indigo-400/80 font-normal">
+                          ({physicalRelease.note})
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400 italic text-xs">
+                      {intl.formatMessage(messages.notAnnounced)}
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
+
+            {/* Leak Monitoring Callout if in cinemas and not yet available */}
+            {isInCinemas && (
+              <div className="media-fact bg-amber-950/40 border-l-2 border-l-amber-400 py-1.5 px-2 rounded-r">
+                <span className="flex items-center gap-1.5 font-medium text-amber-300 text-xs">
+                  <SparklesIcon className="h-4 w-4 text-amber-400 shrink-0" />
+                  {intl.formatMessage(messages.leakMonitoring)}
+                </span>
+                <span className="media-fact-value text-[11px] leading-tight text-amber-200/90 font-normal text-right">
+                  {intl.formatMessage(messages.leakMonitoringDesc)}
+                </span>
+              </div>
             )}
             {data.revenue > 0 && (
               <div className="media-fact">

@@ -2,6 +2,7 @@ import { MediaRequestStatus, MediaType } from '@server/constants/media';
 import { UserType } from '@server/constants/user';
 import { getRepository } from '@server/datasource';
 import { Watchlist } from '@server/entity/Watchlist';
+import { Watched } from '@server/entity/Watched';
 import type { QuotaResponse } from '@server/interfaces/api/userInterfaces';
 import PreparedEmail from '@server/lib/email';
 import type { PermissionCheckOptions } from '@server/lib/permissions';
@@ -121,6 +122,9 @@ export class User {
 
   @OneToMany(() => Watchlist, (watchlist) => watchlist.requestedBy)
   public watchlists: Watchlist[];
+
+  @OneToMany(() => Watched, (watched) => watched.user)
+  public watched: Watched[];
 
   @Column({ nullable: true })
   public movieQuotaLimit?: number;

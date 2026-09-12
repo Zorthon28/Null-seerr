@@ -10,6 +10,7 @@ import { Watchlist } from '@server/entity/Watchlist';
 import logger from '@server/logger';
 import { mapTvResult } from '@server/models/Search';
 import { mapSeasonWithEpisodes, mapTvDetails } from '@server/models/Tv';
+import streamHistory from '@server/lib/stream/streamHistory';
 import { Router } from 'express';
 
 const tvRoutes = Router();
@@ -42,7 +43,13 @@ tvRoutes.get('/:id', async (req, res, next) => {
       },
     });
 
-    const data = mapTvDetails(tv, media, onUserWatchlist);
+    const streamInfo = await streamHistory.getStreamInfo(
+      tv.id,
+      tv.name,
+      tv.first_air_date ? parseInt(tv.first_air_date.slice(0, 4), 10) : undefined
+    );
+
+    const data = mapTvDetails(tv, media, onUserWatchlist, streamInfo);
 
     // TMDB issue where it doesnt fallback to English when no overview is available in requested locale.
     if (!data.overview) {

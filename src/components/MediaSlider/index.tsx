@@ -4,6 +4,7 @@ import Slider from '@app/components/Slider';
 import TitleCard from '@app/components/TitleCard';
 import useSettings from '@app/hooks/useSettings';
 import { useUser } from '@app/hooks/useUser';
+import useWatched from '@app/hooks/useWatched';
 import { ArrowRightCircleIcon } from '@heroicons/react/24/outline';
 import { MediaStatus } from '@server/constants/media';
 import { Permission } from '@server/lib/permissions';
@@ -44,6 +45,7 @@ const MediaSlider = ({
 }: MediaSliderProps) => {
   const settings = useSettings();
   const { hasPermission } = useUser();
+  const { hideWatched, isWatched } = useWatched();
   const { data, error, setSize, size } = useSWRInfinite<MixedResult>(
     (pageIndex: number, previousPageData: MixedResult | null) => {
       if (previousPageData && pageIndex + 1 > previousPageData.totalPages) {
@@ -79,6 +81,15 @@ const MediaSlider = ({
       (i) =>
         (i.mediaType === 'movie' || i.mediaType === 'tv') &&
         i.mediaInfo?.status !== MediaStatus.BLOCKLISTED
+    );
+  }
+
+  if (hideWatched) {
+    titles = titles.filter(
+      (i) =>
+        (i.mediaType !== 'movie' && i.mediaType !== 'tv') ||
+        (!isWatched(i.id, i.mediaType) &&
+          !(i.mediaInfo?.watched && i.mediaInfo.watched.length > 0))
     );
   }
 
@@ -125,6 +136,10 @@ const MediaSlider = ({
               key={title.id}
               id={title.id}
               isAddedToWatchlist={title.mediaInfo?.watchlists?.length ?? 0}
+              isWatchedItem={
+                isWatched(title.id, title.mediaType) ||
+                Boolean(title.mediaInfo?.watched?.length)
+              }
               image={title.posterPath}
               status={title.mediaInfo?.status}
               summary={title.overview}
@@ -141,6 +156,10 @@ const MediaSlider = ({
               key={title.id}
               id={title.id}
               isAddedToWatchlist={title.mediaInfo?.watchlists?.length ?? 0}
+              isWatchedItem={
+                isWatched(title.id, title.mediaType) ||
+                Boolean(title.mediaInfo?.watched?.length)
+              }
               image={title.posterPath}
               status={title.mediaInfo?.status}
               summary={title.overview}

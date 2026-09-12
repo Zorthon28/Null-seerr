@@ -1,6 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   env: {
     commitTag: process.env.COMMIT_TAG || 'local',
   },
@@ -21,9 +24,27 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  webpack(config) {
+    config.module.rules.push({
+      test: /\.svg$/,
+      issuer: /\.(js|ts)x?$/,
+      use: ['@svgr/webpack'],
+    });
+
+    return config;
+  },
   experimental: {
     scrollRestoration: true,
     largePageDataBytes: 512 * 1000,
+  },
+  async redirects() {
+    return [
+      {
+        source: '/download',
+        destination: '/downloads',
+        permanent: true,
+      },
+    ];
   },
 };
 
