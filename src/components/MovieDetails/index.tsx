@@ -49,6 +49,7 @@ import {
   ArrowTopRightOnSquareIcon,
   GlobeAltIcon,
   SparklesIcon,
+  RadioIcon,
 } from '@heroicons/react/24/outline';
 import {
   ChevronDoubleDownIcon,
@@ -262,6 +263,16 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
       }
     }
   };
+
+  const { data: leaksData } = useSWR<{ alerts: any[] }>('/api/v1/leaks', {
+    revalidateOnFocus: false,
+  });
+
+  const activeLeak = leaksData?.alerts?.find(
+    (a) =>
+      a.matchedMedia?.tmdbId === data?.id ||
+      (data?.title && a.mediaTitle.toLowerCase().includes(data.title.toLowerCase()))
+  );
 
   if (!data && !error) {
     return <LoadingSpinner />;
@@ -724,6 +735,22 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 </span>
               </div>
             )}
+          {activeLeak && (
+            <div className="mb-3 flex items-center justify-between rounded-xl border border-red-500/40 bg-red-950/40 px-3.5 py-2.5 text-xs text-red-200 shadow-lg backdrop-blur-md">
+              <div className="flex items-center gap-2">
+                <RadioIcon className="h-5 w-5 text-red-400 animate-pulse flex-shrink-0" />
+                <span>
+                  <strong className="text-red-300">Alerta de Filtración en la Red ({activeLeak.leakType.toUpperCase()}):</strong> Se han detectado reportes de una copia ({activeLeak.sourcePlatform}) para esta película.
+                </span>
+              </div>
+              <a
+                href="/leaks"
+                className="ml-3 flex-shrink-0 rounded bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-500 transition shadow"
+              >
+                Ver en Radar
+              </a>
+            </div>
+          )}
           <h1 data-testid="media-title">
             {data.title}{' '}
             {data.releaseDate && (

@@ -91,6 +91,7 @@
   "components.Layout.Sidebar.users": "Usuarios",
   "components.Layout.Sidebar.settings": "Ajustes",
   "components.Layout.Sidebar.requests": "Solicitudes",
+  "components.Layout.Sidebar.leaks": "Radar Leaks",
   "components.Layout.Sidebar.dashboard": "Descubrir",
   "components.Layout.SearchInput.searchPlaceholder": "Buscar Películas y Series",
   "components.Discover.upcomingmovies": "Próximas Películas",

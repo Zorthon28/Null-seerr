@@ -13,6 +13,7 @@ import {
   FilmIcon,
   SparklesIcon,
   FireIcon,
+  RadioIcon,
   Squares2X2Icon,
   TicketIcon,
   TvIcon,
@@ -33,6 +34,7 @@ export const menuMessages = defineMessages('components.Layout.Sidebar', {
   browseboxoffice: 'Box Office',
   requests: 'Requests',
   downloads: 'Downloads',
+  leaks: 'Leaks Radar',
   apps: 'Apps',
   blocklist: 'Blocklist',
   issues: 'Issues',
@@ -102,6 +104,12 @@ const SidebarLinks: SidebarLinkProps[] = [
     messagesKey: 'downloads',
     svgIcon: <ArrowDownTrayIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/downloads/,
+  },
+  {
+    href: '/leaks',
+    messagesKey: 'leaks',
+    svgIcon: <RadioIcon className="mr-3 h-6 w-6 text-red-500" />,
+    activeRegExp: /^\/leaks/,
   },
   {
     href: '/apps',
