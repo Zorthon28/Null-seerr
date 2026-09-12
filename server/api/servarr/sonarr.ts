@@ -462,10 +462,10 @@ class SonarrAPI extends ServarrBase<{
     });
 
     try {
-      await this.runCommand('MissingEpisodeSearch', { seriesId });
+      await this.runCommand('SeriesSearch', { seriesId });
     } catch (e) {
       logger.error(
-        'Something went wrong while executing Sonarr missing episode search.',
+        'Something went wrong while executing Sonarr series search.',
         {
           label: 'Sonarr API',
           errorMessage: e.message,
@@ -632,6 +632,17 @@ class SonarrAPI extends ServarrBase<{
       });
     }
   };
+
+  public async getSeriesHistory(seriesId: number): Promise<any[]> {
+    try {
+      const response = await this.axios.get<any[]>('/history/series', {
+        params: { seriesId },
+      });
+      return response.data || [];
+    } catch {
+      return [];
+    }
+  }
 }
 
 export default SonarrAPI;

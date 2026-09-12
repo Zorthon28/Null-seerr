@@ -18,6 +18,7 @@ export interface RadarrMovieOptions {
 export interface RadarrMovie {
   id: number;
   title: string;
+  year?: number;
   isAvailable: boolean;
   monitored: boolean;
   tmdbId: number;
@@ -269,6 +270,14 @@ class RadarrAPI extends ServarrBase<{ movieId: number }> {
       );
     }
   }
+
+  public async rescanMovie(movieId: number): Promise<void> {
+    try {
+      await this.runCommand('RescanMovie', { movieId });
+    } catch (e: any) {
+      logger.warn(`Failed to rescan movie in Radarr: ${e.message}`);
+    }
+  }
   public removeMovie = async (tmdbId: number): Promise<void> => {
     const { id, title } = await this.getMovieByTmdbId(tmdbId);
 
@@ -344,6 +353,17 @@ class RadarrAPI extends ServarrBase<{ movieId: number }> {
       this.removeCache(`/movie/${externalId}`);
     }
   };
+
+  public async getMovieHistory(movieId: number): Promise<any[]> {
+    try {
+      const response = await this.axios.get<any[]>('/history/movie', {
+        params: { movieId },
+      });
+      return response.data || [];
+    } catch {
+      return [];
+    }
+  }
 }
 
 export default RadarrAPI;

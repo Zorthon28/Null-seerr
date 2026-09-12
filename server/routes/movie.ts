@@ -9,6 +9,7 @@ import { Watchlist } from '@server/entity/Watchlist';
 import logger from '@server/logger';
 import { mapMovieDetails } from '@server/models/Movie';
 import { mapMovieResult } from '@server/models/Search';
+import streamHistory from '@server/lib/stream/streamHistory';
 import { Router } from 'express';
 
 const movieRoutes = Router();
@@ -34,7 +35,16 @@ movieRoutes.get('/:id', async (req, res, next) => {
       },
     });
 
-    const data = mapMovieDetails(tmdbMovie, media, onUserWatchlist);
+    const releaseYear = tmdbMovie.release_date
+      ? parseInt(tmdbMovie.release_date.slice(0, 4), 10)
+      : undefined;
+    const streamInfo = await streamHistory.getStreamInfo(
+      tmdbMovie.id,
+      tmdbMovie.title,
+      releaseYear
+    );
+
+    const data = mapMovieDetails(tmdbMovie, media, onUserWatchlist, streamInfo);
 
     // TMDB issue where it doesnt fallback to English when no overview is available in requested locale.
     if (!data.overview) {

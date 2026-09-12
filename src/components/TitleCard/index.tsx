@@ -16,12 +16,17 @@ import { withProperties } from '@app/utils/typeHelpers';
 import { Transition } from '@headlessui/react';
 import {
   ArrowDownTrayIcon,
+  CalendarIcon,
   EyeIcon,
   EyeSlashIcon,
   MinusCircleIcon,
   StarIcon,
   PlayIcon,
+  TicketIcon,
+  CheckCircleIcon,
 } from '@heroicons/react/24/outline';
+import { CheckCircleIcon as CheckCircleSolidIcon } from '@heroicons/react/24/solid';
+import useWatched from '@app/hooks/useWatched';
 import { MediaStatus } from '@server/constants/media';
 import type { Watchlist } from '@server/entity/Watchlist';
 import type { MediaType } from '@server/models/Search';
@@ -37,6 +42,7 @@ interface TitleCardProps {
   image?: string;
   summary?: string;
   year?: string;
+  releaseDate?: string;
   title: string;
   userScore?: number;
   mediaType: MediaType;
@@ -44,6 +50,7 @@ interface TitleCardProps {
   canExpand?: boolean;
   inProgress?: boolean;
   isAddedToWatchlist?: number | boolean;
+  isWatchedItem?: boolean;
   mutateParent?: () => void;
 }
 
@@ -55,17 +62,57 @@ const messages = defineMessages('components.TitleCard', {
     '<strong>{title}</strong> Removed from watchlist  successfully!',
   watchlistCancel: 'watchlist for <strong>{title}</strong> canceled.',
   watchlistError: 'Something went wrong. Please try again.',
+  upcoming: 'Upcoming',
+  inCinemas: 'In Cinemas',
 });
+
+const getReleaseStatus = (
+  dateStr?: string,
+  type?: MediaType,
+  isAvailable?: boolean
+): 'upcoming' | 'inCinemas' | null => {
+  if (!dateStr || isAvailable) {
+    return null;
+  }
+
+  const parts = dateStr.split('-');
+  const y = parseInt(parts[0], 10);
+  if (isNaN(y) || y < 1900) {
+    return null;
+  }
+
+  const m = parts.length > 1 ? parseInt(parts[1], 10) - 1 : 0;
+  const d = parts.length > 2 ? parseInt(parts[2], 10) : 1;
+
+  const releaseDate = new Date(y, m, d);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const diffMs = releaseDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays > 0) {
+    return 'upcoming';
+  }
+
+  if (type === 'movie' && parts.length >= 2 && diffDays >= -75) {
+    return 'inCinemas';
+  }
+
+  return null;
+};
 
 const TitleCard = ({
   id,
   image,
   summary,
   year,
+  releaseDate,
   title,
   status,
   mediaType,
   isAddedToWatchlist = false,
+  isWatchedItem,
   inProgress = false,
   canExpand = false,
   mutateParent,
@@ -74,6 +121,8 @@ const TitleCard = ({
   const intl = useIntl();
   const { user, hasPermission } = useUser();
   const router = useRouter();
+  const { isWatched: checkIsWatched, markWatched, unmarkWatched } = useWatched();
+  const isWatched = isWatchedItem ?? checkIsWatched(id, mediaType);
 
   const { data: queueData } = useSWR<{ queue: Record<number, any> }>(
     '/api/v1/media/queue',
@@ -91,10 +140,43 @@ const TitleCard = ({
   const [showBlocklistModal, setShowBlocklistModal] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // Just to get the year from the date
-  if (year) {
-    year = year.slice(0, 4);
-  }
+  const onClickWatchedBtn = async (e: React.MouseEvent): Promise<void> => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsUpdating(true);
+    try {
+      if (isWatched) {
+        await unmarkWatched(id, mediaType as 'movie' | 'tv');
+        addToast(
+          <span>
+            Marked <strong>{title}</strong> as unwatched
+          </span>,
+          { appearance: 'info', autoDismiss: true }
+        );
+      } else {
+        await markWatched(id, mediaType as 'movie' | 'tv', title);
+        addToast(
+          <span>
+            Marked <strong>{title}</strong> as watched!
+          </span>,
+          { appearance: 'success', autoDismiss: true }
+        );
+      }
+      if (mutateParent) {
+        mutateParent();
+      }
+    } catch {
+      addToast('Something went wrong updating watched status', {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const dateString = releaseDate || year;
+  const displayYear = year ? year.slice(0, 4) : undefined;
 
   useEffect(() => {
     setCurrentStatus(status);
@@ -104,6 +186,7 @@ const TitleCard = ({
   const isProcessing = activeQueueItem?.status === 'processing';
   const isRequested = !isDownloading && !isProcessing && (currentStatus === MediaStatus.PROCESSING || currentStatus === MediaStatus.PENDING);
   const isAvailable = currentStatus === MediaStatus.AVAILABLE || currentStatus === MediaStatus.PARTIALLY_AVAILABLE;
+  const releaseStatus = getReleaseStatus(dateString, mediaType, isAvailable);
   const downloadProgress = activeQueueItem?.progress ?? 0;
   const downloadTimeLeft = activeQueueItem?.timeLeft ?? '';
 
@@ -331,6 +414,38 @@ const TitleCard = ({
     type: 'or',
   });
 
+  const statusBadgeElement = (isDownloading ||
+    isProcessing ||
+    isRequested ||
+    (currentStatus && currentStatus !== MediaStatus.UNKNOWN)) && (
+    <div className="flex flex-col items-center gap-1">
+      <div className="pointer-events-none z-40 flex">
+        {isDownloading ? (
+          <div className="bg-indigo-600/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 backdrop-blur-sm">
+            <span>{downloadProgress}%</span>
+            {downloadTimeLeft && (
+              <span className="opacity-80">({downloadTimeLeft})</span>
+            )}
+          </div>
+        ) : isProcessing ? (
+          <div className="bg-indigo-500/95 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 backdrop-blur-sm">
+            <span>Processing</span>
+          </div>
+        ) : isRequested ? (
+          <div className="bg-amber-500/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 backdrop-blur-sm">
+            <span>Requested ✓</span>
+          </div>
+        ) : (
+          <StatusBadgeMini
+            status={currentStatus ?? MediaStatus.UNKNOWN}
+            inProgress={inProgress}
+            shrink
+          />
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div
       className={canExpand ? 'w-full' : 'w-36 sm:w-36 md:w-44'}
@@ -410,103 +525,128 @@ const TitleCard = ({
               />
             </div>
           )}
-          <div className="absolute left-0 right-0 flex items-center justify-between p-2">
-            <div
-              className={`pointer-events-none z-40 self-start rounded-full border shadow-md ${
-                mediaType === 'movie' || mediaType === 'collection'
-                  ? 'border-blue-500 bg-blue-600/80'
-                  : 'border-purple-600 bg-purple-600/80'
-              }`}
-            >
-              <div className="flex h-4 items-center px-2 py-2 text-center text-xs font-medium uppercase tracking-wider text-white sm:h-5">
-                {mediaType === 'movie'
-                  ? intl.formatMessage(globalMessages.movie)
-                  : mediaType === 'collection'
-                    ? intl.formatMessage(globalMessages.collection)
-                    : intl.formatMessage(globalMessages.tvshow)}
-              </div>
-            </div>
-            {showDetail && currentStatus !== MediaStatus.BLOCKLISTED && (
-              <div className="flex flex-col gap-1">
-                {user?.userType !== UserType.PLEX &&
-                  (toggleWatchlist ? (
-                    <Button
-                      buttonType={'ghost'}
-                      className="z-40"
-                      buttonSize={'sm'}
-                      onClick={onClickWatchlistBtn}
-                    >
-                      <StarIcon className={'h-3 text-amber-300'} />
-                    </Button>
-                  ) : (
-                    <Button
-                      className="z-40"
-                      buttonSize={'sm'}
-                      onClick={onClickDeleteWatchlistBtn}
-                    >
-                      <MinusCircleIcon className={'h-3'} />
-                    </Button>
-                  ))}
-                {showHideButton &&
-                  currentStatus !== MediaStatus.PROCESSING &&
-                  currentStatus !== MediaStatus.AVAILABLE &&
-                  currentStatus !== MediaStatus.PARTIALLY_AVAILABLE &&
-                  currentStatus !== MediaStatus.PENDING && (
-                    <Button
-                      buttonType={'ghost'}
-                      className="z-40"
-                      buttonSize={'sm'}
-                      onClick={() => setShowBlocklistModal(true)}
-                    >
-                      <EyeSlashIcon className={'h-3'} />
-                    </Button>
-                  )}
-              </div>
-            )}
-            {showDetail &&
-              showHideButton &&
-              currentStatus == MediaStatus.BLOCKLISTED && (
-                <Tooltip
-                  content={intl.formatMessage(
-                    globalMessages.removefromBlocklist
-                  )}
-                >
-                  <Button
-                    buttonType={'ghost'}
-                    className="z-40"
-                    buttonSize={'sm'}
-                    onClick={() => onClickShowBlocklistBtn()}
-                  >
-                    <EyeIcon className={'h-3'} />
-                  </Button>
-                </Tooltip>
-              )}
-            {(isDownloading || isProcessing || isRequested || (currentStatus && currentStatus !== MediaStatus.UNKNOWN)) && (
-              <div className="flex flex-col items-center gap-1">
-                <div className="pointer-events-none z-40 flex">
-                  {isDownloading ? (
-                    <div className="bg-indigo-600/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 backdrop-blur-sm">
-                      <span>{downloadProgress}%</span>
-                      {downloadTimeLeft && <span className="opacity-80">({downloadTimeLeft})</span>}
-                    </div>
-                  ) : isProcessing ? (
-                    <div className="bg-indigo-500/95 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 backdrop-blur-sm">
-                      <span>Processing</span>
-                    </div>
-                  ) : isRequested ? (
-                    <div className="bg-amber-500/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 backdrop-blur-sm">
-                      <span>Requested ✓</span>
-                    </div>
-                  ) : (
-                    <StatusBadgeMini
-                      status={currentStatus ?? MediaStatus.UNKNOWN}
-                      inProgress={inProgress}
-                      shrink
-                    />
-                  )}
+          <div className="absolute left-0 right-0 top-0 flex items-start justify-between p-2 pointer-events-none z-40">
+            <div className="flex flex-col items-start gap-1">
+              {releaseStatus === 'inCinemas' ? (
+                <div className="pointer-events-none z-40 self-start rounded-full border border-rose-500 bg-rose-600/80 shadow-md backdrop-blur-sm">
+                  <div className="flex h-4 items-center gap-1 px-2 py-2 text-center text-xs font-medium uppercase tracking-wider text-white sm:h-5">
+                    <TicketIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                    <span>{intl.formatMessage(messages.inCinemas)}</span>
+                  </div>
                 </div>
-              </div>
-            )}
+              ) : releaseStatus === 'upcoming' ? (
+                <div className="pointer-events-none z-40 self-start rounded-full border border-amber-500 bg-amber-600/80 shadow-md backdrop-blur-sm">
+                  <div className="flex h-4 items-center gap-1 px-2 py-2 text-center text-xs font-medium uppercase tracking-wider text-white sm:h-5">
+                    <CalendarIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                    <span>{intl.formatMessage(messages.upcoming)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className={`pointer-events-none z-40 self-start rounded-full border shadow-md ${
+                    mediaType === 'movie' || mediaType === 'collection'
+                      ? 'border-blue-500 bg-blue-600/80'
+                      : 'border-purple-600 bg-purple-600/80'
+                  }`}
+                >
+                  <div className="flex h-4 items-center px-2 py-2 text-center text-xs font-medium uppercase tracking-wider text-white sm:h-5">
+                    {mediaType === 'movie'
+                      ? intl.formatMessage(globalMessages.movie)
+                      : mediaType === 'collection'
+                        ? intl.formatMessage(globalMessages.collection)
+                        : intl.formatMessage(globalMessages.tvshow)}
+                  </div>
+                </div>
+              )}
+              {Boolean(releaseStatus) && statusBadgeElement}
+              {isWatched && (
+                <div className="pointer-events-none z-40 self-start rounded-full border border-emerald-500/80 bg-emerald-600/90 shadow-md">
+                  <div className="flex h-4 items-center px-1.5 py-1 text-center text-[10px] font-bold uppercase tracking-wider text-white sm:h-5 sm:text-xs">
+                    ✓ Seen
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="pointer-events-auto flex items-center gap-1">
+              {showDetail && currentStatus !== MediaStatus.BLOCKLISTED && (
+                <div className="flex flex-col gap-1">
+                  {user && (
+                    <Tooltip
+                      content={isWatched ? 'Mark as Unwatched' : 'Mark as Watched'}
+                    >
+                      <Button
+                        buttonType={isWatched ? 'primary' : 'ghost'}
+                        className={`z-40 ${
+                          isWatched
+                            ? '!bg-emerald-600 hover:!bg-emerald-700 text-white'
+                            : ''
+                        }`}
+                        buttonSize={'sm'}
+                        onClick={onClickWatchedBtn}
+                      >
+                        {isWatched ? (
+                          <CheckCircleSolidIcon className={'h-3 text-white'} />
+                        ) : (
+                          <CheckCircleIcon className={'h-3 text-emerald-400'} />
+                        )}
+                      </Button>
+                    </Tooltip>
+                  )}
+                  {user?.userType !== UserType.PLEX &&
+                    (toggleWatchlist ? (
+                      <Button
+                        buttonType={'ghost'}
+                        className="z-40"
+                        buttonSize={'sm'}
+                        onClick={onClickWatchlistBtn}
+                      >
+                        <StarIcon className={'h-3 text-amber-300'} />
+                      </Button>
+                    ) : (
+                      <Button
+                        className="z-40"
+                        buttonSize={'sm'}
+                        onClick={onClickDeleteWatchlistBtn}
+                      >
+                        <MinusCircleIcon className={'h-3'} />
+                      </Button>
+                    ))}
+                  {showHideButton &&
+                    currentStatus !== MediaStatus.PROCESSING &&
+                    currentStatus !== MediaStatus.AVAILABLE &&
+                    currentStatus !== MediaStatus.PARTIALLY_AVAILABLE &&
+                    currentStatus !== MediaStatus.PENDING && (
+                      <Button
+                        buttonType={'ghost'}
+                        className="z-40"
+                        buttonSize={'sm'}
+                        onClick={() => setShowBlocklistModal(true)}
+                      >
+                        <EyeSlashIcon className={'h-3'} />
+                      </Button>
+                    )}
+                </div>
+              )}
+              {showDetail &&
+                showHideButton &&
+                currentStatus == MediaStatus.BLOCKLISTED && (
+                  <Tooltip
+                    content={intl.formatMessage(
+                      globalMessages.removefromBlocklist
+                    )}
+                  >
+                    <Button
+                      buttonType={'ghost'}
+                      className="z-40"
+                      buttonSize={'sm'}
+                      onClick={() => onClickShowBlocklistBtn()}
+                    >
+                      <EyeIcon className={'h-3'} />
+                    </Button>
+                  </Tooltip>
+                )}
+              {!Boolean(releaseStatus) && statusBadgeElement}
+            </div>
           </div>
           <Transition
             as={Fragment}
@@ -559,7 +699,9 @@ const TitleCard = ({
                         : 'pb-11'
                     }`}
                   >
-                    {year && <div className="text-sm font-medium">{year}</div>}
+                    {displayYear && (
+                      <div className="text-sm font-medium">{displayYear}</div>
+                    )}
 
                     <h1
                       className="whitespace-normal text-xl font-bold leading-tight"

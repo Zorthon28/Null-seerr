@@ -10,7 +10,7 @@ import { Permission, UserType, useUser } from '@app/hooks/useUser';
 import ErrorPage from '@app/pages/_error';
 import defineMessages from '@app/utils/defineMessages';
 import { ArrowRightCircleIcon } from '@heroicons/react/24/outline';
-import type { WatchlistResponse } from '@server/interfaces/api/discoverInterfaces';
+import type { WatchlistResponse, WatchedResponse } from '@server/interfaces/api/discoverInterfaces';
 import type {
   QuotaResponse,
   UserRequestsResponse,
@@ -91,6 +91,22 @@ const UserProfile = () => {
           }
         )
         ? `/api/v1/user/${user?.id}/watchlist`
+        : null,
+      {
+        revalidateOnMount: true,
+      }
+    );
+
+  const { data: watchedItems, error: watchedError } =
+    useSWR<WatchedResponse>(
+      user?.id === currentUser?.id ||
+        currentHasPermission(
+          [Permission.MANAGE_REQUESTS, Permission.WATCHLIST_VIEW],
+          {
+            type: 'or',
+          }
+        )
+        ? `/api/v1/user/${user?.id}/watched`
         : null,
       {
         revalidateOnMount: true,
@@ -368,6 +384,45 @@ const UserProfile = () => {
                 <TmdbTitleCard
                   id={item.tmdbId}
                   key={`watchlist-slider-item-${item.ratingKey}`}
+                  tmdbId={item.tmdbId}
+                  type={item.mediaType}
+                />
+              ))}
+            />
+          </>
+        )}
+      {(user.id === currentUser?.id ||
+        currentHasPermission(
+          [Permission.MANAGE_REQUESTS, Permission.WATCHLIST_VIEW],
+          {
+            type: 'or',
+          }
+        )) &&
+        (!watchedItems || !!watchedItems.results.length) &&
+        !watchedError && (
+          <>
+            <div className="slider-header">
+              <Link
+                href={
+                  user.id === currentUser?.id
+                    ? '/profile/watched'
+                    : `/users/${user.id}/watched`
+                }
+                className="slider-title"
+              >
+                <span>Watched Titles</span>
+                <ArrowRightCircleIcon />
+              </Link>
+            </div>
+            <Slider
+              sliderKey="watched"
+              isLoading={!watchedItems}
+              isEmpty={!!watchedItems && watchedItems.results.length === 0}
+              emptyMessage="No watched titles recorded yet."
+              items={watchedItems?.results.map((item) => (
+                <TmdbTitleCard
+                  id={item.tmdbId}
+                  key={`watched-slider-item-${item.id}`}
                   tmdbId={item.tmdbId}
                   type={item.mediaType}
                 />

@@ -6,6 +6,7 @@ import { getRepository } from '@server/datasource';
 import { Blocklist } from '@server/entity/Blocklist';
 import type { User } from '@server/entity/User';
 import { Watchlist } from '@server/entity/Watchlist';
+import { Watched } from '@server/entity/Watched';
 import type { DownloadingItem } from '@server/lib/downloadtracker';
 import downloadTracker from '@server/lib/downloadtracker';
 import { getSettings } from '@server/lib/settings';
@@ -49,7 +50,13 @@ class Media {
           'watchlist',
           'media.id= watchlist.media and watchlist.requestedBy = :userId',
           { userId: user?.id }
-        ) //,
+        )
+        .leftJoinAndSelect(
+          'media.watched',
+          'watched',
+          'media.id = watched.media and watched.userId = :userId',
+          { userId: user?.id }
+        )
         .where(' media.tmdbId in (:...finalIds)', { finalIds })
         .getMany();
 
@@ -114,6 +121,9 @@ class Media {
 
   @OneToMany(() => Watchlist, (watchlist) => watchlist.media)
   public watchlists: null | Watchlist[];
+
+  @OneToMany(() => Watched, (watched) => watched.media)
+  public watched: null | Watched[];
 
   @OneToMany(() => Season, (season) => season.media, {
     cascade: true,

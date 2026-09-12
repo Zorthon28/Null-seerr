@@ -87,6 +87,30 @@ app
       // Column already exists or already added
     }
 
+    try {
+      await dbConnection.query(`
+        CREATE TABLE IF NOT EXISTS "watched" (
+          "id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+          "mediaType" varchar NOT NULL,
+          "title" varchar NOT NULL DEFAULT '',
+          "tmdbId" integer NOT NULL,
+          "userId" integer NOT NULL,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "mediaId" integer,
+          CONSTRAINT "UNIQUE_USER_WATCHED" UNIQUE ("tmdbId", "mediaType", "userId")
+        )
+      `);
+      await dbConnection.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_watched_tmdbId" ON "watched" ("tmdbId")
+      `);
+      await dbConnection.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_watched_userId" ON "watched" ("userId")
+      `);
+    } catch {
+      // Table/index already exists
+    }
+
     // Load Settings
     const settings = await getSettings().load();
     restartFlag.initializeSettings(settings);

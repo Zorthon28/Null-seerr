@@ -281,17 +281,36 @@ CoreApp.getInitialProps = async (initialProps) => {
           Location: '/setup',
         });
         ctx.res.end();
+        return {
+          pageProps: {},
+          user: undefined,
+          messages: {},
+          locale: currentSettings.locale,
+          currentSettings,
+        } as unknown as ExtendedAppProps;
       }
     } else {
       try {
+        const forwardHeaders: Record<string, string> = {};
+        if (ctx.req && ctx.req.headers.cookie) {
+          forwardHeaders.cookie = ctx.req.headers.cookie;
+        }
+        for (const h of [
+          'cf-access-authenticated-user-email',
+          'x-forwarded-email',
+          'remote-email',
+          'remote-user',
+        ]) {
+          if (ctx.req?.headers[h]) {
+            forwardHeaders[h] = ctx.req.headers[h] as string;
+          }
+        }
+
         // Attempt to get the user by running a request to the local api
         const response = await axios.get<User>(
           `http://${getHostAndPort()}/api/v1/auth/me`,
           {
-            headers:
-              ctx.req && ctx.req.headers.cookie
-                ? { cookie: ctx.req.headers.cookie }
-                : undefined,
+            headers: forwardHeaders,
           }
         );
         user = response.data;
@@ -301,6 +320,13 @@ CoreApp.getInitialProps = async (initialProps) => {
             Location: '/',
           });
           ctx.res.end();
+          return {
+            pageProps: {},
+            user,
+            messages: {},
+            locale: currentSettings.locale,
+            currentSettings,
+          } as unknown as ExtendedAppProps;
         }
       } catch {
         // If there is no user, and ctx.res is set (to check if we are on the server side)
@@ -311,6 +337,13 @@ CoreApp.getInitialProps = async (initialProps) => {
             Location: '/login',
           });
           ctx.res.end();
+          return {
+            pageProps: {},
+            user: undefined,
+            messages: {},
+            locale: currentSettings.locale,
+            currentSettings,
+          } as unknown as ExtendedAppProps;
         }
       }
     }
