@@ -189,7 +189,7 @@ const LeaksPage: NextPage = () => {
   const handle1ClickGrab = async (alertId: string) => {
     setGrabbingId(alertId);
     try {
-      const res = await axios.post(`/api/v1/leaks/${alertId}/grab`);
+      const res = await axios.post('/api/v1/leaks/grab', { id: alertId });
       if (res.data.success) {
         addToast(res.data.message || 'Descarga iniciada exitosamente.', {
           autoDismiss: true,
@@ -214,7 +214,7 @@ const LeaksPage: NextPage = () => {
 
   const handleDismiss = async (id: string) => {
     try {
-      await axios.delete(`/api/v1/leaks/${id}`);
+      await axios.post('/api/v1/leaks/dismiss', { id });
       mutate({
         ...data!,
         alerts: alerts.filter((a) => a.id !== id),

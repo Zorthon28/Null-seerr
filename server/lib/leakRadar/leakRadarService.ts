@@ -42,6 +42,13 @@ export interface LeakRadarSettings {
   notifyOnTelegram: boolean;
 }
 
+
+const isDocker = fs.existsSync('/.dockerenv') || fs.existsSync('/app/config/DOCKER');
+const getProwlarrBaseUrl = () =>
+  process.env.PROWLARR_URL || (isDocker ? 'http://prowlarr:9696' : '');
+const getQbittorrentBaseUrl = () =>
+  process.env.QBITTORRENT_URL || (isDocker ? 'http://qbittorrent:8080' : '');
+
 class LeakRadarService {
   private historyFile = path.join(appDataPath(), 'leakHistory.json');
   private fallbackHistoryFile = path.join(__dirname, 'leakHistory.json');
@@ -112,7 +119,9 @@ class LeakRadarService {
           if (!a.inspection) {
             a.inspection = inspectLeak(a.title, a.description);
           }
-          this.alerts.set(a.id, a);
+          const cleanId = a.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+          a.id = cleanId;
+          this.alerts.set(cleanId, a);
         }
       }
     } catch (e: any) {
@@ -142,6 +151,14 @@ class LeakRadarService {
       this.alerts.delete(id);
       this.saveHistory();
       return true;
+    }
+    const sanitized = id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    for (const [key] of this.alerts.entries()) {
+      if (key === id || key.replace(/[^a-zA-Z0-9_-]/g, '_') === sanitized) {
+        this.alerts.delete(key);
+        this.saveHistory();
+        return true;
+      }
     }
     return false;
   }
@@ -283,7 +300,7 @@ class LeakRadarService {
 
         for (const q of queries) {
           const pResp = await axios.get(
-            `http://localhost:9696/api/v1/search?query=${q}&type=search&limit=35`,
+            `${getProwlarrBaseUrl()}/api/v1/search?query=${q}&type=search&limit=35`,
             {
               headers: { 'X-Api-Key': prowlarrKey },
               timeout: 15000,
@@ -304,7 +321,8 @@ class LeakRadarService {
               ? 'workprint'
               : 'screener';
 
-            const alertId = `prowlarr_${item.infoHash || item.guid || rawTitle.replace(/\s+/g, '_')}`;
+            const cleanKey = (item.infoHash || item.guid || rawTitle).replace(/[^a-zA-Z0-9_-]/g, '_');
+            const alertId = `prowlarr_${cleanKey}`;
             if (this.alerts.has(alertId)) continue;
 
             const cleanMediaTitle = rawTitle
@@ -360,7 +378,7 @@ class LeakRadarService {
               continue;
             }
 
-            const downloadUrl = item.magnetUrl || item.downloadUrl || (item.infoHash ? `magnet:?xt=urn:btih:${item.infoHash}&dn=${encodeURIComponent(rawTitle)}` : undefined);
+            const downloadUrl = (item.infoHash ? `magnet:?xt=urn:btih:${item.infoHash}&dn=${encodeURIComponent(rawTitle)}` : undefined) || item.magnetUrl || item.downloadUrl;
             const inspection = inspectLeak(rawTitle);
 
             const alert: LeakAlert = {
@@ -372,7 +390,7 @@ class LeakRadarService {
               confidence: 'high',
               sourcePlatform: `${item.indexer || 'Tracker'} (Torrent)`,
               subreddit: item.indexer || 'Torrent Swarm',
-              redditUrl: item.infoUrl || item.commentUrl || 'http://localhost:9696',
+              redditUrl: item.infoUrl || item.commentUrl || '',
               downloadUrl,
               description: `Disponible para descarga en el swarm de ${item.indexer || 'indexadores'} con ${item.seeders ?? '?'} semillas. Tamaño: ${(item.size / (1024 * 1024 * 1024)).toFixed(2)} GB.`,
               detectedAt: item.publishDate || new Date().toISOString(),
@@ -517,7 +535,7 @@ class LeakRadarService {
       const prowlarrKey = '2093032a323244b4987f33f5387fcee5';
       const cleanSearch = alert.title.replace(/[._-]/g, ' ');
       const pResp = await axios.get(
-        `http://localhost:9696/api/v1/search?query=${encodeURIComponent(cleanSearch)}&type=search&limit=5`,
+        `${getProwlarrBaseUrl()}/api/v1/search?query=${encodeURIComponent(cleanSearch)}&type=search&limit=5`,
         {
           headers: { 'X-Api-Key': prowlarrKey },
           timeout: 10000,
@@ -551,28 +569,43 @@ class LeakRadarService {
 
   // 1-Click Grab: executes immediate download for a given alert id
   public async grabLeak(alertId: string): Promise<{ success: boolean; message: string }> {
-    const alert = this.alerts.get(alertId);
+    let alert = this.alerts.get(alertId);
+    if (!alert) {
+      const sanitized = alertId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      alert =
+        this.alerts.get(sanitized) ||
+        Array.from(this.alerts.values()).find(
+          (a) =>
+            a.id === alertId ||
+            a.id.replace(/[^a-zA-Z0-9_-]/g, '_') === sanitized
+        );
+    }
     if (!alert) {
       return { success: false, message: 'Alerta no encontrada.' };
     }
 
     // If downloadUrl is present, directly ingest
     if (alert.downloadUrl) {
-      return this.ingestLeak({
+      const ingestRes = await this.ingestLeak({
         title: alert.mediaTitle,
         year: alert.year,
         tmdbId: alert.matchedMedia?.tmdbId,
         downloadUrl: alert.downloadUrl,
         mediaType: alert.matchedMedia?.mediaType || 'movie',
       });
+      if (ingestRes.success) {
+        alert.autoDownloaded = true;
+        this.saveHistory();
+      }
+      return ingestRes;
     }
 
-    // If it's a Scene PreDB alert without magnet, search Prowlarr
+    // If it's a Scene PreDB alert or missing magnet, search Prowlarr
     try {
       const prowlarrKey = '2093032a323244b4987f33f5387fcee5';
-      const cleanSearch = alert.title.replace(/[._-]/g, ' ');
+      const cleanSearch = (alert.mediaTitle || alert.title).replace(/[._-]/g, ' ');
       const pResp = await axios.get(
-        `http://localhost:9696/api/v1/search?query=${encodeURIComponent(cleanSearch)}&type=search&limit=5`,
+        `${getProwlarrBaseUrl()}/api/v1/search?query=${encodeURIComponent(cleanSearch)}&type=search&limit=5`,
         {
           headers: { 'X-Api-Key': prowlarrKey },
           timeout: 10000,
@@ -582,21 +615,36 @@ class LeakRadarService {
       const items = pResp.data || [];
       if (items.length > 0) {
         const top = items[0];
-        const dlUrl = top.magnetUrl || top.downloadUrl || (top.infoHash ? `magnet:?xt=urn:btih:${top.infoHash}&dn=${encodeURIComponent(top.title)}` : undefined);
+        const dlUrl =
+          (top.infoHash
+            ? `magnet:?xt=urn:btih:${top.infoHash}&dn=${encodeURIComponent(
+                top.title || alert.title
+              )}`
+            : undefined) ||
+          top.magnetUrl ||
+          top.downloadUrl;
         if (dlUrl) {
           alert.downloadUrl = dlUrl;
-          this.saveHistory();
-          return this.ingestLeak({
+          const ingestRes = await this.ingestLeak({
             title: alert.mediaTitle,
             year: alert.year,
             tmdbId: alert.matchedMedia?.tmdbId,
             downloadUrl: dlUrl,
             mediaType: alert.matchedMedia?.mediaType || 'movie',
           });
+          if (ingestRes.success) {
+            alert.autoDownloaded = true;
+            this.saveHistory();
+          }
+          return ingestRes;
         }
       }
 
-      return { success: false, message: 'No se encontró un torrent activo en tus indexadores de Prowlarr para este lanzamiento de The Scene.' };
+      return {
+        success: false,
+        message:
+          'No se encontró un torrent activo en tus indexadores de Prowlarr para este lanzamiento de The Scene.',
+      };
     } catch (e: any) {
       return { success: false, message: `Error al buscar en Prowlarr: ${e.message}` };
     }
@@ -625,7 +673,7 @@ class LeakRadarService {
         timeout: 6000,
       }),
       // 2. Prowlarr
-      axios.get(`http://localhost:9696/api/v1/search?query=${encodeURIComponent(cleanQ)}&type=search&limit=15`, {
+      axios.get(`${getProwlarrBaseUrl()}/api/v1/search?query=${encodeURIComponent(cleanQ)}&type=search&limit=15`, {
         headers: { 'X-Api-Key': prowlarrKey },
         timeout: 10000,
       }),
@@ -702,8 +750,12 @@ class LeakRadarService {
       const { title, year, tmdbId, downloadUrl } = options;
       logger.info(`[LeakRadar] Ingesting leak download for "${title}": ${downloadUrl}`);
 
-      if (downloadUrl.startsWith('magnet:')) {
-        const qbUrl = 'http://localhost:8089/api/v2/torrents/add';
+      if (
+        downloadUrl.startsWith('magnet:') ||
+        downloadUrl.includes('.torrent') ||
+        downloadUrl.includes('/download?')
+      ) {
+        const qbUrl = `${getQbittorrentBaseUrl()}/api/v2/torrents/add`;
         const params = new URLSearchParams();
         params.append('urls', downloadUrl);
         params.append('category', options.mediaType === 'tv' ? 'tv' : 'movies');

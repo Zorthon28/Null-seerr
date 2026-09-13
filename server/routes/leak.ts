@@ -69,6 +69,25 @@ leakRoutes.get('/search', async (req, res) => {
 
 /**
  * 1-Click Grab a leak alert
+ * POST /api/v1/leaks/grab
+ * Body: { id: string }
+ */
+leakRoutes.post('/grab', async (req, res) => {
+  try {
+    const id = req.body?.id || req.body?.alertId || req.query?.id;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'ID de alerta requerido' });
+    }
+    const result = await leakRadarService.grabLeak(String(id));
+    return res.json(result);
+  } catch (e: any) {
+    logger.error(`[LeakRoutes] Grab error: ${e.message}`);
+    return res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+/**
+ * 1-Click Grab a leak alert (param fallback)
  * POST /api/v1/leaks/:id/grab
  */
 leakRoutes.post('/:id/grab', async (req, res) => {
@@ -77,7 +96,7 @@ leakRoutes.post('/:id/grab', async (req, res) => {
     return res.json(result);
   } catch (e: any) {
     logger.error(`[LeakRoutes] Grab error: ${e.message}`);
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ success: false, message: e.message });
   }
 });
 
@@ -137,6 +156,25 @@ leakRoutes.post('/test-notification', async (req, res) => {
 
 /**
  * Dismiss a leak alert
+ * POST /api/v1/leaks/dismiss
+ * Body: { id: string }
+ */
+leakRoutes.post('/dismiss', async (req, res) => {
+  try {
+    const id = req.body?.id || req.body?.alertId || req.query?.id;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'ID de alerta requerido' });
+    }
+    const success = leakRadarService.dismissAlert(String(id));
+    return res.json({ success });
+  } catch (e: any) {
+    logger.error(`[LeakRoutes] Error dismissing alert: ${e.message}`);
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+/**
+ * Dismiss a leak alert (param fallback)
  * DELETE /api/v1/leaks/:id
  */
 leakRoutes.delete('/:id', async (req, res) => {
@@ -145,7 +183,7 @@ leakRoutes.delete('/:id', async (req, res) => {
     return res.json({ success });
   } catch (e: any) {
     logger.error(`[LeakRoutes] Error dismissing alert: ${e.message}`);
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ success: false, error: e.message });
   }
 });
 
