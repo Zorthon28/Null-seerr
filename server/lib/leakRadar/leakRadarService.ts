@@ -7,6 +7,8 @@ import Media from '@server/entity/Media';
 import TheMovieDb from '@server/api/themoviedb';
 import { streamDownloader } from '@server/lib/stream/streamDownloader';
 import { appDataPath } from '@server/utils/appDataVolume';
+import { getSettings } from '@server/lib/settings';
+import RadarrAPI from '@server/api/servarr/radarr';
 import { inspectLeak, LeakMediaInspection } from './leakInspector';
 import { LeakNotifier } from './leakNotifier';
 
@@ -750,6 +752,29 @@ class LeakRadarService {
       const { title, year, tmdbId, downloadUrl } = options;
       logger.info(`[LeakRadar] Ingesting leak download for "${title}": ${downloadUrl}`);
 
+      let finalTmdbId = tmdbId;
+      if (!finalTmdbId) {
+        try {
+          const tmdb = new TheMovieDb();
+          const cleanSearchTitle = title
+            .replace(/\[.*?\]|\(.*?\)/g, '')
+            .replace(
+              /\b(workprint|screener|1080p|720p|480p|x264|x265|hevc|web-?dl|dvdscr|bjn|dks|collective|proper|hc|director cut|dual|v2)\b/gi,
+              ''
+            )
+            .replace(/[:\.\-_]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const searchRes = await tmdb.searchMovies({
+            query: cleanSearchTitle,
+            language: 'en',
+          });
+          if (searchRes.results && searchRes.results.length > 0) {
+            finalTmdbId = searchRes.results[0].id;
+          }
+        } catch {}
+      }
+
       if (
         downloadUrl.startsWith('magnet:') ||
         downloadUrl.includes('.torrent') ||
@@ -766,11 +791,57 @@ class LeakRadarService {
           auth: { username: 'admin', password: 'PAssw0rd2026!' },
         });
 
-        return { success: true, message: `Magnet añadido exitosamente a qBittorrent para "${title}".` };
+        // Automatically register the movie in Radarr if not already present
+        // This ensures it appears on https://seerr.nullraccoon.com/downloads and automatically imports into Plex!
+        if (finalTmdbId && options.mediaType !== 'tv') {
+          try {
+            const settings = getSettings();
+            const radarrServer =
+              settings.radarr.find((r) => r.isDefault) || settings.radarr[0];
+            if (radarrServer) {
+              const radarrApi = new RadarrAPI({
+                apiKey: radarrServer.apiKey,
+                url: RadarrAPI.buildUrl(radarrServer, '/api/v3'),
+              });
+              const existing = await radarrApi.getMovies();
+              const inRadarr = existing.some((m) => m.tmdbId === finalTmdbId);
+              if (!inRadarr) {
+                const lookup = await radarrApi.getMovieByTmdbId(finalTmdbId);
+                if (lookup) {
+                  await radarrApi.addMovie({
+                    title: lookup.title,
+                    year: lookup.year || year || new Date().getFullYear(),
+                    tmdbId: finalTmdbId,
+                    profileId: radarrServer.activeProfileId || 1,
+                    qualityProfileId: radarrServer.activeProfileId || 1,
+                    rootFolderPath:
+                      radarrServer.activeDirectory || '/data/media/movies',
+                    minimumAvailability: 'released',
+                    tags: [],
+                    monitored: true,
+                    searchNow: false,
+                  });
+                  logger.info(
+                    `[LeakRadar] Registered "${lookup.title}" in Radarr for live download tracking and Plex import.`
+                  );
+                }
+              }
+            }
+          } catch (arrErr: any) {
+            logger.warn(
+              `[LeakRadar] Non-blocking Radarr registration notice: ${arrErr.message}`
+            );
+          }
+        }
+
+        return {
+          success: true,
+          message: `Torrente añadido exitosamente a qBittorrent para "${title}".`,
+        };
       } else {
-        const finalTmdbId = tmdbId || Math.floor(Math.random() * 900000 + 100000);
+        const streamTmdbId = finalTmdbId || Math.floor(Math.random() * 900000 + 100000);
         await streamDownloader.startDownload({
-          tmdbId: finalTmdbId,
+          tmdbId: streamTmdbId,
           title,
           year,
           streamUrl: downloadUrl,
