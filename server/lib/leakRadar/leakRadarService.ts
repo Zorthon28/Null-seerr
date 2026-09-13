@@ -7,6 +7,8 @@ import Media from '@server/entity/Media';
 import TheMovieDb from '@server/api/themoviedb';
 import { streamDownloader } from '@server/lib/stream/streamDownloader';
 import { appDataPath } from '@server/utils/appDataVolume';
+import { inspectLeak, LeakMediaInspection } from './leakInspector';
+import { LeakNotifier } from './leakNotifier';
 
 export interface LeakAlert {
   id: string;
@@ -18,8 +20,11 @@ export interface LeakAlert {
   sourcePlatform: string;
   subreddit: string;
   redditUrl: string;
+  downloadUrl?: string;
   description: string;
   detectedAt: string;
+  autoDownloaded?: boolean;
+  inspection?: LeakMediaInspection;
   matchedMedia?: {
     id: number;
     tmdbId: number;
@@ -30,14 +35,55 @@ export interface LeakAlert {
   };
 }
 
+export interface LeakRadarSettings {
+  autoDownloadLibraryLeaks: boolean;
+  minQualityGrade: 'A' | 'B' | 'C';
+  notifyOnDiscord: boolean;
+  notifyOnTelegram: boolean;
+}
+
 class LeakRadarService {
   private historyFile = path.join(appDataPath(), 'leakHistory.json');
   private fallbackHistoryFile = path.join(__dirname, 'leakHistory.json');
+  private settingsFile = path.join(appDataPath(), 'leakSettings.json');
   private alerts: Map<string, LeakAlert> = new Map();
   private isScanning = false;
+  private settings: LeakRadarSettings = {
+    autoDownloadLibraryLeaks: false,
+    minQualityGrade: 'B',
+    notifyOnDiscord: true,
+    notifyOnTelegram: true,
+  };
 
   constructor() {
+    this.loadSettings();
     this.loadHistory();
+  }
+
+  public getSettings(): LeakRadarSettings {
+    return this.settings;
+  }
+
+  public updateSettings(newSettings: Partial<LeakRadarSettings>): LeakRadarSettings {
+    this.settings = { ...this.settings, ...newSettings };
+    try {
+      fs.writeFileSync(this.settingsFile, JSON.stringify(this.settings, null, 2));
+      logger.info('[LeakRadar] Settings updated successfully', { label: 'LeakRadar' });
+    } catch (e: any) {
+      logger.warn(`[LeakRadar] Failed to save settings: ${e.message}`);
+    }
+    return this.settings;
+  }
+
+  private loadSettings() {
+    try {
+      if (fs.existsSync(this.settingsFile)) {
+        const raw = fs.readFileSync(this.settingsFile, 'utf-8');
+        this.settings = { ...this.settings, ...JSON.parse(raw) };
+      }
+    } catch (e: any) {
+      logger.warn(`[LeakRadar] Failed to load settings: ${e.message}`);
+    }
   }
 
   public extractYear(title: string): number | undefined {
@@ -60,9 +106,11 @@ class LeakRadarService {
         const list: LeakAlert[] = JSON.parse(raw);
         for (const a of list) {
           const y = a.year || this.extractYear(a.title + ' ' + a.mediaTitle);
-          // Strictly only leaks from the current year onwards (e.g. 2026+)
           if (!y || y < currentYear) {
             continue;
+          }
+          if (!a.inspection) {
+            a.inspection = inspectLeak(a.title, a.description);
           }
           this.alerts.set(a.id, a);
         }
@@ -104,9 +152,10 @@ class LeakRadarService {
     }
 
     this.isScanning = true;
-    logger.info('[LeakRadar] Starting multi-source leak radar scan (Prowlarr Swarm + Scene PreDB + Web)...', { label: 'LeakRadar' });
+    logger.info('[LeakRadar] Starting high-precision leak radar scan...', { label: 'LeakRadar' });
 
     let newCount = 0;
+    const currentYear = new Date().getFullYear();
 
     try {
       let monitoredMedia: Media[] = [];
@@ -117,7 +166,6 @@ class LeakRadarService {
         logger.debug(`[LeakRadar] DB not ready for media lookup: ${dbErr.message}`);
       }
 
-      const currentYear = new Date().getFullYear();
       const tmdb = new TheMovieDb();
 
       // TARGETED SEARCH: Check srrdb & indexers for user's pending/in-cinemas media FROM THIS YEAR (2026+)
@@ -181,6 +229,8 @@ class LeakRadarService {
                 ? 'screener'
                 : 'web-leak';
 
+              const inspection = inspectLeak(relName, 'Lanzamiento interno certificado en bases de datos de The Scene (srrdb / predb).');
+
               const alert: LeakAlert = {
                 id: alertId,
                 title: relName,
@@ -193,6 +243,7 @@ class LeakRadarService {
                 redditUrl: `https://www.srrdb.com/release/details/${relName}`,
                 description: `¡Lanzamiento detectado en The Scene para título solicitado en biblioteca! Certificado por srrdb/PreDB.`,
                 detectedAt: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+                inspection,
                 matchedMedia: {
                   id: m.id,
                   tmdbId: m.tmdbId,
@@ -206,6 +257,15 @@ class LeakRadarService {
               this.alerts.set(alertId, alert);
               newCount++;
               logger.info(`[LeakRadar] 🚨 Targeted Scene leak found for library: "${mediaTitle}" (${relName})`, { label: 'LeakRadar' });
+
+              // Send Notification if enabled
+              LeakNotifier.sendNotification(alert);
+
+              // Auto-Resolve torrent via Prowlarr and Auto-Download if enabled
+              if (this.settings.autoDownloadLibraryLeaks && inspection.qualityGrade !== 'D' && !inspection.watermark.detected) {
+                this.resolveAndAutoGrab(alert, m);
+              }
+
               break; // One primary alert per library item is enough
             }
           } catch {
@@ -300,6 +360,9 @@ class LeakRadarService {
               continue;
             }
 
+            const downloadUrl = item.magnetUrl || item.downloadUrl || (item.infoHash ? `magnet:?xt=urn:btih:${item.infoHash}&dn=${encodeURIComponent(rawTitle)}` : undefined);
+            const inspection = inspectLeak(rawTitle);
+
             const alert: LeakAlert = {
               id: alertId,
               title: rawTitle,
@@ -310,14 +373,36 @@ class LeakRadarService {
               sourcePlatform: `${item.indexer || 'Tracker'} (Torrent)`,
               subreddit: item.indexer || 'Torrent Swarm',
               redditUrl: item.infoUrl || item.commentUrl || 'http://localhost:9696',
+              downloadUrl,
               description: `Disponible para descarga en el swarm de ${item.indexer || 'indexadores'} con ${item.seeders ?? '?'} semillas. Tamaño: ${(item.size / (1024 * 1024 * 1024)).toFixed(2)} GB.`,
               detectedAt: item.publishDate || new Date().toISOString(),
+              inspection,
               matchedMedia: matched,
             };
 
             this.alerts.set(alertId, alert);
             newCount++;
             logger.info(`[LeakRadar] 🚨 New modern leak in Prowlarr: "${alert.mediaTitle}" (${detectedYear || 'Library'}) [${leakType}]`, { label: 'LeakRadar' });
+
+            // Notification & Auto-download check
+            if (matched) {
+              LeakNotifier.sendNotification(alert);
+
+              if (this.settings.autoDownloadLibraryLeaks && downloadUrl && inspection.qualityGrade !== 'D' && !inspection.watermark.detected) {
+                this.ingestLeak({
+                  title: alert.mediaTitle,
+                  year: alert.year,
+                  tmdbId: matched.tmdbId,
+                  downloadUrl,
+                  mediaType: matched.mediaType,
+                }).then((res) => {
+                  if (res.success) {
+                    alert.autoDownloaded = true;
+                    this.saveHistory();
+                  }
+                });
+              }
+            }
           }
         }
       } catch (prowlarrErr: any) {
@@ -391,6 +476,8 @@ class LeakRadarService {
             continue;
           }
 
+          const inspection = inspectLeak(relName, 'Lanzamiento interno certificado en bases de datos de The Scene (srrdb / predb).');
+
           const alert: LeakAlert = {
             id: alertId,
             title: relName,
@@ -403,6 +490,7 @@ class LeakRadarService {
             redditUrl: `https://www.srrdb.com/release/details/${relName}`,
             description: `Lanzamiento interno certificado en bases de datos de The Scene (srrdb / predb).`,
             detectedAt: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+            inspection,
             matchedMedia: matched,
           };
 
@@ -413,50 +501,6 @@ class LeakRadarService {
         logger.warn(`[LeakRadar] srrdb scan error: ${srrErr.message}`);
       }
 
-      // SOURCE 3: Reddit RSS with fallback
-      try {
-        const subreddits = ['Piracy', 'AnimePiracy', 'leaks'];
-        for (const sub of subreddits) {
-          try {
-            const resp = await axios.get(`https://www.reddit.com/r/${sub}/search.json?q=leak+OR+workprint&sort=new&limit=15&restrict_sr=on`, {
-              headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0',
-              },
-              timeout: 8000,
-            });
-
-            const posts = resp.data?.data?.children || [];
-            for (const p of posts) {
-              const post = p.data;
-              if (!post || !post.title) continue;
-
-              const alertId = `reddit_${post.id}`;
-              if (this.alerts.has(alertId)) continue;
-
-              const alert: LeakAlert = {
-                id: alertId,
-                title: post.title,
-                mediaTitle: post.title.replace(/\[.*?\]/g, '').substring(0, 40).trim(),
-                leakType: 'unconfirmed',
-                confidence: 'medium',
-                sourcePlatform: 'Reddit Community',
-                subreddit: sub,
-                redditUrl: `https://reddit.com${post.permalink}`,
-                description: post.selftext?.substring(0, 250) || post.title,
-                detectedAt: new Date(post.created_utc * 1000).toISOString(),
-              };
-
-              this.alerts.set(alertId, alert);
-              newCount++;
-            }
-          } catch {
-            // Reddit rate limit/blocks fail gracefully to sources 1 & 2
-          }
-        }
-      } catch {
-        // Ignore
-      }
-
       this.saveHistory();
     } catch (e: any) {
       logger.error(`[LeakRadar] Scan error: ${e.message}`, { label: 'LeakRadar' });
@@ -465,6 +509,186 @@ class LeakRadarService {
     }
 
     return { newAlertsCount: newCount, alerts: this.getAlerts() };
+  }
+
+  // Resolves a Scene PreDB release to a live Prowlarr swarm torrent and auto-downloads
+  private async resolveAndAutoGrab(alert: LeakAlert, media: Media) {
+    try {
+      const prowlarrKey = '2093032a323244b4987f33f5387fcee5';
+      const cleanSearch = alert.title.replace(/[._-]/g, ' ');
+      const pResp = await axios.get(
+        `http://localhost:9696/api/v1/search?query=${encodeURIComponent(cleanSearch)}&type=search&limit=5`,
+        {
+          headers: { 'X-Api-Key': prowlarrKey },
+          timeout: 10000,
+        }
+      );
+
+      const items = pResp.data || [];
+      if (items.length > 0) {
+        const top = items[0];
+        const dlUrl = top.magnetUrl || top.downloadUrl || (top.infoHash ? `magnet:?xt=urn:btih:${top.infoHash}&dn=${encodeURIComponent(top.title)}` : undefined);
+        if (dlUrl) {
+          alert.downloadUrl = dlUrl;
+          const ingestRes = await this.ingestLeak({
+            title: alert.mediaTitle,
+            year: alert.year,
+            tmdbId: media.tmdbId,
+            downloadUrl: dlUrl,
+            mediaType: media.mediaType,
+          });
+          if (ingestRes.success) {
+            alert.autoDownloaded = true;
+            this.saveHistory();
+            logger.info(`[LeakRadar] 🤖 Auto-downloaded Scene leak for "${alert.mediaTitle}" via Prowlarr!`);
+          }
+        }
+      }
+    } catch (e: any) {
+      logger.warn(`[LeakRadar] Failed to resolve Scene leak to Prowlarr: ${e.message}`);
+    }
+  }
+
+  // 1-Click Grab: executes immediate download for a given alert id
+  public async grabLeak(alertId: string): Promise<{ success: boolean; message: string }> {
+    const alert = this.alerts.get(alertId);
+    if (!alert) {
+      return { success: false, message: 'Alerta no encontrada.' };
+    }
+
+    // If downloadUrl is present, directly ingest
+    if (alert.downloadUrl) {
+      return this.ingestLeak({
+        title: alert.mediaTitle,
+        year: alert.year,
+        tmdbId: alert.matchedMedia?.tmdbId,
+        downloadUrl: alert.downloadUrl,
+        mediaType: alert.matchedMedia?.mediaType || 'movie',
+      });
+    }
+
+    // If it's a Scene PreDB alert without magnet, search Prowlarr
+    try {
+      const prowlarrKey = '2093032a323244b4987f33f5387fcee5';
+      const cleanSearch = alert.title.replace(/[._-]/g, ' ');
+      const pResp = await axios.get(
+        `http://localhost:9696/api/v1/search?query=${encodeURIComponent(cleanSearch)}&type=search&limit=5`,
+        {
+          headers: { 'X-Api-Key': prowlarrKey },
+          timeout: 10000,
+        }
+      );
+
+      const items = pResp.data || [];
+      if (items.length > 0) {
+        const top = items[0];
+        const dlUrl = top.magnetUrl || top.downloadUrl || (top.infoHash ? `magnet:?xt=urn:btih:${top.infoHash}&dn=${encodeURIComponent(top.title)}` : undefined);
+        if (dlUrl) {
+          alert.downloadUrl = dlUrl;
+          this.saveHistory();
+          return this.ingestLeak({
+            title: alert.mediaTitle,
+            year: alert.year,
+            tmdbId: alert.matchedMedia?.tmdbId,
+            downloadUrl: dlUrl,
+            mediaType: alert.matchedMedia?.mediaType || 'movie',
+          });
+        }
+      }
+
+      return { success: false, message: 'No se encontró un torrent activo en tus indexadores de Prowlarr para este lanzamiento de The Scene.' };
+    } catch (e: any) {
+      return { success: false, message: `Error al buscar en Prowlarr: ${e.message}` };
+    }
+  }
+
+  // Feature 6: On-Demand Live Leak Search
+  public async searchOnDemand(query: string): Promise<{
+    query: string;
+    sceneResults: any[];
+    prowlarrResults: any[];
+    redditResults: any[];
+  }> {
+    const cleanQ = query.trim();
+    if (!cleanQ) {
+      return { query, sceneResults: [], prowlarrResults: [], redditResults: [] };
+    }
+
+    logger.info(`[LeakRadar] Performing live on-demand leak search for: "${cleanQ}"`);
+
+    const prowlarrKey = '2093032a323244b4987f33f5387fcee5';
+
+    const [sceneRes, prowlarrRes, redditRes] = await Promise.allSettled([
+      // 1. srrdb
+      axios.get(`https://www.srrdb.com/api/search/${encodeURIComponent(cleanQ)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        timeout: 6000,
+      }),
+      // 2. Prowlarr
+      axios.get(`http://localhost:9696/api/v1/search?query=${encodeURIComponent(cleanQ)}&type=search&limit=15`, {
+        headers: { 'X-Api-Key': prowlarrKey },
+        timeout: 10000,
+      }),
+      // 3. Reddit
+      axios.get(`https://www.reddit.com/r/Piracy/search.json?q=${encodeURIComponent(cleanQ + ' leak')}&sort=new&limit=10`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        timeout: 6000,
+      }),
+    ]);
+
+    const sceneResults: any[] = [];
+    if (sceneRes.status === 'fulfilled') {
+      for (const item of (sceneRes.value.data?.results || []).slice(0, 10)) {
+        const rel = item.release || '';
+        sceneResults.push({
+          release: rel,
+          date: item.date,
+          inspection: inspectLeak(rel),
+          url: `https://www.srrdb.com/release/details/${rel}`,
+        });
+      }
+    }
+
+    const prowlarrResults: any[] = [];
+    if (prowlarrRes.status === 'fulfilled') {
+      for (const item of (prowlarrRes.value.data || []).slice(0, 10)) {
+        const title = item.title || '';
+        const dlUrl = item.magnetUrl || item.downloadUrl || (item.infoHash ? `magnet:?xt=urn:btih:${item.infoHash}&dn=${encodeURIComponent(title)}` : undefined);
+        prowlarrResults.push({
+          title,
+          indexer: item.indexer,
+          size: item.size,
+          seeders: item.seeders,
+          downloadUrl: dlUrl,
+          inspection: inspectLeak(title),
+          infoUrl: item.infoUrl || item.commentUrl,
+        });
+      }
+    }
+
+    const redditResults: any[] = [];
+    if (redditRes.status === 'fulfilled') {
+      const posts = redditRes.value.data?.data?.children || [];
+      for (const p of posts) {
+        const post = p.data;
+        if (!post?.title) continue;
+        redditResults.push({
+          title: post.title,
+          subreddit: post.subreddit,
+          url: `https://reddit.com${post.permalink}`,
+          score: post.score,
+          comments: post.num_comments,
+          created: new Date(post.created_utc * 1000).toISOString(),
+        });
+      }
+    }
+
+    return {
+      query: cleanQ,
+      sceneResults,
+      prowlarrResults,
+      redditResults,
+    };
   }
 
   public async ingestLeak(options: {
