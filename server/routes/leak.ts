@@ -213,4 +213,78 @@ leakRoutes.post('/ingest', async (req, res) => {
   }
 });
 
+/**
+ * Get all blacklisted leaks
+ * GET /api/v1/leaks/blacklist
+ */
+leakRoutes.get('/blacklist', (req, res) => {
+  try {
+    const items = leakRadarService.getBlacklist();
+    return res.json({
+      blacklist: items,
+      total: items.length,
+    });
+  } catch (e: any) {
+    logger.error(`[LeakRoutes] Error getting blacklist: ${e.message}`);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Add a leak to blacklist and auto-purge files & torrents
+ * POST /api/v1/leaks/blacklist
+ */
+leakRoutes.post('/blacklist', async (req, res) => {
+  try {
+    const {
+      title,
+      reason,
+      tmdbId,
+      mediaTitle,
+      year,
+      infoHash,
+      releaseGroup,
+      purgeFiles,
+    } = req.body;
+
+    if (!title || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Título y motivo son obligatorios para la lista negra.',
+      });
+    }
+
+    const result = await leakRadarService.addToBlacklist({
+      title: String(title),
+      reason: String(reason),
+      tmdbId: tmdbId ? Number(tmdbId) : undefined,
+      mediaTitle: mediaTitle ? String(mediaTitle) : undefined,
+      year: year ? Number(year) : undefined,
+      infoHash: infoHash ? String(infoHash) : undefined,
+      releaseGroup: releaseGroup ? String(releaseGroup) : undefined,
+      purgeFiles: purgeFiles !== false,
+    });
+
+    return res.json(result);
+  } catch (e: any) {
+    logger.error(`[LeakRoutes] Error adding to blacklist: ${e.message}`);
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+/**
+ * Remove an item from blacklist
+ * DELETE /api/v1/leaks/blacklist/:id
+ */
+leakRoutes.delete('/blacklist/:id', (req, res) => {
+  try {
+    const success = leakRadarService.removeFromBlacklist(req.params.id);
+    return res.json({ success });
+  } catch (e: any) {
+    logger.error(`[LeakRoutes] Error removing from blacklist: ${e.message}`);
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 export default leakRoutes;
+

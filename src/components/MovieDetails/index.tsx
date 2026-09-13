@@ -6,6 +6,7 @@ import ImdbLogo from '@app/assets/services/imdb.svg';
 import Spinner from '@app/assets/spinner.svg';
 import TmdbLogo from '@app/assets/tmdb_logo.svg';
 import BlocklistModal from '@app/components/BlocklistModal';
+import LeakBlacklistModal from '@app/components/LeakBlacklistModal';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
@@ -50,6 +51,7 @@ import {
   GlobeAltIcon,
   SparklesIcon,
   RadioIcon,
+  NoSymbolIcon,
 } from '@heroicons/react/24/outline';
 import {
   ChevronDoubleDownIcon,
@@ -146,6 +148,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
   const [isBlocklistUpdating, setIsBlocklistUpdating] =
     useState<boolean>(false);
   const [showBlocklistModal, setShowBlocklistModal] = useState(false);
+  const [showLeakBlacklistModal, setShowLeakBlacklistModal] = useState(false);
   const { addToast } = useToasts();
 
   const {
@@ -626,6 +629,23 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
         onComplete={onClickHideItemBtn}
         isUpdating={isBlocklistUpdating}
       />
+      <LeakBlacklistModal
+        target={{
+          title: data.title,
+          mediaTitle: data.title,
+          year: data.releaseDate
+            ? new Date(data.releaseDate).getFullYear()
+            : undefined,
+          tmdbId: data.id,
+          backdropPath: data.backdropPath,
+        }}
+        show={showLeakBlacklistModal}
+        onCancel={() => setShowLeakBlacklistModal(false)}
+        onComplete={() => {
+          setShowLeakBlacklistModal(false);
+          revalidate();
+        }}
+      />
       <div className="media-header">
         <div className="media-poster">
           <CachedImage
@@ -953,6 +973,17 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 </Button>
               </Tooltip>
             )}
+          {hasPermission(Permission.MANAGE_REQUESTS) && (
+            <Tooltip content="Bloquear versión / Purgar filtración de disco y torrents">
+              <Button
+                buttonType="danger"
+                onClick={() => setShowLeakBlacklistModal(true)}
+                className="ml-2 first:ml-0"
+              >
+                <NoSymbolIcon className="h-5 w-5 !mr-0 text-white" />
+              </Button>
+            </Tooltip>
+          )}
         </div>
       </div>
       <div className="media-overview">

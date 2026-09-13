@@ -2,6 +2,7 @@ import Badge from '@app/components/Common/Badge';
 import CachedImage from '@app/components/Common/CachedImage';
 import Header from '@app/components/Common/Header';
 import PageTitle from '@app/components/Common/PageTitle';
+import LeakBlacklistModal, { LeakBlacklistTarget } from '@app/components/LeakBlacklistModal';
 import useToasts from '@app/hooks/useToasts';
 import axios from 'axios';
 import useSWR from 'swr';
@@ -25,6 +26,7 @@ import {
   SpeakerWaveIcon,
   TrashIcon,
   XMarkIcon,
+  NoSymbolIcon,
 } from '@heroicons/react/24/outline';
 
 interface LeakMediaInspection {
@@ -97,6 +99,45 @@ const LeaksPage: NextPage = () => {
   const [ingestTmdbId, setIngestTmdbId] = useState('');
   const [isIngesting, setIsIngesting] = useState(false);
   const [grabbingId, setGrabbingId] = useState<string | null>(null);
+  // Blacklist state
+  const [blacklistTarget, setBlacklistTarget] = useState<LeakBlacklistTarget | null>(null);
+  const [showBlacklistModal, setShowBlacklistModal] = useState(false);
+
+  const { data: blacklistData, mutate: mutateBlacklist } = useSWR<{
+    blacklist: {
+      id: string;
+      title: string;
+      reason: string;
+      mediaTitle?: string;
+      year?: number;
+      tmdbId?: number;
+      infoHash?: string;
+      releaseGroup?: string;
+      blacklistedAt: string;
+      purged: boolean;
+    }[];
+    total: number;
+  }>('/api/v1/leaks/blacklist', {
+    refreshInterval: 20000,
+  });
+
+  const handleRemoveFromBlacklist = async (id: string) => {
+    try {
+      await axios.delete(`/api/v1/leaks/blacklist/${id}`);
+      addToast('Lanzamiento desbloqueado de la lista negra.', {
+        autoDismiss: true,
+        appearance: 'success',
+      });
+      mutateBlacklist();
+      mutate();
+    } catch (e: any) {
+      addToast(`Error al desbloquear: ${e.message}`, {
+        autoDismiss: true,
+        appearance: 'error',
+      });
+    }
+  };
+
 
   const { data, mutate } = useSWR<LeaksResponse>('/api/v1/leaks', {
     refreshInterval: 15000,
@@ -552,6 +593,10 @@ const LeaksPage: NextPage = () => {
             { id: 'clean', label: 'Límpias (Sin 1XBET)' },
             { id: 'workprint', label: 'Workprints' },
             { id: 'screener', label: 'Screeners' },
+            {
+              id: 'blacklist',
+              label: `Lista Negra (${blacklistData?.total ?? 0})`,
+            },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -579,8 +624,89 @@ const LeaksPage: NextPage = () => {
         </div>
       </div>
 
-      {/* Alerts List */}
-      {filteredAlerts.length === 0 ? (
+      {/* Blacklist View when selected */}
+      {filterType === 'blacklist' ? (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-red-900/60 bg-gradient-to-r from-gray-900 via-red-950/20 to-gray-900 p-4">
+            <div className="flex items-center gap-2 text-sm font-bold text-red-400">
+              <NoSymbolIcon className="h-5 w-5" />
+              <span>Lista Negra de Filtraciones y Torrents Vetados</span>
+            </div>
+            <p className="mt-1 text-xs text-gray-400">
+              Los lanzamientos en esta lista fueron reportados con audio desfasado, marcas intrusivas o mala calidad. El radar nunca los volverá a descargar automáticamente.
+            </p>
+          </div>
+
+          {(blacklistData?.blacklist || []).length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-700 p-12 text-center">
+              <ShieldCheckIcon className="h-12 w-12 text-emerald-500 mb-3" />
+              <h3 className="text-base font-semibold text-gray-300">
+                La lista negra está vacía
+              </h3>
+              <p className="mt-1 text-xs text-gray-500">
+                No hay lanzamientos bloqueados en este momento.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {blacklistData?.blacklist.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-red-900/40 bg-gray-900/80 p-4 shadow flex flex-col justify-between"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-sm font-bold text-white line-clamp-1">
+                        {item.mediaTitle || item.title}
+                        {item.year && (
+                          <span className="ml-1 text-xs font-normal text-gray-400">
+                            ({item.year})
+                          </span>
+                        )}
+                      </div>
+                      <span className="rounded bg-red-950 px-2 py-0.5 text-[10px] font-semibold text-red-300 border border-red-800/60">
+                        Vetado
+                      </span>
+                    </div>
+
+                    <div className="font-mono text-xs text-gray-400 bg-gray-950/60 p-2 rounded border border-gray-800 break-all line-clamp-2">
+                      {item.title}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-300">
+                      <span className="font-semibold text-amber-400">
+                        Motivo: {item.reason}
+                      </span>
+                      <span>•</span>
+                      <span className="text-gray-400">
+                        {new Date(item.blacklistedAt).toLocaleDateString()}
+                      </span>
+                      {item.purged && (
+                        <>
+                          <span>•</span>
+                          <span className="text-emerald-400 flex items-center gap-1">
+                            <TrashIcon className="h-3 w-3" /> Purgado de disco
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-gray-800 flex justify-end">
+                    <button
+                      onClick={() => handleRemoveFromBlacklist(item.id)}
+                      className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition"
+                    >
+                      <ArrowPathIcon className="h-3.5 w-3.5" />
+                      Desbloquear / Rehabilitar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : filteredAlerts.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-700 p-12 text-center">
           <RadioIcon className="h-12 w-12 text-gray-600 mb-3" />
           <h3 className="text-base font-semibold text-gray-300">
@@ -710,13 +836,32 @@ const LeaksPage: NextPage = () => {
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDismiss(alert.id)}
-                    title="Descartar alerta"
-                    className="text-gray-500 hover:text-gray-300 transition p-1"
-                  >
-                    <TrashIcon className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        setBlacklistTarget({
+                          title: alert.title,
+                          mediaTitle: alert.mediaTitle,
+                          year: alert.year,
+                          tmdbId: alert.matchedMedia?.tmdbId,
+                          infoHash: alert.downloadUrl?.match(/btih:([a-fA-F0-9]+)/)?.[1],
+                          backdropPath: alert.matchedMedia?.posterPath,
+                        });
+                        setShowBlacklistModal(true);
+                      }}
+                      title="Poner en lista negra y eliminar torrente"
+                      className="text-gray-500 hover:text-red-400 transition p-1"
+                    >
+                      <NoSymbolIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDismiss(alert.id)}
+                      title="Descartar alerta"
+                      className="text-gray-500 hover:text-gray-300 transition p-1"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <p className="mt-3 text-xs text-gray-300 line-clamp-3 bg-gray-900/60 p-2.5 rounded border border-gray-800 font-mono">
@@ -876,6 +1021,20 @@ const LeaksPage: NextPage = () => {
           </div>
         </div>
       )}
+      <LeakBlacklistModal
+        show={showBlacklistModal}
+        target={blacklistTarget}
+        onCancel={() => {
+          setShowBlacklistModal(false);
+          setBlacklistTarget(null);
+        }}
+        onComplete={() => {
+          setShowBlacklistModal(false);
+          setBlacklistTarget(null);
+          mutate();
+          mutateBlacklist();
+        }}
+      />
     </>
   );
 };

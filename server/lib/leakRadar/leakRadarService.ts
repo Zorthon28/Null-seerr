@@ -9,8 +9,26 @@ import { streamDownloader } from '@server/lib/stream/streamDownloader';
 import { appDataPath } from '@server/utils/appDataVolume';
 import { getSettings } from '@server/lib/settings';
 import RadarrAPI from '@server/api/servarr/radarr';
+import JellyfinAPI from '@server/api/jellyfin';
+import { getHostname } from '@server/utils/getHostname';
+import { torrentManager } from '@server/lib/torrentManager';
+import { MediaStatus } from '@server/constants/media';
 import { inspectLeak, LeakMediaInspection } from './leakInspector';
 import { LeakNotifier } from './leakNotifier';
+
+export interface LeakBlacklistItem {
+  id: string;
+  title: string;
+  pattern?: string;
+  reason: string;
+  mediaTitle?: string;
+  year?: number;
+  tmdbId?: number;
+  infoHash?: string;
+  releaseGroup?: string;
+  blacklistedAt: string;
+  purged: boolean;
+}
 
 export interface LeakAlert {
   id: string;
@@ -55,7 +73,10 @@ class LeakRadarService {
   private historyFile = path.join(appDataPath(), 'leakHistory.json');
   private fallbackHistoryFile = path.join(__dirname, 'leakHistory.json');
   private settingsFile = path.join(appDataPath(), 'leakSettings.json');
+  private blacklistFile = path.join(appDataPath(), 'leakBlacklist.json');
+  private fallbackBlacklistFile = path.join(__dirname, 'leakBlacklist.json');
   private alerts: Map<string, LeakAlert> = new Map();
+  private blacklist: Map<string, LeakBlacklistItem> = new Map();
   private isScanning = false;
   private settings: LeakRadarSettings = {
     autoDownloadLibraryLeaks: false,
@@ -67,6 +88,7 @@ class LeakRadarService {
   constructor() {
     this.loadSettings();
     this.loadHistory();
+    this.loadBlacklist();
   }
 
   public getSettings(): LeakRadarSettings {
@@ -163,6 +185,287 @@ class LeakRadarService {
       }
     }
     return false;
+  }
+
+  private loadBlacklist() {
+    try {
+      let targetPath = '';
+      if (fs.existsSync(this.blacklistFile)) {
+        targetPath = this.blacklistFile;
+      } else if (fs.existsSync(this.fallbackBlacklistFile)) {
+        targetPath = this.fallbackBlacklistFile;
+      }
+
+      if (targetPath) {
+        const raw = fs.readFileSync(targetPath, 'utf-8');
+        const items: LeakBlacklistItem[] = JSON.parse(raw);
+        this.blacklist.clear();
+        for (const item of items) {
+          this.blacklist.set(item.id, item);
+        }
+        logger.info(`[LeakRadar] Loaded ${this.blacklist.size} items from leak blacklist.`);
+      }
+    } catch (e: any) {
+      logger.warn(`[LeakRadar] Failed to load leak blacklist: ${e.message}`);
+    }
+  }
+
+  private saveBlacklist() {
+    try {
+      const list = Array.from(this.blacklist.values()).sort(
+        (a, b) => new Date(b.blacklistedAt).getTime() - new Date(a.blacklistedAt).getTime()
+      );
+      try {
+        fs.writeFileSync(this.blacklistFile, JSON.stringify(list, null, 2));
+      } catch {
+        fs.writeFileSync(this.fallbackBlacklistFile, JSON.stringify(list, null, 2));
+      }
+    } catch (e: any) {
+      logger.warn(`[LeakRadar] Failed to save leak blacklist: ${e.message}`);
+    }
+  }
+
+  public getBlacklist(): LeakBlacklistItem[] {
+    return Array.from(this.blacklist.values()).sort(
+      (a, b) => new Date(b.blacklistedAt).getTime() - new Date(a.blacklistedAt).getTime()
+    );
+  }
+
+  public isBlacklisted(title: string, infoHash?: string): boolean {
+    if (!title && !infoHash) return false;
+
+    const lowerTitle = (title || '').toLowerCase().trim();
+    const lowerHash = (infoHash || '').toLowerCase().trim();
+
+    for (const item of this.blacklist.values()) {
+      // 1. InfoHash exact match
+      if (lowerHash && item.infoHash && item.infoHash.toLowerCase() === lowerHash) {
+        return true;
+      }
+
+      // 2. Title matching
+      if (item.title) {
+        const itemLower = item.title.toLowerCase().trim();
+        if (lowerTitle === itemLower) return true;
+        if (
+          Math.min(lowerTitle.length, itemLower.length) >= 8 &&
+          (lowerTitle.includes(itemLower) || itemLower.includes(lowerTitle))
+        ) {
+          return true;
+        }
+      }
+
+      // 3. Regex / Pattern
+      if (item.pattern) {
+        try {
+          const re = new RegExp(item.pattern, 'i');
+          if (re.test(title)) return true;
+        } catch {}
+      }
+
+      // 4. Release group check
+      if (item.releaseGroup && item.releaseGroup.length > 2) {
+        const groupRegex = new RegExp(`[-_\\[\\.]${item.releaseGroup}(?:[-_\\]\\.]|$)`, 'i');
+        if (item.mediaTitle && lowerTitle.includes(item.mediaTitle.toLowerCase())) {
+          if (groupRegex.test(title)) return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  public removeFromBlacklist(id: string): boolean {
+    if (this.blacklist.has(id)) {
+      this.blacklist.delete(id);
+      this.saveBlacklist();
+      return true;
+    }
+    for (const [key, item] of this.blacklist.entries()) {
+      if (key === id || item.id === id) {
+        this.blacklist.delete(key);
+        this.saveBlacklist();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public async addToBlacklist(options: {
+    title: string;
+    reason: string;
+    tmdbId?: number;
+    mediaTitle?: string;
+    year?: number;
+    infoHash?: string;
+    releaseGroup?: string;
+    purgeFiles?: boolean;
+  }): Promise<{ success: boolean; message: string; purged: boolean }> {
+    const { title, reason, tmdbId, mediaTitle, year, infoHash, releaseGroup, purgeFiles = true } = options;
+    const id = `blk_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    let detectedGroup = releaseGroup;
+    if (!detectedGroup && title) {
+      const grpMatch = title.match(/-([a-zA-Z0-9]+)(?:\[.*?\])?$/);
+      if (grpMatch) detectedGroup = grpMatch[1];
+    }
+
+    const item: LeakBlacklistItem = {
+      id,
+      title,
+      reason,
+      mediaTitle: mediaTitle || title,
+      year,
+      tmdbId,
+      infoHash: infoHash ? infoHash.toLowerCase() : undefined,
+      releaseGroup: detectedGroup,
+      blacklistedAt: new Date().toISOString(),
+      purged: Boolean(purgeFiles),
+    };
+
+    this.blacklist.set(id, item);
+    this.saveBlacklist();
+
+    // Remove any active matching alerts from radar
+    const matchingAlertIds: string[] = [];
+    for (const [aId, a] of this.alerts.entries()) {
+      if (
+        (infoHash && a.downloadUrl && a.downloadUrl.toLowerCase().includes(infoHash.toLowerCase())) ||
+        a.title.toLowerCase().includes(title.toLowerCase()) ||
+        title.toLowerCase().includes(a.title.toLowerCase()) ||
+        (tmdbId && a.matchedMedia?.tmdbId === tmdbId)
+      ) {
+        matchingAlertIds.push(aId);
+      }
+    }
+    for (const aId of matchingAlertIds) {
+      this.alerts.delete(aId);
+    }
+    if (matchingAlertIds.length > 0) {
+      this.saveHistory();
+    }
+
+    // Auto-purge torrent, files, Radarr, Jellyfin, Null-seerr Media
+    if (purgeFiles) {
+      try {
+        await this.purgeMediaFilesAndTorrent({
+          title: mediaTitle || title,
+          year,
+          tmdbId,
+          infoHash,
+        });
+      } catch (err: any) {
+        logger.warn(`[LeakRadar] Non-blocking purge warning: ${err.message}`);
+      }
+    }
+
+    logger.info(`[LeakRadar] 🛡️ Added to Leak Blacklist: "${title}" (Reason: ${reason}, Purged: ${purgeFiles})`);
+    return {
+      success: true,
+      message: purgeFiles
+        ? `Lanzamiento puesto en lista negra y purgado permanentemente de qBittorrent, Radarr y Jellyfin.`
+        : `Lanzamiento puesto en lista negra exitosamente.`,
+      purged: Boolean(purgeFiles),
+    };
+  }
+
+  public async purgeMediaFilesAndTorrent(options: {
+    title: string;
+    year?: number;
+    tmdbId?: number;
+    infoHash?: string;
+  }): Promise<{ qbDeleted: number; radarrDeleted: boolean }> {
+    const { title, year, tmdbId, infoHash } = options;
+    let qbDeleted = 0;
+    let radarrDeleted = false;
+
+    // 1. qBittorrent: Delete torrent and files
+    try {
+      const knownHashes = infoHash ? [infoHash] : [];
+      const qbRes = await torrentManager.deleteMediaTorrents({
+        title,
+        year,
+        category: 'radarr',
+        knownHashes,
+      });
+      qbDeleted = qbRes.deletedCount;
+      if (infoHash && qbRes.deletedCount === 0) {
+        await torrentManager.deleteTorrents([infoHash], true);
+      }
+    } catch (e: any) {
+      logger.warn(`[LeakRadar] Error deleting from qBittorrent: ${e.message}`);
+    }
+
+    // Cancel active stream downloads if any
+    if (tmdbId) {
+      try {
+        const activeStreamJob = streamDownloader.getActiveJobForMovie(tmdbId);
+        if (activeStreamJob) {
+          streamDownloader.cancelJob(activeStreamJob.id);
+        }
+      } catch {}
+    }
+
+    // 2. Radarr: Remove movie and delete files from disk
+    if (tmdbId) {
+      try {
+        const settings = getSettings();
+        const radarrServer = settings.radarr.find((r) => r.isDefault) || settings.radarr[0];
+        if (radarrServer) {
+          const radarr = new RadarrAPI({
+            apiKey: radarrServer.apiKey,
+            url: RadarrAPI.buildUrl(radarrServer, '/api/v3'),
+          });
+          const radarrMovie = await radarr.getMovieByTmdbId(tmdbId);
+          if (radarrMovie?.id) {
+            try {
+              const history = await radarr.getMovieHistory(radarrMovie.id);
+              const extraHashes = history.filter((h) => h.downloadId).map((h) => h.downloadId as string);
+              if (extraHashes.length > 0) {
+                await torrentManager.deleteTorrents(extraHashes, true);
+              }
+            } catch {}
+
+            await radarr.removeMovie(tmdbId);
+            radarrDeleted = true;
+            logger.info(`[LeakRadar] Removed movie "${title}" (TMDB: ${tmdbId}) and files from Radarr.`);
+          }
+        }
+      } catch (e: any) {
+        logger.warn(`[LeakRadar] Error deleting from Radarr: ${e.message}`);
+      }
+    }
+
+    // 3. Null-seerr Media: reset status and service data
+    if (tmdbId) {
+      try {
+        const mediaRepository = getRepository(Media);
+        const media = await mediaRepository.findOne({ where: { tmdbId } });
+        if (media) {
+          media.status = MediaStatus.UNKNOWN;
+          media.status4k = MediaStatus.UNKNOWN;
+          media.resetServiceData();
+          await mediaRepository.save(media);
+          logger.info(`[LeakRadar] Reset Null-seerr Media status for TMDB ${tmdbId} to UNKNOWN.`);
+        }
+      } catch (e: any) {
+        logger.warn(`[LeakRadar] Error resetting Media entity: ${e.message}`);
+      }
+    }
+
+    // 4. Jellyfin: refresh library so file disappears from Jellyfin immediately
+    try {
+      const settings = getSettings();
+      if (settings.jellyfin.apiKey) {
+        const jellyfin = new JellyfinAPI(getHostname(settings.jellyfin), settings.jellyfin.apiKey);
+        await jellyfin.refreshLibrary();
+        logger.info(`[LeakRadar] Triggered Jellyfin library refresh after purge.`);
+      }
+    } catch (e: any) {
+      logger.warn(`[LeakRadar] Error refreshing Jellyfin: ${e.message}`);
+    }
+
+    return { qbDeleted, radarrDeleted };
   }
 
   public async scan(): Promise<{ newAlertsCount: number; alerts: LeakAlert[] }> {
@@ -326,6 +629,7 @@ class LeakRadarService {
             const cleanKey = (item.infoHash || item.guid || rawTitle).replace(/[^a-zA-Z0-9_-]/g, '_');
             const alertId = `prowlarr_${cleanKey}`;
             if (this.alerts.has(alertId)) continue;
+            if (this.isBlacklisted(rawTitle, item.infoHash)) continue;
 
             const cleanMediaTitle = rawTitle
               .replace(/\[.*?\]|\(.*?\)/g, '')
@@ -448,6 +752,7 @@ class LeakRadarService {
 
           const alertId = `srrdb_${relName}`;
           if (this.alerts.has(alertId)) continue;
+          if (this.isBlacklisted(relName)) continue;
 
           const cleanMediaTitle = relName
             .replace(/\[.*?\]|\(.*?\)/g, '')
@@ -533,6 +838,10 @@ class LeakRadarService {
 
   // Resolves a Scene PreDB release to a live Prowlarr swarm torrent and auto-downloads
   private async resolveAndAutoGrab(alert: LeakAlert, media: Media) {
+    if (this.isBlacklisted(alert.title)) {
+      logger.info(`[LeakRadar] Skipping auto-grab for blacklisted release: ${alert.title}`);
+      return;
+    }
     try {
       const prowlarrKey = '2093032a323244b4987f33f5387fcee5';
       const cleanSearch = alert.title.replace(/[._-]/g, ' ');
@@ -584,6 +893,13 @@ class LeakRadarService {
     }
     if (!alert) {
       return { success: false, message: 'Alerta no encontrada.' };
+    }
+
+    if (this.isBlacklisted(alert.title)) {
+      return {
+        success: false,
+        message: 'Este lanzamiento está en la lista negra y no puede ser descargado.',
+      };
     }
 
     // If downloadUrl is present, directly ingest
@@ -690,6 +1006,7 @@ class LeakRadarService {
     if (sceneRes.status === 'fulfilled') {
       for (const item of (sceneRes.value.data?.results || []).slice(0, 10)) {
         const rel = item.release || '';
+        if (this.isBlacklisted(rel)) continue;
         sceneResults.push({
           release: rel,
           date: item.date,
@@ -703,6 +1020,7 @@ class LeakRadarService {
     if (prowlarrRes.status === 'fulfilled') {
       for (const item of (prowlarrRes.value.data || []).slice(0, 10)) {
         const title = item.title || '';
+        if (this.isBlacklisted(title, item.infoHash)) continue;
         const dlUrl = item.magnetUrl || item.downloadUrl || (item.infoHash ? `magnet:?xt=urn:btih:${item.infoHash}&dn=${encodeURIComponent(title)}` : undefined);
         prowlarrResults.push({
           title,
@@ -722,6 +1040,7 @@ class LeakRadarService {
       for (const p of posts) {
         const post = p.data;
         if (!post?.title) continue;
+        if (this.isBlacklisted(post.title)) continue;
         redditResults.push({
           title: post.title,
           subreddit: post.subreddit,
@@ -750,6 +1069,12 @@ class LeakRadarService {
   }): Promise<{ success: boolean; message: string }> {
     try {
       const { title, year, tmdbId, downloadUrl } = options;
+      if (this.isBlacklisted(title)) {
+        return {
+          success: false,
+          message: 'Este lanzamiento está en la lista negra y no puede ser procesado.',
+        };
+      }
       logger.info(`[LeakRadar] Ingesting leak download for "${title}": ${downloadUrl}`);
 
       let finalTmdbId = tmdbId;
