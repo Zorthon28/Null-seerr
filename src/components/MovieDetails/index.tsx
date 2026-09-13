@@ -6,6 +6,7 @@ import ImdbLogo from '@app/assets/services/imdb.svg';
 import Spinner from '@app/assets/spinner.svg';
 import TmdbLogo from '@app/assets/tmdb_logo.svg';
 import BlocklistModal from '@app/components/BlocklistModal';
+import LeakBlacklistModal from '@app/components/LeakBlacklistModal';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
@@ -49,6 +50,8 @@ import {
   ArrowTopRightOnSquareIcon,
   GlobeAltIcon,
   SparklesIcon,
+  RadioIcon,
+  NoSymbolIcon,
 } from '@heroicons/react/24/outline';
 import {
   ChevronDoubleDownIcon,
@@ -145,6 +148,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
   const [isBlocklistUpdating, setIsBlocklistUpdating] =
     useState<boolean>(false);
   const [showBlocklistModal, setShowBlocklistModal] = useState(false);
+  const [showLeakBlacklistModal, setShowLeakBlacklistModal] = useState(false);
   const { addToast } = useToasts();
 
   const {
@@ -262,6 +266,16 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
       }
     }
   };
+
+  const { data: leaksData } = useSWR<{ alerts: any[] }>('/api/v1/leaks', {
+    revalidateOnFocus: false,
+  });
+
+  const activeLeak = leaksData?.alerts?.find(
+    (a) =>
+      a.matchedMedia?.tmdbId === data?.id ||
+      (data?.title && a.mediaTitle.toLowerCase().includes(data.title.toLowerCase()))
+  );
 
   if (!data && !error) {
     return <LoadingSpinner />;
@@ -615,6 +629,30 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
         onComplete={onClickHideItemBtn}
         isUpdating={isBlocklistUpdating}
       />
+      <LeakBlacklistModal
+        target={{
+          title:
+            data.releaseInfo?.torrentName ||
+            data.releaseInfo?.sceneName ||
+            data.title,
+          mediaTitle: data.title,
+          year: data.releaseDate
+            ? new Date(data.releaseDate).getFullYear()
+            : undefined,
+          tmdbId: data.id,
+          torrentName:
+            data.releaseInfo?.torrentName ||
+            data.releaseInfo?.sceneName ||
+            data.releaseInfo?.fileName,
+          backdropPath: data.backdropPath,
+        }}
+        show={showLeakBlacklistModal}
+        onCancel={() => setShowLeakBlacklistModal(false)}
+        onComplete={() => {
+          setShowLeakBlacklistModal(false);
+          revalidate();
+        }}
+      />
       <div className="media-header">
         <div className="media-poster">
           <CachedImage
@@ -724,6 +762,22 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 </span>
               </div>
             )}
+          {activeLeak && (
+            <div className="mb-3 flex items-center justify-between rounded-xl border border-red-500/40 bg-red-950/40 px-3.5 py-2.5 text-xs text-red-200 shadow-lg backdrop-blur-md">
+              <div className="flex items-center gap-2">
+                <RadioIcon className="h-5 w-5 text-red-400 animate-pulse flex-shrink-0" />
+                <span>
+                  <strong className="text-red-300">Alerta de Filtración en la Red ({activeLeak.leakType.toUpperCase()}):</strong> Se han detectado reportes de una copia ({activeLeak.sourcePlatform}) para esta película.
+                </span>
+              </div>
+              <a
+                href="/leaks"
+                className="ml-3 flex-shrink-0 rounded bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-500 transition shadow"
+              >
+                Ver en Radar
+              </a>
+            </div>
+          )}
           <h1 data-testid="media-title">
             {data.title}{' '}
             {data.releaseDate && (
@@ -926,6 +980,17 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 </Button>
               </Tooltip>
             )}
+          {hasPermission(Permission.MANAGE_REQUESTS) && (
+            <Tooltip content="Bloquear esta versión defectuosa y eliminar de disco (la película seguirá monitoreada para una versión en buena calidad)">
+              <Button
+                buttonType="danger"
+                onClick={() => setShowLeakBlacklistModal(true)}
+                className="ml-2 first:ml-0"
+              >
+                <NoSymbolIcon className="h-5 w-5 !mr-0 text-white" />
+              </Button>
+            </Tooltip>
+          )}
         </div>
       </div>
       <div className="media-overview">

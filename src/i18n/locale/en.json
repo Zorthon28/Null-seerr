@@ -233,6 +233,7 @@
   "components.Layout.Sidebar.dashboard": "Discover",
   "components.Layout.Sidebar.downloads": "Downloads",
   "components.Layout.Sidebar.issues": "Issues",
+  "components.Layout.Sidebar.leaks": "Leaks Radar",
   "components.Layout.Sidebar.requests": "Requests",
   "components.Layout.Sidebar.settings": "Settings",
   "components.Layout.Sidebar.users": "Users",

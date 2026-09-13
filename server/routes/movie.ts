@@ -10,6 +10,7 @@ import logger from '@server/logger';
 import { mapMovieDetails } from '@server/models/Movie';
 import { mapMovieResult } from '@server/models/Search';
 import streamHistory from '@server/lib/stream/streamHistory';
+import { leakRadarService } from '@server/lib/leakRadar/leakRadarService';
 import { Router } from 'express';
 
 const movieRoutes = Router();
@@ -43,8 +44,19 @@ movieRoutes.get('/:id', async (req, res, next) => {
       tmdbMovie.title,
       releaseYear
     );
+    const releaseInfo = await leakRadarService.getReleaseInfoForMovie(
+      tmdbMovie.id,
+      tmdbMovie.title,
+      releaseYear
+    );
 
-    const data = mapMovieDetails(tmdbMovie, media, onUserWatchlist, streamInfo);
+    const data = mapMovieDetails(
+      tmdbMovie,
+      media,
+      onUserWatchlist,
+      streamInfo,
+      releaseInfo
+    );
 
     // TMDB issue where it doesnt fallback to English when no overview is available in requested locale.
     if (!data.overview) {

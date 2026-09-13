@@ -21,6 +21,7 @@ import settingsRoutes from '@server/routes/settings';
 import watchlistRoutes from '@server/routes/watchlist';
 import watchedRoutes from '@server/routes/watched';
 import streamRoutes from '@server/routes/stream';
+import leakRoutes from '@server/routes/leak';
 import {
   appDataPath,
   appDataPermissions,
@@ -162,6 +163,7 @@ router.use('/request', isAuthenticated(), requestRoutes);
 router.use('/watchlist', isAuthenticated(), watchlistRoutes);
 router.use('/watched', isAuthenticated(), watchedRoutes);
 router.use('/stream', isAuthenticated(), streamRoutes);
+router.use('/leaks', isAuthenticated(), leakRoutes);
 router.use('/blocklist', isAuthenticated(), blocklistRoutes);
 router.use(
   '/blacklist',

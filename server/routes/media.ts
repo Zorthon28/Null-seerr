@@ -281,6 +281,20 @@ mediaRoutes.get('/queue', async (req, res, next) => {
               if (local) tmdbId = local.tmdbId;
             }
 
+            // If still not found in cache, fetch directly from Radarr API
+            if (!tmdbId && item.movieId) {
+              try {
+                const freshMovie = await radarrApi.getMovie({ id: item.movieId });
+                if (freshMovie?.tmdbId) {
+                  tmdbId = freshMovie.tmdbId;
+                  movieMap[item.movieId] = tmdbId;
+                  logger.debug(`[Queue API] Radarr dynamically resolved movieId=${item.movieId} -> tmdbId=${tmdbId}`);
+                }
+              } catch (e: any) {
+                logger.debug(`[Queue API] Could not dynamically resolve movieId=${item.movieId}: ${e.message}`);
+              }
+            }
+
             if (tmdbId) {
               const size = item.size || 0;
               const sizeLeft = item.sizeleft || 0;
@@ -388,6 +402,22 @@ mediaRoutes.get('/queue', async (req, res, next) => {
                         (m.serviceId4k === server.id && m.externalServiceId4k === item.seriesId))
               );
               if (local) tmdbId = local.tmdbId;
+            }
+
+            // If still not found in cache, fetch directly from Sonarr API
+            if (!tmdbId && item.seriesId) {
+              try {
+                const freshSeries = await sonarrApi.getSeriesById(item.seriesId);
+                if (freshSeries?.tvdbId) {
+                  tmdbId = tvdbToTmdb.get(freshSeries.tvdbId) || null;
+                  if (tmdbId) {
+                    seriesMap[item.seriesId] = tmdbId;
+                    logger.debug(`[Queue API] Sonarr dynamically resolved seriesId=${item.seriesId} -> tmdbId=${tmdbId}`);
+                  }
+                }
+              } catch (e: any) {
+                logger.debug(`[Queue API] Could not dynamically resolve seriesId=${item.seriesId}: ${e.message}`);
+              }
             }
 
             if (tmdbId) {

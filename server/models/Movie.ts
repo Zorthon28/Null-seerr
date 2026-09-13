@@ -88,6 +88,13 @@ export interface MovieDetails {
   keywords: Keyword[];
   onUserWatchlist?: boolean;
   streamInfo?: StreamInfo;
+  releaseInfo?: {
+    torrentName?: string;
+    sceneName?: string;
+    fileName?: string;
+    releaseGroup?: string;
+    infoHash?: string;
+  };
 }
 
 export const mapProductionCompany = (
@@ -106,7 +113,14 @@ export const mapMovieDetails = (
   movie: TmdbMovieDetails,
   media?: Media,
   userWatchlist?: boolean,
-  streamInfo?: StreamInfo
+  streamInfo?: StreamInfo,
+  releaseInfo?: {
+    torrentName?: string;
+    sceneName?: string;
+    fileName?: string;
+    releaseGroup?: string;
+    infoHash?: string;
+  }
 ): MovieDetails => ({
   id: movie.id,
   adult: movie.adult,
@@ -155,4 +169,5 @@ export const mapMovieDetails = (
   })),
   onUserWatchlist: userWatchlist,
   streamInfo,
+  releaseInfo,
 });

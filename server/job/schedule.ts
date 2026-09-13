@@ -280,5 +280,18 @@ export const startJobs = (): void => {
     }),
   });
 
+  // Leak Radar Scan every 30 minutes
+  schedule.scheduleJob('*/30 * * * *', () => {
+    logger.info('Starting scheduled job: Leak Radar Scan', {
+      label: 'Jobs',
+    });
+    import('@server/lib/leakRadar/leakRadarService').then((m) => m.leakRadarService.scan());
+  });
+
+  // Run initial scan after 1 minute
+  setTimeout(() => {
+    import('@server/lib/leakRadar/leakRadarService').then((m) => m.leakRadarService.scan());
+  }, 60000);
+
   logger.info('Scheduled jobs loaded', { label: 'Jobs' });
 };
