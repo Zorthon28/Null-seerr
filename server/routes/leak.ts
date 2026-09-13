@@ -286,5 +286,23 @@ leakRoutes.delete('/blacklist/:id', (req, res) => {
   }
 });
 
+/**
+ * Get active release / torrent information for a movie
+ * GET /api/v1/leaks/movie-release/:tmdbId
+ */
+leakRoutes.get('/movie-release/:tmdbId', async (req, res) => {
+  try {
+    const tmdbId = Number(req.params.tmdbId);
+    const title = req.query.title ? String(req.query.title) : undefined;
+    const year = req.query.year ? Number(req.query.year) : undefined;
+    const info = await leakRadarService.getReleaseInfoForMovie(tmdbId, title, year);
+    return res.json(info);
+  } catch (e: any) {
+    logger.error(`[LeakRoutes] Error getting movie release info: ${e.message}`);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 export default leakRoutes;
+
 

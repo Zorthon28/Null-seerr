@@ -406,7 +406,7 @@ class LeakRadarService {
       } catch {}
     }
 
-    // 2. Radarr: Remove movie and delete files from disk
+    // 2. Radarr: Delete bad movieFile from disk, keep movie monitored
     if (tmdbId) {
       try {
         const settings = getSettings();
@@ -426,34 +426,43 @@ class LeakRadarService {
               }
             } catch {}
 
-            await radarr.removeMovie(tmdbId);
-            radarrDeleted = true;
-            logger.info(`[LeakRadar] Removed movie "${title}" (TMDB: ${tmdbId}) and files from Radarr.`);
+            // Delete bad movie file physically from disk
+            if (radarrMovie.movieFile?.id) {
+              await radarr.deleteMovieFile(radarrMovie.movieFile.id);
+              radarrDeleted = true;
+              logger.info(`[LeakRadar] Deleted bad movie file (id: ${radarrMovie.movieFile.id}) for "${title}" in Radarr.`);
+            }
+
+            // Rescan movie in Radarr so it updates library while keeping it monitored
+            await radarr.rescanMovie(radarrMovie.id);
+            logger.info(`[LeakRadar] Rescanned movie "${title}" in Radarr; movie remains monitored for good quality releases.`);
           }
         }
       } catch (e: any) {
-        logger.warn(`[LeakRadar] Error deleting from Radarr: ${e.message}`);
+        logger.warn(`[LeakRadar] Error deleting file from Radarr: ${e.message}`);
       }
     }
 
-    // 3. Null-seerr Media: reset status and service data
+    // 3. Null-seerr Media: set status to PROCESSING (waiting for quality release) and clear Jellyfin media ID
     if (tmdbId) {
       try {
         const mediaRepository = getRepository(Media);
         const media = await mediaRepository.findOne({ where: { tmdbId } });
         if (media) {
-          media.status = MediaStatus.UNKNOWN;
+          media.status = MediaStatus.PROCESSING;
           media.status4k = MediaStatus.UNKNOWN;
-          media.resetServiceData();
+          media.jellyfinMediaId = null;
+          media.jellyfinMediaId4k = null;
+          media.serviceUrl = undefined;
           await mediaRepository.save(media);
-          logger.info(`[LeakRadar] Reset Null-seerr Media status for TMDB ${tmdbId} to UNKNOWN.`);
+          logger.info(`[LeakRadar] Set Null-seerr Media status for TMDB ${tmdbId} to PROCESSING (movie remains active and wanted).`);
         }
       } catch (e: any) {
-        logger.warn(`[LeakRadar] Error resetting Media entity: ${e.message}`);
+        logger.warn(`[LeakRadar] Error updating Media entity: ${e.message}`);
       }
     }
 
-    // 4. Jellyfin: refresh library so file disappears from Jellyfin immediately
+    // 4. Jellyfin: refresh library so bad file disappears from Jellyfin immediately
     try {
       const settings = getSettings();
       if (settings.jellyfin.apiKey) {
@@ -466,6 +475,92 @@ class LeakRadarService {
     }
 
     return { qbDeleted, radarrDeleted };
+  }
+
+  public async getReleaseInfoForMovie(
+    tmdbId: number,
+    title?: string,
+    year?: number
+  ): Promise<{
+    torrentName?: string;
+    sceneName?: string;
+    fileName?: string;
+    releaseGroup?: string;
+    infoHash?: string;
+  }> {
+    let torrentName: string | undefined;
+    let sceneName: string | undefined;
+    let fileName: string | undefined;
+    let releaseGroup: string | undefined;
+    let infoHash: string | undefined;
+
+    // 1. Check Radarr
+    try {
+      const settings = getSettings();
+      const radarrServer = settings.radarr.find((r) => r.isDefault) || settings.radarr[0];
+      if (radarrServer) {
+        const radarr = new RadarrAPI({
+          apiKey: radarrServer.apiKey,
+          url: RadarrAPI.buildUrl(radarrServer, '/api/v3'),
+        });
+        const radarrMovie = await radarr.getMovieByTmdbId(tmdbId);
+        if (radarrMovie?.id) {
+          if (radarrMovie.movieFile) {
+            sceneName = radarrMovie.movieFile.sceneName;
+            fileName = radarrMovie.movieFile.relativePath || radarrMovie.movieFile.path;
+            releaseGroup = radarrMovie.movieFile.releaseGroup;
+            torrentName = sceneName;
+          }
+
+          try {
+            const history = await radarr.getMovieHistory(radarrMovie.id);
+            for (const h of history) {
+              if (h.sourceTitle && !torrentName) {
+                torrentName = h.sourceTitle;
+              }
+              if (h.downloadId && !infoHash) {
+                infoHash = h.downloadId;
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch (e: any) {
+      logger.debug(`[LeakRadar] Error querying Radarr for movie release info: ${e.message}`);
+    }
+
+    // 2. Check qBittorrent active/seeding torrents
+    if (!torrentName && title) {
+      try {
+        const matchingTorrents = await torrentManager.findTorrentsForMedia({
+          title,
+          year,
+          category: 'radarr',
+        });
+        if (matchingTorrents.length > 0) {
+          torrentName = matchingTorrents[0].name;
+          infoHash = infoHash || matchingTorrents[0].hash;
+        }
+      } catch {}
+    }
+
+    // 3. Check radar alerts
+    if (!torrentName) {
+      for (const alert of this.alerts.values()) {
+        if (alert.matchedMedia?.tmdbId === tmdbId) {
+          torrentName = alert.title;
+          break;
+        }
+      }
+    }
+
+    return {
+      torrentName: torrentName || sceneName || fileName,
+      sceneName,
+      fileName,
+      releaseGroup,
+      infoHash,
+    };
   }
 
   public async scan(): Promise<{ newAlertsCount: number; alerts: LeakAlert[] }> {

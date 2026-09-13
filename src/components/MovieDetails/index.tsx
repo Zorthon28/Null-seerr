@@ -631,12 +631,19 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
       />
       <LeakBlacklistModal
         target={{
-          title: data.title,
+          title:
+            data.releaseInfo?.torrentName ||
+            data.releaseInfo?.sceneName ||
+            data.title,
           mediaTitle: data.title,
           year: data.releaseDate
             ? new Date(data.releaseDate).getFullYear()
             : undefined,
           tmdbId: data.id,
+          torrentName:
+            data.releaseInfo?.torrentName ||
+            data.releaseInfo?.sceneName ||
+            data.releaseInfo?.fileName,
           backdropPath: data.backdropPath,
         }}
         show={showLeakBlacklistModal}
@@ -974,7 +981,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
               </Tooltip>
             )}
           {hasPermission(Permission.MANAGE_REQUESTS) && (
-            <Tooltip content="Bloquear versión / Purgar filtración de disco y torrents">
+            <Tooltip content="Bloquear esta versión defectuosa y eliminar de disco (la película seguirá monitoreada para una versión en buena calidad)">
               <Button
                 buttonType="danger"
                 onClick={() => setShowLeakBlacklistModal(true)}
