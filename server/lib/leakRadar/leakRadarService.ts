@@ -48,7 +48,6 @@ class LeakRadarService {
   private loadHistory() {
     try {
       const currentYear = new Date().getFullYear();
-      const minRelevantYear = currentYear - 1; // 2025+
 
       const targetPath = fs.existsSync(this.historyFile)
         ? this.historyFile
@@ -60,12 +59,10 @@ class LeakRadarService {
         const raw = fs.readFileSync(targetPath, 'utf-8');
         const list: LeakAlert[] = JSON.parse(raw);
         for (const a of list) {
-          const y = a.year || this.extractYear(a.title);
-          // Purge ancient historical workprints (e.g. 1979, 1982, 2007, 2011) unless matched in user's library
-          if (!a.matchedMedia) {
-            if (!y || y < minRelevantYear) {
-              continue;
-            }
+          const y = a.year || this.extractYear(a.title + ' ' + a.mediaTitle);
+          // Strictly only leaks from the current year onwards (e.g. 2026+)
+          if (!y || y < currentYear) {
+            continue;
           }
           this.alerts.set(a.id, a);
         }
@@ -121,10 +118,9 @@ class LeakRadarService {
       }
 
       const currentYear = new Date().getFullYear();
-      const minRelevantYear = currentYear - 1; // 2025+
       const tmdb = new TheMovieDb();
 
-      // TARGETED SEARCH: Check srrdb & indexers for user's pending/in-cinemas media
+      // TARGETED SEARCH: Check srrdb & indexers for user's pending/in-cinemas media FROM THIS YEAR (2026+)
       const pendingMedia = monitoredMedia.filter((m) => m.status !== 5); // 5 = AVAILABLE
       for (const m of pendingMedia.slice(0, 20)) {
         try {
@@ -152,6 +148,17 @@ class LeakRadarService {
 
           if (!mediaTitle) continue;
 
+          // STRICTLY ONLY MOVIES/SERIES FROM THIS YEAR (2026+)
+          if (!releaseYear || releaseYear < currentYear) {
+            continue;
+          }
+
+          // Deduplicate: if an alert already exists for this library media, skip
+          const alreadyHasAlert = Array.from(this.alerts.values()).some(
+            (a) => a.matchedMedia?.id === m.id
+          );
+          if (alreadyHasAlert) continue;
+
           // Check srrdb by IMDb ID or Title for scene releases of pending media
           const srrQuery = imdbId ? `imdb:${imdbId}` : encodeURIComponent(mediaTitle);
           try {
@@ -160,7 +167,7 @@ class LeakRadarService {
               timeout: 6000,
             });
             const srrMatches = srrCheck.data?.results || [];
-            for (const item of srrMatches.slice(0, 3)) {
+            for (const item of srrMatches.slice(0, 2)) {
               const relName = item.release;
               if (!relName) continue;
               const alertId = `srrdb_targeted_${relName}`;
@@ -199,6 +206,7 @@ class LeakRadarService {
               this.alerts.set(alertId, alert);
               newCount++;
               logger.info(`[LeakRadar] 🚨 Targeted Scene leak found for library: "${mediaTitle}" (${relName})`, { label: 'LeakRadar' });
+              break; // One primary alert per library item is enough
             }
           } catch {
             // Ignore srrdb timeout
@@ -287,11 +295,9 @@ class LeakRadarService {
               }
             }
 
-            // FILTER: If not matched in library, STRICTLY REQUIRE year >= minRelevantYear (2025+)
-            if (!matched) {
-              if (!detectedYear || detectedYear < minRelevantYear) {
-                continue;
-              }
+            // FILTER: STRICTLY CURRENT YEAR (2026+)
+            if (!detectedYear || detectedYear < currentYear) {
+              continue;
             }
 
             const alert: LeakAlert = {
@@ -380,11 +386,9 @@ class LeakRadarService {
             }
           }
 
-          // STRICT FILTER: If not matched in user's library, only keep if year >= minRelevantYear (2025+)
-          if (!matched) {
-            if (!detectedYear || detectedYear < minRelevantYear) {
-              continue;
-            }
+          // STRICT FILTER: Strictly require year >= currentYear (2026+)
+          if (!detectedYear || detectedYear < currentYear) {
+            continue;
           }
 
           const alert: LeakAlert = {
