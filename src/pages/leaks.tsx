@@ -321,12 +321,20 @@ const LeaksPage: NextPage = () => {
                           {alert.leakType.toUpperCase()}
                         </Badge>
                       </div>
-                      <div className="mt-1 text-xs text-gray-400 flex items-center gap-2">
-                        <span className="text-gray-300 font-medium">
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                        <span className="font-medium text-gray-300">
                           Fuente: {alert.sourcePlatform}
                         </span>
-                        <span>•</span>
-                        <span>r/{alert.subreddit}</span>
+                        {alert.subreddit && (
+                          <>
+                            <span>•</span>
+                            <span>
+                              {alert.sourcePlatform.toLowerCase().includes('reddit')
+                                ? `r/${alert.subreddit}`
+                                : alert.subreddit}
+                            </span>
+                          </>
+                        )}
                         <span>•</span>
                         <span className="flex items-center gap-1">
                           <ClockIcon className="h-3 w-3" />
@@ -354,10 +362,19 @@ const LeaksPage: NextPage = () => {
                   href={alert.redditUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+                  className="flex items-center gap-1 text-xs font-medium text-indigo-400 transition hover:text-indigo-300"
                 >
                   <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
-                  Ver hilo en Reddit
+                  {alert.sourcePlatform.toLowerCase().includes('scene') ||
+                  alert.redditUrl.includes('srrdb')
+                    ? 'Ver en PreDB (srrdb)'
+                    : alert.sourcePlatform.toLowerCase().includes('reddit') ||
+                      alert.redditUrl.includes('reddit')
+                    ? 'Ver debate en Reddit'
+                    : alert.sourcePlatform.toLowerCase().includes('torrent') ||
+                      alert.sourcePlatform.toLowerCase().includes('tracker')
+                    ? 'Ver en Tracker'
+                    : 'Ver Fuente'}
                 </a>
                 <button
                   onClick={() =>

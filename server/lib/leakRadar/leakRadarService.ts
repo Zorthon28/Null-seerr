@@ -6,6 +6,7 @@ import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import TheMovieDb from '@server/api/themoviedb';
 import { streamDownloader } from '@server/lib/stream/streamDownloader';
+import { appDataPath } from '@server/utils/appDataVolume';
 
 export interface LeakAlert {
   id: string;
@@ -30,7 +31,8 @@ export interface LeakAlert {
 }
 
 class LeakRadarService {
-  private historyFile = path.join(__dirname, 'leakHistory.json');
+  private historyFile = path.join(appDataPath(), 'leakHistory.json');
+  private fallbackHistoryFile = path.join(__dirname, 'leakHistory.json');
   private alerts: Map<string, LeakAlert> = new Map();
   private isScanning = false;
 
@@ -38,12 +40,33 @@ class LeakRadarService {
     this.loadHistory();
   }
 
+  public extractYear(title: string): number | undefined {
+    const match = title.match(/\b(19\d\d|20\d\d)\b/);
+    return match ? parseInt(match[1], 10) : undefined;
+  }
+
   private loadHistory() {
     try {
-      if (fs.existsSync(this.historyFile)) {
-        const raw = fs.readFileSync(this.historyFile, 'utf-8');
+      const currentYear = new Date().getFullYear();
+      const minRelevantYear = currentYear - 1; // 2025+
+
+      const targetPath = fs.existsSync(this.historyFile)
+        ? this.historyFile
+        : fs.existsSync(this.fallbackHistoryFile)
+        ? this.fallbackHistoryFile
+        : null;
+
+      if (targetPath) {
+        const raw = fs.readFileSync(targetPath, 'utf-8');
         const list: LeakAlert[] = JSON.parse(raw);
         for (const a of list) {
+          const y = a.year || this.extractYear(a.title);
+          // Purge ancient historical workprints (e.g. 1979, 1982, 2007, 2011) unless matched in user's library
+          if (!a.matchedMedia) {
+            if (!y || y < minRelevantYear) {
+              continue;
+            }
+          }
           this.alerts.set(a.id, a);
         }
       }
@@ -97,6 +120,94 @@ class LeakRadarService {
         logger.debug(`[LeakRadar] DB not ready for media lookup: ${dbErr.message}`);
       }
 
+      const currentYear = new Date().getFullYear();
+      const minRelevantYear = currentYear - 1; // 2025+
+      const tmdb = new TheMovieDb();
+
+      // TARGETED SEARCH: Check srrdb & indexers for user's pending/in-cinemas media
+      const pendingMedia = monitoredMedia.filter((m) => m.status !== 5); // 5 = AVAILABLE
+      for (const m of pendingMedia.slice(0, 20)) {
+        try {
+          let mediaTitle = '';
+          let imdbId: string | undefined;
+          let posterPath: string | undefined;
+          let releaseYear: number | undefined;
+
+          if (m.mediaType === 'movie') {
+            const details = await tmdb.getMovie({ movieId: m.tmdbId });
+            mediaTitle = details.title;
+            imdbId = details.imdb_id;
+            posterPath = details.poster_path;
+            if (details.release_date) {
+              releaseYear = new Date(details.release_date).getFullYear();
+            }
+          } else {
+            const details = await tmdb.getTvShow({ tvId: m.tmdbId });
+            mediaTitle = details.name;
+            posterPath = details.poster_path;
+            if (details.first_air_date) {
+              releaseYear = new Date(details.first_air_date).getFullYear();
+            }
+          }
+
+          if (!mediaTitle) continue;
+
+          // Check srrdb by IMDb ID or Title for scene releases of pending media
+          const srrQuery = imdbId ? `imdb:${imdbId}` : encodeURIComponent(mediaTitle);
+          try {
+            const srrCheck = await axios.get(`https://www.srrdb.com/api/search/${srrQuery}`, {
+              headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+              timeout: 6000,
+            });
+            const srrMatches = srrCheck.data?.results || [];
+            for (const item of srrMatches.slice(0, 3)) {
+              const relName = item.release;
+              if (!relName) continue;
+              const alertId = `srrdb_targeted_${relName}`;
+              if (this.alerts.has(alertId)) continue;
+
+              const isWorkprint = /\b(workprint|wp)\b/i.test(relName);
+              const isScreener = /\b(screener|scr)\b/i.test(relName);
+              const leakType: LeakAlert['leakType'] = isWorkprint
+                ? 'workprint'
+                : isScreener
+                ? 'screener'
+                : 'web-leak';
+
+              const alert: LeakAlert = {
+                id: alertId,
+                title: relName,
+                mediaTitle,
+                year: releaseYear,
+                leakType,
+                confidence: 'high',
+                sourcePlatform: 'The Scene (PreDB)',
+                subreddit: 'Scene',
+                redditUrl: `https://www.srrdb.com/release/details/${relName}`,
+                description: `¡Lanzamiento detectado en The Scene para título solicitado en biblioteca! Certificado por srrdb/PreDB.`,
+                detectedAt: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+                matchedMedia: {
+                  id: m.id,
+                  tmdbId: m.tmdbId,
+                  mediaType: m.mediaType,
+                  title: mediaTitle,
+                  posterPath,
+                  status: m.status,
+                },
+              };
+
+              this.alerts.set(alertId, alert);
+              newCount++;
+              logger.info(`[LeakRadar] 🚨 Targeted Scene leak found for library: "${mediaTitle}" (${relName})`, { label: 'LeakRadar' });
+            }
+          } catch {
+            // Ignore srrdb timeout
+          }
+        } catch {
+          // Ignore individual media lookup error
+        }
+      }
+
       // SOURCE 1: Direct Prowlarr Indexer Swarm for active workprints / screeners
       try {
         const prowlarrKey = '2093032a323244b4987f33f5387fcee5';
@@ -104,7 +215,7 @@ class LeakRadarService {
 
         for (const q of queries) {
           const pResp = await axios.get(
-            `http://localhost:9696/api/v1/search?query=${q}&type=search&limit=25`,
+            `http://localhost:9696/api/v1/search?query=${q}&type=search&limit=35`,
             {
               headers: { 'X-Api-Key': prowlarrKey },
               timeout: 15000,
@@ -119,6 +230,8 @@ class LeakRadarService {
             const leakSignals = /\b(workprint|screener|wp|scr)\b/i;
             if (!leakSignals.test(rawTitle)) continue;
 
+            const detectedYear = this.extractYear(rawTitle);
+
             const leakType: LeakAlert['leakType'] = /workprint|wp/i.test(rawTitle)
               ? 'workprint'
               : 'screener';
@@ -128,14 +241,13 @@ class LeakRadarService {
 
             const cleanMediaTitle = rawTitle
               .replace(/\[.*?\]|\(.*?\)/g, '')
-              .replace(/\b(workprint|screener|1080p|720p|x264|x265|hevc|web-?dl|dvdscr|bjn|dks|collective|proper)\b/gi, '')
+              .replace(/\b(workprint|screener|1080p|720p|480p|x264|x265|hevc|web-?dl|dvdscr|bjn|dks|collective|proper|hc|director cut|dual|v2)\b/gi, '')
               .replace(/[:\.\-_]/g, ' ')
               .replace(/\s+/g, ' ')
               .trim();
 
             let matched: LeakAlert['matchedMedia'] | undefined = undefined;
             for (const m of monitoredMedia) {
-              const tmdb = new TheMovieDb();
               let titleMatch = false;
               let tmdbTitle = '';
               let posterPath: string | undefined = undefined;
@@ -175,14 +287,22 @@ class LeakRadarService {
               }
             }
 
+            // FILTER: If not matched in library, STRICTLY REQUIRE year >= minRelevantYear (2025+)
+            if (!matched) {
+              if (!detectedYear || detectedYear < minRelevantYear) {
+                continue;
+              }
+            }
+
             const alert: LeakAlert = {
               id: alertId,
               title: rawTitle,
               mediaTitle: matched ? matched.title : cleanMediaTitle,
+              year: detectedYear,
               leakType,
               confidence: 'high',
               sourcePlatform: `${item.indexer || 'Tracker'} (Torrent)`,
-              subreddit: 'Trackers / Scene',
+              subreddit: item.indexer || 'Torrent Swarm',
               redditUrl: item.infoUrl || item.commentUrl || 'http://localhost:9696',
               description: `Disponible para descarga en el swarm de ${item.indexer || 'indexadores'} con ${item.seeders ?? '?'} semillas. Tamaño: ${(item.size / (1024 * 1024 * 1024)).toFixed(2)} GB.`,
               detectedAt: item.publishDate || new Date().toISOString(),
@@ -191,14 +311,14 @@ class LeakRadarService {
 
             this.alerts.set(alertId, alert);
             newCount++;
-            logger.info(`[LeakRadar] 🚨 New leak detected in Prowlarr: "${alert.mediaTitle}" (${leakType})`, { label: 'LeakRadar' });
+            logger.info(`[LeakRadar] 🚨 New modern leak in Prowlarr: "${alert.mediaTitle}" (${detectedYear || 'Library'}) [${leakType}]`, { label: 'LeakRadar' });
           }
         }
       } catch (prowlarrErr: any) {
         logger.warn(`[LeakRadar] Prowlarr scan error: ${prowlarrErr.message}`);
       }
 
-      // SOURCE 2: Scene PreDB / srrdb API for unreleased Scene leaks
+      // SOURCE 2: Global Scene PreDB / srrdb API for modern leaks
       try {
         const srrResp = await axios.get(
           'https://www.srrdb.com/api/search/workprint/order:desc',
@@ -209,9 +329,11 @@ class LeakRadarService {
         );
 
         const srrList = srrResp.data?.results || [];
-        for (const item of srrList.slice(0, 15)) {
+        for (const item of srrList.slice(0, 25)) {
           const relName: string = item.release || '';
           if (!relName) continue;
+
+          const detectedYear = this.extractYear(relName);
 
           const alertId = `srrdb_${relName}`;
           if (this.alerts.has(alertId)) continue;
@@ -223,10 +345,53 @@ class LeakRadarService {
             .replace(/\s+/g, ' ')
             .trim();
 
+          let matched: LeakAlert['matchedMedia'] | undefined = undefined;
+          for (const m of monitoredMedia) {
+            try {
+              let tmdbTitle = '';
+              let posterPath: string | undefined;
+              if (m.mediaType === 'movie') {
+                const movieDetails = await tmdb.getMovie({ movieId: m.tmdbId });
+                tmdbTitle = movieDetails.title;
+                posterPath = movieDetails.poster_path;
+              } else {
+                const tvDetails = await tmdb.getTvShow({ tvId: m.tmdbId });
+                tmdbTitle = tvDetails.name;
+                posterPath = tvDetails.poster_path;
+              }
+
+              if (
+                tmdbTitle &&
+                (cleanMediaTitle.toLowerCase().includes(tmdbTitle.toLowerCase()) ||
+                 tmdbTitle.toLowerCase().includes(cleanMediaTitle.toLowerCase()))
+              ) {
+                matched = {
+                  id: m.id,
+                  tmdbId: m.tmdbId,
+                  mediaType: m.mediaType,
+                  title: tmdbTitle,
+                  posterPath,
+                  status: m.status,
+                };
+                break;
+              }
+            } catch {
+              // Ignore
+            }
+          }
+
+          // STRICT FILTER: If not matched in user's library, only keep if year >= minRelevantYear (2025+)
+          if (!matched) {
+            if (!detectedYear || detectedYear < minRelevantYear) {
+              continue;
+            }
+          }
+
           const alert: LeakAlert = {
             id: alertId,
             title: relName,
-            mediaTitle: cleanMediaTitle,
+            mediaTitle: matched ? matched.title : cleanMediaTitle,
+            year: detectedYear,
             leakType: 'workprint',
             confidence: 'high',
             sourcePlatform: 'The Scene (PreDB)',
@@ -234,6 +399,7 @@ class LeakRadarService {
             redditUrl: `https://www.srrdb.com/release/details/${relName}`,
             description: `Lanzamiento interno certificado en bases de datos de The Scene (srrdb / predb).`,
             detectedAt: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+            matchedMedia: matched,
           };
 
           this.alerts.set(alertId, alert);
