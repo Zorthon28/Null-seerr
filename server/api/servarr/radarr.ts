@@ -30,6 +30,7 @@ export interface RadarrMovie {
   qualityProfileId: number;
   added: string;
   hasFile: boolean;
+  sizeOnDisk?: number;
   tags: number[];
   movieFile?: {
     id: number;
@@ -362,6 +363,52 @@ class RadarrAPI extends ServarrBase<{ movieId: number }> {
       return response.data || [];
     } catch {
       return [];
+    }
+  }
+
+  public async getDiskspace(): Promise<any[]> {
+    try {
+      const response = await this.axios.get<any[]>('/diskspace');
+      return response.data || [];
+    } catch (e) {
+      logger.error('Failed to get diskspace from Radarr', {
+        label: 'Radarr API',
+        errorMessage: e.message,
+      });
+      return [];
+    }
+  }
+
+  public async getAllMovies(): Promise<any[]> {
+    try {
+      const response = await this.axios.get<any[]>('/movie');
+      return response.data || [];
+    } catch (e) {
+      logger.error('Failed to get all movies from Radarr', {
+        label: 'Radarr API',
+        errorMessage: e.message,
+      });
+      return [];
+    }
+  }
+
+  public async deleteMovie(movieId: number, deleteFiles = true): Promise<void> {
+    try {
+      await this.axios.delete(`/movie/${movieId}`, {
+        params: {
+          deleteFiles,
+          addImportExclusion: false,
+        },
+      });
+      logger.info(`[Radarr] Deleted movie ID ${movieId} (deleteFiles: ${deleteFiles})`);
+    } catch (e) {
+      if (e?.response?.status === 404) return;
+      logger.error('Failed to delete movie from Radarr', {
+        label: 'Radarr API',
+        errorMessage: e.message,
+        movieId,
+      });
+      throw e;
     }
   }
 }

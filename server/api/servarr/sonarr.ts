@@ -643,6 +643,39 @@ class SonarrAPI extends ServarrBase<{
       return [];
     }
   }
+
+  public async getAllSeries(): Promise<any[]> {
+    try {
+      const response = await this.axios.get<any[]>('/series');
+      return response.data || [];
+    } catch (e) {
+      logger.error('Failed to get all series from Sonarr', {
+        label: 'Sonarr API',
+        errorMessage: e.message,
+      });
+      return [];
+    }
+  }
+
+  public async deleteSeries(seriesId: number, deleteFiles = true): Promise<void> {
+    try {
+      await this.axios.delete(`/series/${seriesId}`, {
+        params: {
+          deleteFiles,
+          addImportListExclusion: false,
+        },
+      });
+      logger.info(`[Sonarr] Deleted series ID ${seriesId} (deleteFiles: ${deleteFiles})`);
+    } catch (e) {
+      if (e?.response?.status === 404) return;
+      logger.error('Failed to delete series from Sonarr', {
+        label: 'Sonarr API',
+        errorMessage: e.message,
+        seriesId,
+      });
+      throw e;
+    }
+  }
 }
 
 export default SonarrAPI;
