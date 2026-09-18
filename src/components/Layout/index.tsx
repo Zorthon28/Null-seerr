@@ -4,6 +4,7 @@ import SearchInput from '@app/components/Layout/SearchInput';
 import Sidebar from '@app/components/Layout/Sidebar';
 import UserDropdown from '@app/components/Layout/UserDropdown';
 import UserWarnings from '@app/components/Layout/UserWarnings';
+import LowStorageAlertBanner from '@app/components/Storage/LowStorageAlertBanner';
 import Tooltip from '@app/components/Common/Tooltip';
 import useLocale from '@app/hooks/useLocale';
 import useSettings from '@app/hooks/useSettings';
@@ -160,6 +161,7 @@ const Layout = ({ children }: LayoutProps) => {
         <main className="relative top-16 z-0 focus:outline-none" tabIndex={0}>
           <div className="mb-6">
             <div className="max-w-8xl mx-auto px-4">
+              <LowStorageAlertBanner />
               <UserWarnings />
               {children}
             </div>

@@ -161,6 +161,9 @@ export interface MainSettings {
   downloadNotifications: boolean;
   sleepOnIdleEnabled?: boolean;
   hostWakeOnLanMac?: string;
+  lowStorageAlertEnabled?: boolean;
+  lowStorageThresholdGb?: number;
+  lowStorageThresholdPercent?: number;
 }
 
 export interface ProxySettings {
@@ -229,6 +232,9 @@ interface FullPublicSettings extends PublicSettings {
   youtubeUrl: string;
   versionCheck: boolean;
   plexClientIdentifier: string;
+  lowStorageAlertEnabled: boolean;
+  lowStorageThresholdGb: number;
+  lowStorageThresholdPercent: number;
 }
 
 export interface NotificationAgentConfig {
@@ -448,6 +454,9 @@ class Settings {
         downloadNotifications: true,
         sleepOnIdleEnabled: false,
         hostWakeOnLanMac: '',
+        lowStorageAlertEnabled: true,
+        lowStorageThresholdGb: 80,
+        lowStorageThresholdPercent: 10,
       },
       plex: {
         name: '',
@@ -764,6 +773,9 @@ class Settings {
       youtubeUrl: this.data.main.youtubeUrl,
       versionCheck: this.data.main.versionCheck,
       plexClientIdentifier: this.data.clientId,
+      lowStorageAlertEnabled: this.data.main.lowStorageAlertEnabled ?? true,
+      lowStorageThresholdGb: this.data.main.lowStorageThresholdGb ?? 80,
+      lowStorageThresholdPercent: this.data.main.lowStorageThresholdPercent ?? 10,
     };
   }
 

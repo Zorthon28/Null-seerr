@@ -396,6 +396,36 @@ const Discover = () => {
               />
             );
             break;
+          case DiscoverSliderType.SMART_RECOMMENDATIONS:
+            sliderComponent = (
+              <MediaSlider
+                sliderKey="recommendations-recent"
+                title={intl.formatMessage(sliderTitles.recommendationsRecent)}
+                url="/api/v1/discover/recommendations/recent"
+                linkUrl="/discover"
+              />
+            );
+            break;
+          case DiscoverSliderType.RECOMMENDATIONS_MOVIES:
+            sliderComponent = (
+              <MediaSlider
+                sliderKey="recommendations-movies"
+                title={intl.formatMessage(sliderTitles.recommendationsMovies)}
+                url="/api/v1/discover/recommendations/movies"
+                linkUrl="/discover/movies"
+              />
+            );
+            break;
+          case DiscoverSliderType.RECOMMENDATIONS_SERIES:
+            sliderComponent = (
+              <MediaSlider
+                sliderKey="recommendations-series"
+                title={intl.formatMessage(sliderTitles.recommendationsSeries)}
+                url="/api/v1/discover/recommendations/series"
+                linkUrl="/discover/tv"
+              />
+            );
+            break;
         }
 
         if (isEditing) {

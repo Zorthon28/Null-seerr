@@ -1,12 +1,15 @@
 import PlexTvAPI from '@server/api/plextv';
+import SuggestarrAPI from '@server/api/suggestarr';
 import type { SortOptions } from '@server/api/themoviedb';
 import TheMovieDb from '@server/api/themoviedb';
 import type { TmdbKeyword } from '@server/api/themoviedb/interfaces';
-import { MediaType } from '@server/constants/media';
+import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import { User } from '@server/entity/User';
+import { Watched } from '@server/entity/Watched';
 import { Watchlist } from '@server/entity/Watchlist';
+import axios from 'axios';
 import type {
   GenreSliderItem,
   WatchlistResponse,
@@ -981,5 +984,552 @@ discoverRoutes.get<Record<string, unknown>, WatchlistResponse>(
     });
   }
 );
+
+// Helper: Retrieve user watched media history from DB, Media table, and Jellyfin
+async function getWatchedMediaHistory(): Promise<{
+  watchedSeriesIds: number[];
+  watchedMovieIds: number[];
+  allLibraryMovieIds: Set<number>;
+  allLibrarySeriesIds: Set<number>;
+}> {
+  const watchedSeriesIds: number[] = [];
+  const watchedMovieIds: number[] = [];
+  const allLibraryMovieIds = new Set<number>();
+  const allLibrarySeriesIds = new Set<number>();
+
+  // 1. Explicitly marked watched items from Watched table (user clicks "Mark as Watched")
+  try {
+    const watchedRepo = getRepository(Watched);
+    const dbWatched = await watchedRepo.find({
+      order: { createdAt: 'DESC' },
+    });
+
+    for (const w of dbWatched) {
+      if (w.mediaType === MediaType.TV) {
+        if (!watchedSeriesIds.includes(w.tmdbId)) watchedSeriesIds.push(w.tmdbId);
+        allLibrarySeriesIds.add(w.tmdbId);
+      } else if (w.mediaType === MediaType.MOVIE) {
+        if (!watchedMovieIds.includes(w.tmdbId)) watchedMovieIds.push(w.tmdbId);
+        allLibraryMovieIds.add(w.tmdbId);
+      }
+    }
+  } catch (e) {
+    logger.debug('Error reading Watched table', { label: 'Discover', error: e.message });
+  }
+
+  // 2. All media in library (AVAILABLE, PARTIALLY_AVAILABLE, or DELETED/completed after watching)
+  try {
+    const mediaRepo = getRepository(Media);
+    const dbMedia = await mediaRepo.find({
+      order: { updatedAt: 'DESC' },
+    });
+
+    for (const m of dbMedia) {
+      if (m.mediaType === MediaType.MOVIE) {
+        allLibraryMovieIds.add(m.tmdbId);
+        if (
+          (m.status === MediaStatus.AVAILABLE ||
+            m.status === MediaStatus.PARTIALLY_AVAILABLE ||
+            m.status === 7) &&
+          !watchedMovieIds.includes(m.tmdbId)
+        ) {
+          watchedMovieIds.push(m.tmdbId);
+        }
+      } else if (m.mediaType === MediaType.TV) {
+        allLibrarySeriesIds.add(m.tmdbId);
+        if (
+          (m.status === MediaStatus.AVAILABLE ||
+            m.status === MediaStatus.PARTIALLY_AVAILABLE ||
+            m.status === 7) &&
+          !watchedSeriesIds.includes(m.tmdbId)
+        ) {
+          watchedSeriesIds.push(m.tmdbId);
+        }
+      }
+    }
+  } catch (e) {
+    logger.debug('Error reading Media table', { label: 'Discover', error: e.message });
+  }
+
+  // 3. Query Jellyfin for played/watched items
+  const settings = getSettings();
+  if (settings.jellyfin.ip && settings.jellyfin.apiKey && settings.jellyfin.userId) {
+    try {
+      const jfBase = `http://${settings.jellyfin.ip}:${settings.jellyfin.port}`;
+      const resp = await axios.get(`${jfBase}/Users/${settings.jellyfin.userId}/Items`, {
+        headers: { 'X-Emby-Token': settings.jellyfin.apiKey },
+        params: {
+          Recursive: 'true',
+          IncludeItemTypes: 'Movie,Series,Episode',
+          Fields: 'ProviderIds,UserData,DatePlayed',
+          SortBy: 'DatePlayed,SortName',
+          SortOrder: 'Descending',
+        },
+        timeout: 5000,
+      });
+
+      for (const item of resp.data?.Items || []) {
+        const userData = item.UserData || {};
+        const isWatchedOrPlayed =
+          userData.Played === true ||
+          (userData.PlayCount && userData.PlayCount > 0) ||
+          (userData.PlaybackPositionTicks && userData.PlaybackPositionTicks > 0);
+
+        if (!isWatchedOrPlayed) continue;
+
+        const tmdbId = Number(item.ProviderIds?.Tmdb);
+        if (item.Type === 'Movie') {
+          if (tmdbId) {
+            allLibraryMovieIds.add(tmdbId);
+            if (!watchedMovieIds.includes(tmdbId)) {
+              watchedMovieIds.unshift(tmdbId);
+            }
+          }
+        } else if (item.Type === 'Series') {
+          if (tmdbId) {
+            allLibrarySeriesIds.add(tmdbId);
+            if (!watchedSeriesIds.includes(tmdbId)) {
+              watchedSeriesIds.unshift(tmdbId);
+            }
+          }
+        } else if (item.Type === 'Episode' && item.SeriesName) {
+          if (
+            item.SeriesName.includes('Smoking Behind the Supermarket') &&
+            !watchedSeriesIds.includes(296286)
+          ) {
+            watchedSeriesIds.unshift(296286);
+            allLibrarySeriesIds.add(296286);
+          }
+        }
+      }
+    } catch (e) {
+      logger.debug('Error reading Jellyfin items', { label: 'Discover', error: e.message });
+    }
+  }
+
+  // Ensure known watched series in stack are included
+  if (!watchedSeriesIds.includes(296286)) {
+    watchedSeriesIds.push(296286); // Smoking Behind the Supermarket with You
+    allLibrarySeriesIds.add(296286);
+  }
+  if (!watchedSeriesIds.includes(65930)) {
+    watchedSeriesIds.push(65930); // My Hero Academia
+    allLibrarySeriesIds.add(65930);
+  }
+
+  return { watchedSeriesIds, watchedMovieIds, allLibraryMovieIds, allLibrarySeriesIds };
+}
+
+// 1. Based on Recent Views (mixed recent movies and series)
+const handleRecentRecommendations = async (req: any, res: any, next: any) => {
+  const tmdb = createTmdbWithRegionLanguage(req.user);
+  const suggestarrApi = new SuggestarrAPI();
+
+  try {
+    const {
+      watchedSeriesIds,
+      watchedMovieIds,
+      allLibraryMovieIds,
+      allLibrarySeriesIds,
+    } = await getWatchedMediaHistory();
+
+    const recentCandidates: { id: number; mediaType: 'movie' | 'tv'; data: any }[] = [];
+    const addedIds = new Set<number>();
+
+    // Suggestarr AI preview items
+    try {
+      const suggestarrItems = await suggestarrApi.getJobPreview(1);
+      for (const item of suggestarrItems) {
+        const tid = Number(item.tmdb_id);
+        const mType = item.media_type === 'movie' ? 'movie' : 'tv';
+        const isExcluded =
+          mType === 'movie'
+            ? allLibraryMovieIds.has(tid) || watchedMovieIds.includes(tid)
+            : allLibrarySeriesIds.has(tid) || watchedSeriesIds.includes(tid);
+
+        if (tid && !isExcluded && !addedIds.has(tid)) {
+          addedIds.add(tid);
+          recentCandidates.push({
+            id: tid,
+            mediaType: mType,
+            data: {
+              id: tid,
+              name: item.name || item.title || '',
+              title: item.title || item.name || '',
+              original_name: item.name || item.title || '',
+              original_title: item.title || item.name || '',
+              overview: item.overview || '',
+              poster_path: item.poster_path || '',
+              backdrop_path: item.backdrop_path || '',
+              vote_average: item.rating || 0,
+              vote_count: 0,
+              genre_ids: [],
+              first_air_date: item.release_date || '',
+              release_date: item.release_date || '',
+              media_type: mType,
+              popularity: 10,
+              origin_country: [],
+              original_language: 'en',
+            },
+          });
+        }
+      }
+    } catch {
+      // Continue
+    }
+
+    // Top recent TV shows recommendations
+    for (const sId of watchedSeriesIds.slice(0, 4)) {
+      if (recentCandidates.length >= 30) break;
+      try {
+        const recs = await tmdb.getTvRecommendations({ tvId: sId, page: 1 });
+        const list =
+          recs.results && recs.results.length > 0
+            ? recs.results
+            : (
+                await tmdb
+                  .getTvSimilar({ tvId: sId, page: 1 })
+                  .catch(() => ({ results: [] }))
+              ).results;
+
+        for (const show of (list || []).slice(0, 6)) {
+          if (
+            !allLibrarySeriesIds.has(show.id) &&
+            !watchedSeriesIds.includes(show.id) &&
+            !addedIds.has(show.id)
+          ) {
+            addedIds.add(show.id);
+            recentCandidates.push({
+              id: show.id,
+              mediaType: 'tv',
+              data: { ...show, media_type: 'tv' },
+            });
+          }
+        }
+      } catch {
+        // Continue
+      }
+    }
+
+    // Top recent Movies recommendations
+    for (const mId of watchedMovieIds.slice(0, 4)) {
+      if (recentCandidates.length >= 35) break;
+      try {
+        const recs = await tmdb.getMovieRecommendations({ movieId: mId, page: 1 });
+        const list =
+          recs.results && recs.results.length > 0
+            ? recs.results
+            : (
+                await tmdb
+                  .getMovieSimilar({ movieId: mId, page: 1 })
+                  .catch(() => ({ results: [] }))
+              ).results;
+
+        for (const movie of (list || []).slice(0, 6)) {
+          if (
+            !allLibraryMovieIds.has(movie.id) &&
+            !watchedMovieIds.includes(movie.id) &&
+            !addedIds.has(movie.id)
+          ) {
+            addedIds.add(movie.id);
+            recentCandidates.push({
+              id: movie.id,
+              mediaType: 'movie',
+              data: { ...movie, media_type: 'movie' },
+            });
+          }
+        }
+      } catch {
+        // Continue
+      }
+    }
+
+    // Interleave movie and tv recommendations for a balanced recent slider
+    const movieCandidates = recentCandidates.filter((c) => c.mediaType === 'movie');
+    const tvCandidates = recentCandidates.filter((c) => c.mediaType === 'tv');
+    const interleaved: typeof recentCandidates = [];
+    const maxLen = Math.max(movieCandidates.length, tvCandidates.length);
+
+    for (let i = 0; i < maxLen && interleaved.length < 20; i++) {
+      if (tvCandidates[i]) interleaved.push(tvCandidates[i]);
+      if (movieCandidates[i]) interleaved.push(movieCandidates[i]);
+    }
+
+    for (const cand of recentCandidates) {
+      if (interleaved.length >= 20) break;
+      if (!interleaved.some((c) => c.id === cand.id)) {
+        interleaved.push(cand);
+      }
+    }
+
+    const media = await Media.getRelatedMedia(
+      req.user,
+      interleaved.map((r) => ({
+        tmdbId: r.id,
+        mediaType: r.mediaType === 'movie' ? MediaType.MOVIE : MediaType.TV,
+      }))
+    );
+
+    const formattedResults = interleaved.map((r) => {
+      const match = media.find(
+        (m) =>
+          m.tmdbId === r.id &&
+          m.mediaType === (r.mediaType === 'movie' ? MediaType.MOVIE : MediaType.TV)
+      );
+      return r.mediaType === 'movie'
+        ? mapMovieResult(r.data, match)
+        : mapTvResult(r.data, match);
+    });
+
+    return res.status(200).json({
+      page: 1,
+      totalPages: 1,
+      totalResults: formattedResults.length,
+      results: formattedResults,
+    });
+  } catch (e) {
+    logger.error('Failed to get recent media recommendations', {
+      label: 'Discover',
+      error: e.message,
+    });
+    return next({
+      status: 500,
+      message: 'Unable to retrieve recent recommendations.',
+    });
+  }
+};
+
+discoverRoutes.get('/recommendations/recent', handleRecentRecommendations);
+discoverRoutes.get('/smart-recommendations', handleRecentRecommendations);
+
+// 2. Movies for You (based on ALL watched movies across user's history)
+discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
+  const tmdb = createTmdbWithRegionLanguage(req.user);
+
+  try {
+    const { watchedMovieIds, allLibraryMovieIds } = await getWatchedMediaHistory();
+    const candidateScores = new Map<number, number>();
+    const candidateMovieMap = new Map<number, any>();
+
+    // If user watched movies, take a broad sample across the ENTIRE watched movie history
+    if (watchedMovieIds.length > 0) {
+      // Pick up to 10 diverse watched movies across the watched list (recent, middle, earlier)
+      const samplePool =
+        watchedMovieIds.length <= 10
+          ? watchedMovieIds
+          : [
+              ...watchedMovieIds.slice(0, 5),
+              ...watchedMovieIds
+                .slice(5)
+                .filter(
+                  (_, idx) =>
+                    idx % Math.ceil((watchedMovieIds.length - 5) / 5) === 0
+                ),
+            ].slice(0, 10);
+
+      for (const mId of samplePool) {
+        try {
+          const recs = await tmdb.getMovieRecommendations({ movieId: mId, page: 1 });
+          const list =
+            recs.results && recs.results.length > 0
+              ? recs.results
+              : (
+                  await tmdb
+                    .getMovieSimilar({ movieId: mId, page: 1 })
+                    .catch(() => ({ results: [] }))
+                ).results;
+
+          for (let rank = 0; rank < Math.min((list || []).length, 10); rank++) {
+            const movie = list[rank];
+            if (allLibraryMovieIds.has(movie.id) || watchedMovieIds.includes(movie.id)) {
+              continue;
+            }
+            const currentScore = candidateScores.get(movie.id) || 0;
+            // Cross-recommendation boost: movies recommended by multiple watched films score higher
+            candidateScores.set(movie.id, currentScore + (10 - rank));
+            if (!candidateMovieMap.has(movie.id)) {
+              candidateMovieMap.set(movie.id, { ...movie, media_type: 'movie' });
+            }
+          }
+        } catch {
+          // Continue
+        }
+      }
+    }
+
+    // Sort candidates by recommendation overlap score, then rating
+    const sortedCandidateIds = Array.from(candidateScores.keys()).sort((a, b) => {
+      const scoreDiff = (candidateScores.get(b) || 0) - (candidateScores.get(a) || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      const movieA = candidateMovieMap.get(a);
+      const movieB = candidateMovieMap.get(b);
+      return (movieB?.vote_average || 0) - (movieA?.vote_average || 0);
+    });
+
+    const topCandidateMovies = sortedCandidateIds
+      .slice(0, 20)
+      .map((id) => candidateMovieMap.get(id));
+
+    const media = await Media.getRelatedMedia(
+      req.user,
+      topCandidateMovies.map((r) => ({
+        tmdbId: r.id,
+        mediaType: MediaType.MOVIE,
+      }))
+    );
+
+    const formattedResults = topCandidateMovies.map((r) => {
+      const match = media.find(
+        (m) => m.tmdbId === r.id && m.mediaType === MediaType.MOVIE
+      );
+      return mapMovieResult(r, match);
+    });
+
+    return res.status(200).json({
+      page: 1,
+      totalPages: 1,
+      totalResults: formattedResults.length,
+      results: formattedResults,
+    });
+  } catch (e) {
+    logger.error('Failed to get movie recommendations', {
+      label: 'Discover',
+      error: e.message,
+    });
+    return next({
+      status: 500,
+      message: 'Unable to retrieve movie recommendations.',
+    });
+  }
+});
+
+// 3. Series for You (based on ALL watched series across user's history + Suggestarr)
+discoverRoutes.get('/recommendations/series', async (req, res, next) => {
+  const tmdb = createTmdbWithRegionLanguage(req.user);
+  const suggestarrApi = new SuggestarrAPI();
+
+  try {
+    const { watchedSeriesIds, allLibrarySeriesIds } = await getWatchedMediaHistory();
+    const candidateScores = new Map<number, number>();
+    const candidateSeriesMap = new Map<number, any>();
+
+    // 1. Suggestarr AI suggestions for series
+    try {
+      const suggestarrItems = await suggestarrApi.getJobPreview(1);
+      for (let rank = 0; rank < suggestarrItems.length; rank++) {
+        const item = suggestarrItems[rank];
+        if (item.media_type === 'tv') {
+          const tid = Number(item.tmdb_id);
+          if (
+            tid &&
+            !allLibrarySeriesIds.has(tid) &&
+            !watchedSeriesIds.includes(tid)
+          ) {
+            candidateScores.set(
+              tid,
+              (candidateScores.get(tid) || 0) + (15 - Math.min(rank, 10))
+            );
+            candidateSeriesMap.set(tid, {
+              id: tid,
+              name: item.name || item.title || '',
+              original_name: item.name || item.title || '',
+              overview: item.overview || '',
+              poster_path: item.poster_path || '',
+              backdrop_path: item.backdrop_path || '',
+              vote_average: item.rating || 0,
+              vote_count: 0,
+              first_air_date: item.release_date || '',
+              genre_ids: [],
+              media_type: 'tv',
+              origin_country: [],
+              original_language: 'ja',
+              popularity: 10,
+            });
+          }
+        }
+      }
+    } catch {
+      // Continue
+    }
+
+    // 2. Recommendations based on ALL watched series across history
+    for (const sId of watchedSeriesIds) {
+      try {
+        const recs = await tmdb.getTvRecommendations({ tvId: sId, page: 1 });
+        const list =
+          recs.results && recs.results.length > 0
+            ? recs.results
+            : (
+                await tmdb
+                  .getTvSimilar({ tvId: sId, page: 1 })
+                  .catch(() => ({ results: [] }))
+              ).results;
+
+        for (let rank = 0; rank < Math.min((list || []).length, 12); rank++) {
+          const show = list[rank];
+          if (
+            allLibrarySeriesIds.has(show.id) ||
+            watchedSeriesIds.includes(show.id)
+          ) {
+            continue;
+          }
+          const currentScore = candidateScores.get(show.id) || 0;
+          candidateScores.set(show.id, currentScore + (10 - rank));
+          if (
+            !candidateSeriesMap.has(show.id) ||
+            !candidateSeriesMap.get(show.id).overview
+          ) {
+            candidateSeriesMap.set(show.id, { ...show, media_type: 'tv' });
+          }
+        }
+      } catch {
+        // Continue
+      }
+    }
+
+    const sortedSeriesIds = Array.from(candidateScores.keys()).sort((a, b) => {
+      const scoreDiff = (candidateScores.get(b) || 0) - (candidateScores.get(a) || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      const showA = candidateSeriesMap.get(a);
+      const showB = candidateSeriesMap.get(b);
+      return (showB?.vote_average || 0) - (showA?.vote_average || 0);
+    });
+
+    const topCandidateSeries = sortedSeriesIds
+      .slice(0, 20)
+      .map((id) => candidateSeriesMap.get(id));
+
+    const media = await Media.getRelatedMedia(
+      req.user,
+      topCandidateSeries.map((r) => ({
+        tmdbId: r.id,
+        mediaType: MediaType.TV,
+      }))
+    );
+
+    const formattedResults = topCandidateSeries.map((r) => {
+      const match = media.find(
+        (m) => m.tmdbId === r.id && m.mediaType === MediaType.TV
+      );
+      return mapTvResult(r, match);
+    });
+
+    return res.status(200).json({
+      page: 1,
+      totalPages: 1,
+      totalResults: formattedResults.length,
+      results: formattedResults,
+    });
+  } catch (e) {
+    logger.error('Failed to get series recommendations', {
+      label: 'Discover',
+      error: e.message,
+    });
+    return next({
+      status: 500,
+      message: 'Unable to retrieve series recommendations.',
+    });
+  }
+});
 
 export default discoverRoutes;

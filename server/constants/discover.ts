@@ -22,53 +22,56 @@ export enum DiscoverSliderType {
   TMDB_NETWORK,
   TMDB_MOVIE_STREAMING_SERVICES,
   TMDB_TV_STREAMING_SERVICES,
+  SMART_RECOMMENDATIONS, // Type 22: Based on Recent Views
+  RECOMMENDATIONS_MOVIES, // Type 23: Movies for You
+  RECOMMENDATIONS_SERIES, // Type 24: Series for You
 }
 
 export const defaultSliders: Partial<DiscoverSlider>[] = [
   {
-    type: DiscoverSliderType.RECENTLY_ADDED,
+    type: DiscoverSliderType.SMART_RECOMMENDATIONS,
     enabled: true,
     isBuiltIn: true,
     order: 0,
   },
   {
-    type: DiscoverSliderType.RECENT_REQUESTS,
+    type: DiscoverSliderType.RECENTLY_ADDED,
     enabled: true,
     isBuiltIn: true,
     order: 1,
   },
   {
-    type: DiscoverSliderType.PLEX_WATCHLIST,
+    type: DiscoverSliderType.RECENT_REQUESTS,
     enabled: true,
     isBuiltIn: true,
     order: 2,
   },
   {
-    type: DiscoverSliderType.TRENDING,
+    type: DiscoverSliderType.PLEX_WATCHLIST,
     enabled: true,
     isBuiltIn: true,
     order: 3,
   },
   {
-    type: DiscoverSliderType.POPULAR_MOVIES,
+    type: DiscoverSliderType.TRENDING,
     enabled: true,
     isBuiltIn: true,
     order: 4,
   },
   {
-    type: DiscoverSliderType.MOVIE_GENRES,
+    type: DiscoverSliderType.POPULAR_MOVIES,
     enabled: true,
     isBuiltIn: true,
     order: 5,
   },
   {
-    type: DiscoverSliderType.UPCOMING_MOVIES,
+    type: DiscoverSliderType.RECOMMENDATIONS_MOVIES,
     enabled: true,
     isBuiltIn: true,
     order: 6,
   },
   {
-    type: DiscoverSliderType.STUDIOS,
+    type: DiscoverSliderType.MOVIE_GENRES,
     enabled: true,
     isBuiltIn: true,
     order: 7,
@@ -80,21 +83,27 @@ export const defaultSliders: Partial<DiscoverSlider>[] = [
     order: 8,
   },
   {
-    type: DiscoverSliderType.TV_GENRES,
+    type: DiscoverSliderType.RECOMMENDATIONS_SERIES,
     enabled: true,
     isBuiltIn: true,
     order: 9,
   },
   {
-    type: DiscoverSliderType.UPCOMING_TV,
+    type: DiscoverSliderType.TV_GENRES,
     enabled: true,
     isBuiltIn: true,
     order: 10,
   },
   {
-    type: DiscoverSliderType.NETWORKS,
+    type: DiscoverSliderType.STUDIOS,
     enabled: true,
     isBuiltIn: true,
     order: 11,
+  },
+  {
+    type: DiscoverSliderType.NETWORKS,
+    enabled: true,
+    isBuiltIn: true,
+    order: 12,
   },
 ];

@@ -20,6 +20,7 @@ import ManageSlideOver from '@app/components/ManageSlideOver';
 import MediaSlider from '@app/components/MediaSlider';
 import PersonCard from '@app/components/PersonCard';
 import RequestButton from '@app/components/RequestButton';
+import SimilarRecommendationsModal from '@app/components/SimilarRecommendationsModal';
 import Slider from '@app/components/Slider';
 import StatusBadge from '@app/components/StatusBadge';
 import useDeepLinks from '@app/hooks/useDeepLinks';
@@ -135,6 +136,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
   const intl = useIntl();
   const { locale } = useLocale();
   const [showManager, setShowManager] = useState(false);
+  const [showSimilarModal, setShowSimilarModal] = useState(false);
   const minStudios = 3;
   const [showMoreStudios, setShowMoreStudios] = useState(false);
   const [showIssueModal, setShowIssueModal] = useState(false);
@@ -615,6 +617,13 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
         onComplete={onClickHideItemBtn}
         isUpdating={isBlocklistUpdating}
       />
+      <SimilarRecommendationsModal
+        tmdbId={data.id}
+        mediaType="movie"
+        title={data.title}
+        show={showSimilarModal}
+        onClose={() => setShowSimilarModal(false)}
+      />
       <div className="media-header">
         <div className="media-poster">
           <CachedImage
@@ -863,6 +872,16 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
           <div className="z-20">
             <PlayButton links={mediaLinks} />
           </div>
+          <Tooltip content="Sugerir Títulos Similares (Suggestarr & IA)">
+            <Button
+              buttonType="ghost"
+              className="z-40 mr-2 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-600/20"
+              buttonSize="md"
+              onClick={() => setShowSimilarModal(true)}
+            >
+              <SparklesIcon className="h-5 w-5 text-indigo-400" />
+            </Button>
+          </Tooltip>
           <RequestButton
             mediaType="movie"
             media={data.mediaInfo}
