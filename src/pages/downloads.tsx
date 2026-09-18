@@ -16,6 +16,7 @@ import {
   ChevronUpIcon,
   ClockIcon,
   ExclamationCircleIcon,
+  InformationCircleIcon,
   MagnifyingGlassIcon,
   PauseIcon,
   ServerIcon,
@@ -460,20 +461,38 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
               )}
 
               {/* Health Warnings */}
-              {item.healthWarnings && item.healthWarnings.length > 0 && (
-                <div className="text-xs bg-red-950/20 border border-red-900/40 rounded-xl p-3 space-y-1 text-red-400 font-medium">
-                  <div className="font-bold flex items-center gap-1.5 text-red-300 mb-1">
-                    <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
-                    Active Server Health Warnings:
-                  </div>
-                  {item.healthWarnings.map((warn: string, i: number) => (
-                    <div key={i} className="flex gap-1.5 items-start pl-1 text-[11px] leading-relaxed">
-                      <span>•</span>
-                      <span>{warn}</span>
+              {item.healthWarnings && item.healthWarnings.length > 0 && (() => {
+                const isAllRateLimitNotice = item.healthWarnings.every((w: string) =>
+                  w.toLowerCase().includes('rate-limited') || w.toLowerCase().includes('skipping')
+                );
+                return isAllRateLimitNotice ? (
+                  <div className="text-xs bg-amber-950/20 border border-amber-900/40 rounded-xl p-3 space-y-1 text-amber-300 font-medium">
+                    <div className="font-bold flex items-center gap-1.5 text-amber-200 mb-1">
+                      <InformationCircleIcon className="w-4 h-4 shrink-0" />
+                      Tracker Rate-Limit Notice:
                     </div>
-                  ))}
-                </div>
-              )}
+                    {item.healthWarnings.map((warn: string, i: number) => (
+                      <div key={i} className="flex gap-1.5 items-start pl-1 text-[11px] leading-relaxed">
+                        <span>•</span>
+                        <span>{warn}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs bg-red-950/20 border border-red-900/40 rounded-xl p-3 space-y-1 text-red-400 font-medium">
+                    <div className="font-bold flex items-center gap-1.5 text-red-300 mb-1">
+                      <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
+                      Active Server Health Warnings:
+                    </div>
+                    {item.healthWarnings.map((warn: string, i: number) => (
+                      <div key={i} className="flex gap-1.5 items-start pl-1 text-[11px] leading-relaxed">
+                        <span>•</span>
+                        <span>{warn}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>

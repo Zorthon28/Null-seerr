@@ -608,7 +608,14 @@ mediaRoutes.get('/queue', async (req, res, next) => {
               minimumAvailability: movie.minimumAvailability,
             };
             const h = radarrHealthMap.get(server.id) || [];
-            healthWarnings = h.map(hw => `[Radarr - ${server.name}] ${hw.message}`);
+            healthWarnings = h
+              .filter(hw => !hw.message?.toLowerCase().includes('new update is available'))
+              .map(hw => {
+                if (hw.message?.includes('Indexers unavailable') || hw.message?.toLowerCase().includes('request limit')) {
+                  return `[Radarr - ${server.name}] Indexer temporarily rate-limited (429) - skipping and using remaining trackers`;
+                }
+                return `[Radarr - ${server.name}] ${hw.message}`;
+              });
             break;
           }
         }
@@ -629,7 +636,14 @@ mediaRoutes.get('/queue', async (req, res, next) => {
               totalEpisodeCount: series.statistics?.totalEpisodeCount || 0,
             };
             const h = sonarrHealthMap.get(server.id) || [];
-            healthWarnings = h.map(hw => `[Sonarr - ${server.name}] ${hw.message}`);
+            healthWarnings = h
+              .filter(hw => !hw.message?.toLowerCase().includes('new update is available'))
+              .map(hw => {
+                if (hw.message?.includes('Indexers unavailable') || hw.message?.toLowerCase().includes('request limit')) {
+                  return `[Sonarr - ${server.name}] Indexer temporarily rate-limited (429) - skipping and using remaining trackers`;
+                }
+                return `[Sonarr - ${server.name}] ${hw.message}`;
+              });
             break;
           }
         }

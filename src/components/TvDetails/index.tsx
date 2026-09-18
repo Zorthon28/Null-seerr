@@ -22,6 +22,7 @@ import MediaSlider from '@app/components/MediaSlider';
 import PersonCard from '@app/components/PersonCard';
 import RequestButton from '@app/components/RequestButton';
 import RequestModal from '@app/components/RequestModal';
+import SimilarRecommendationsModal from '@app/components/SimilarRecommendationsModal';
 import Slider from '@app/components/Slider';
 import StatusBadge from '@app/components/StatusBadge';
 import Season from '@app/components/TvDetails/Season';
@@ -52,6 +53,7 @@ import {
   FilmIcon,
   MinusCircleIcon,
   PlayIcon,
+  SparklesIcon,
   StarIcon,
   CheckCircleIcon as CheckCircleSolidIcon,
 } from '@heroicons/react/24/solid';
@@ -131,6 +133,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   const intl = useIntl();
   const { locale } = useLocale();
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showSimilarModal, setShowSimilarModal] = useState(false);
   const [showManager, setShowManager] = useState(false);
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
@@ -603,6 +606,13 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
         }}
         onCancel={() => setShowRequestModal(false)}
       />
+      <SimilarRecommendationsModal
+        tmdbId={data.id}
+        mediaType="tv"
+        title={data.name}
+        show={showSimilarModal}
+        onClose={() => setShowSimilarModal(false)}
+      />
       <ManageSlideOver
         data={data}
         mediaType="tv"
@@ -861,6 +871,16 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
           <div className="z-20">
             <PlayButton links={mediaLinks} />
           </div>
+          <Tooltip content="Sugerir Títulos Similares (Suggestarr & IA)">
+            <Button
+              buttonType="ghost"
+              className="z-40 mr-2 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-600/20"
+              buttonSize="md"
+              onClick={() => setShowSimilarModal(true)}
+            >
+              <SparklesIcon className="h-5 w-5 text-indigo-400" />
+            </Button>
+          </Tooltip>
           <RequestButton
             mediaType="tv"
             onUpdate={() => revalidate()}
@@ -1364,10 +1384,31 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                 </span>
               </div>
             )}
-            <div className="media-fact">
-              <span>{intl.formatMessage(globalMessages.status)}</span>
-              <span className="media-fact-value">{data.status}</span>
-            </div>
+            {data.status && (
+              <div className="media-fact">
+                <span>{intl.formatMessage(globalMessages.status)}</span>
+                <span className="media-fact-value">
+                  {data.status === 'Ended' ? (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-gray-300">
+                      <span className="h-2 w-2 rounded-full bg-gray-400" />
+                      {data.status}
+                    </span>
+                  ) : data.status === 'Returning Series' ? (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-emerald-400">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                      {data.status}
+                    </span>
+                  ) : data.status === 'Canceled' ? (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-rose-400">
+                      <span className="h-2 w-2 rounded-full bg-rose-500" />
+                      {data.status}
+                    </span>
+                  ) : (
+                    data.status
+                  )}
+                </span>
+              </div>
+            )}
             {data.streamInfo?.isStream && (
               <>
                 <div className="media-fact bg-purple-950/30 border-l-2 border-l-purple-500">
