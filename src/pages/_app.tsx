@@ -4,6 +4,8 @@ import PWAHeader from '@app/components/PWAHeader';
 import ServiceWorkerSetup from '@app/components/ServiceWorkerSetup';
 import StatusChecker from '@app/components/StatusChecker';
 import { InteractionProvider } from '@app/context/InteractionContext';
+import { NetflixPreviewProvider } from '@app/context/NetflixPreviewContext';
+import { NetflixPreviewCard } from '@app/components/NetflixPreviewCard';
 import { LanguageContext } from '@app/context/LanguageContext';
 import { SettingsProvider } from '@app/context/SettingsContext';
 import { UserContext } from '@app/context/UserContext';
@@ -206,27 +208,30 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
           <LoadingBar />
           <SettingsProvider currentSettings={currentSettings}>
             <InteractionProvider>
-              <Head>
-                <title>{currentSettings.applicationTitle}</title>
-                <meta
-                  name="viewport"
-                  content="initial-scale=1, viewport-fit=cover, width=device-width"
+              <NetflixPreviewProvider>
+                <Head>
+                  <title>{currentSettings.applicationTitle}</title>
+                  <meta
+                    name="viewport"
+                    content="initial-scale=1, viewport-fit=cover, width=device-width"
+                  />
+                  <PWAHeader
+                    applicationTitle={currentSettings.applicationTitle}
+                  />
+                </Head>
+                <StatusChecker />
+                <ServiceWorkerSetup />
+                <UserContext initialUser={user}>{component}</UserContext>
+                <NetflixPreviewCard />
+                <Toaster
+                  position="top-right"
+                  toastOptions={{ duration: 4000 }}
+                  containerStyle={{
+                    zIndex: 10000,
+                    paddingTop: 'env(safe-area-inset-top)',
+                  }}
                 />
-                <PWAHeader
-                  applicationTitle={currentSettings.applicationTitle}
-                />
-              </Head>
-              <StatusChecker />
-              <ServiceWorkerSetup />
-              <UserContext initialUser={user}>{component}</UserContext>
-              <Toaster
-                position="top-right"
-                toastOptions={{ duration: 4000 }}
-                containerStyle={{
-                  zIndex: 10000,
-                  paddingTop: 'env(safe-area-inset-top)',
-                }}
-              />
+              </NetflixPreviewProvider>
             </InteractionProvider>
           </SettingsProvider>
         </IntlProvider>

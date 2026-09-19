@@ -137,15 +137,15 @@
   }
 
   .media-poster {
-    @apply w-32 overflow-hidden rounded shadow md:w-44 md:rounded-lg md:shadow-2xl xl:mr-4 xl:w-52;
+    @apply w-32 flex-shrink-0 overflow-hidden rounded shadow md:w-44 md:rounded-lg md:shadow-2xl xl:mr-6 xl:w-52;
   }
 
   .media-status {
-    @apply mb-2 space-x-2;
+    @apply mb-2 flex flex-wrap items-center justify-center gap-2 xl:justify-start;
   }
 
   .media-title {
-    @apply mt-4 flex flex-1 flex-col text-center text-white xl:mr-4 xl:mt-0 xl:text-left;
+    @apply mt-4 flex w-full flex-1 flex-col text-center text-white xl:mt-0 xl:text-left;
   }
 
   .media-title > h1 {
@@ -165,11 +165,7 @@
   }
 
   .media-actions {
-    @apply relative mt-4 flex flex-shrink-0 flex-wrap items-center justify-center sm:flex-nowrap sm:justify-end xl:mt-0;
-  }
-
-  .media-actions > * {
-    @apply mb-3 sm:mb-0;
+    @apply relative mt-4 flex w-full flex-wrap items-center justify-center gap-2 xl:justify-start;
   }
 
   .media-overview {
@@ -565,6 +561,22 @@
 
   .extra-bottom-space {
     height: calc(4rem + env(safe-area-inset-bottom));
+  }
+
+  @keyframes kenburns {
+    0% {
+      transform: scale(1) translate(0, 0);
+    }
+    50% {
+      transform: scale(1.08) translate(-1%, -0.5%);
+    }
+    100% {
+      transform: scale(1.04) translate(1%, 0.5%);
+    }
+  }
+
+  .animate-kenburns {
+    animation: kenburns 14s ease-in-out infinite alternate;
   }
 }
 

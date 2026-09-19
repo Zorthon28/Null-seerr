@@ -1,4 +1,5 @@
 import Badge from '@app/components/Common/Badge';
+import Tooltip from '@app/components/Common/Tooltip';
 import VersionStatus from '@app/components/Layout/VersionStatus';
 import useClickOutside from '@app/hooks/useClickOutside';
 import { Permission, useUser } from '@app/hooks/useUser';
@@ -6,6 +7,8 @@ import defineMessages from '@app/utils/defineMessages';
 import { Transition } from '@headlessui/react';
 import {
   ArrowDownTrayIcon,
+  ChevronDoubleLeftIcon,
+  ChevronDoubleRightIcon,
   ClockIcon,
   CogIcon,
   ExclamationTriangleIcon,
@@ -38,6 +41,8 @@ export const menuMessages = defineMessages('components.Layout.Sidebar', {
   issues: 'Issues',
   users: 'Users',
   settings: 'Settings',
+  hideSidebar: 'Hide sidebar',
+  pinSidebar: 'Pin sidebar',
 });
 
 interface SidebarProps {
@@ -47,6 +52,8 @@ interface SidebarProps {
   openIssuesCount: number;
   revalidateIssueCount: () => void;
   revalidateRequestsCount: () => void;
+  isSidebarHidden?: boolean;
+  onToggleHide?: () => void;
 }
 
 interface SidebarLinkProps {
@@ -157,6 +164,8 @@ const Sidebar = ({
   openIssuesCount,
   revalidateIssueCount,
   revalidateRequestsCount,
+  isSidebarHidden = false,
+  onToggleHide,
 }: SidebarProps) => {
   const navRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -181,7 +190,7 @@ const Sidebar = ({
 
   return (
     <>
-      <div className="lg:hidden">
+      <div className={isSidebarHidden ? '' : 'lg:hidden'}>
         <Transition as={Fragment} show={open}>
           <div className="fixed inset-0 z-40 flex">
             <Transition.Child
@@ -221,12 +230,34 @@ const Sidebar = ({
                     ref={navRef}
                     className="flex flex-1 flex-col overflow-y-auto pb-8 pt-4 sm:pb-4"
                   >
-                    <div className="flex flex-shrink-0 items-center px-2">
-                      <span className="w-full px-4 text-xl text-gray-50">
-                        <Link href="/" className="relative block h-24 w-64">
-                          <Image src="/logo_full.svg" alt="Logo" fill />
+                    <div className="flex flex-shrink-0 items-center justify-between px-4">
+                      <div className="relative h-16 w-36">
+                        <Link
+                          href="/"
+                          className="relative block h-full w-full"
+                          onClick={() => setClosed()}
+                        >
+                          <Image
+                            src="/logo_full.svg"
+                            alt="Logo"
+                            fill
+                            className="object-contain object-left"
+                          />
                         </Link>
-                      </span>
+                      </div>
+                      {onToggleHide && (
+                        <button
+                          onClick={() => {
+                            setClosed();
+                            onToggleHide();
+                          }}
+                          className="hidden lg:flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-600/20 px-2.5 py-1 text-xs font-semibold text-indigo-300 shadow-sm transition-all hover:bg-indigo-600/30 hover:text-white focus:outline-none"
+                          title={intl.formatMessage(menuMessages.pinSidebar)}
+                        >
+                          <ChevronDoubleRightIcon className="h-3.5 w-3.5" />
+                          <span>{intl.formatMessage(menuMessages.pinSidebar)}</span>
+                        </button>
+                      )}
                     </div>
                     <nav className="mt-10 flex-1 space-y-4 px-4">
                       {SidebarLinks.filter((link) =>
@@ -280,21 +311,39 @@ const Sidebar = ({
         </Transition>
       </div>
 
-      <div className="fixed bottom-0 left-0 top-0 z-30 hidden lg:flex lg:flex-shrink-0">
+      <div
+        className={`fixed bottom-0 left-0 top-0 z-30 hidden lg:flex lg:flex-shrink-0 transition-transform duration-300 ease-in-out ${
+          isSidebarHidden
+            ? '-translate-x-full pointer-events-none'
+            : 'translate-x-0 pointer-events-auto'
+        }`}
+      >
         <div className="sidebar flex w-64 flex-col">
           <div className="flex h-0 flex-1 flex-col">
             <div className="flex flex-1 flex-col overflow-y-auto pb-4">
-              <div className="flex flex-shrink-0 items-center">
-                <span className="w-full px-4 py-2 text-2xl text-gray-50">
-                  <Link href="/" className="relative block h-24">
+              <div className="flex flex-shrink-0 items-center justify-between px-4 py-3">
+                <div className="relative h-16 w-36">
+                  <Link href="/" className="relative block h-full w-full">
                     <Image
                       src="/logo_full.svg"
                       alt="Logo"
                       fill
                       loading="eager"
+                      className="object-contain object-left"
                     />
                   </Link>
-                </span>
+                </div>
+                {onToggleHide && (
+                  <Tooltip content={intl.formatMessage(menuMessages.hideSidebar)}>
+                    <button
+                      onClick={onToggleHide}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-700/60 bg-gray-800/80 text-gray-400 shadow-sm transition-all hover:border-gray-600 hover:bg-gray-700 hover:text-white focus:outline-none"
+                      aria-label={intl.formatMessage(menuMessages.hideSidebar)}
+                    >
+                      <ChevronDoubleLeftIcon className="h-4 w-4" />
+                    </button>
+                  </Tooltip>
+                )}
               </div>
               <nav className="mt-8 flex-1 space-y-4 px-4">
                 {SidebarLinks.filter((link) =>

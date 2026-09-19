@@ -135,6 +135,7 @@ const MediaSlider = ({
             <TitleCard
               key={title.id}
               id={title.id}
+              backdropPath={title.backdropPath}
               isAddedToWatchlist={title.mediaInfo?.watchlists?.length ?? 0}
               isWatchedItem={
                 isWatched(title.id, title.mediaType) ||
@@ -155,6 +156,7 @@ const MediaSlider = ({
             <TitleCard
               key={title.id}
               id={title.id}
+              backdropPath={title.backdropPath}
               isAddedToWatchlist={title.mediaInfo?.watchlists?.length ?? 0}
               isWatchedItem={
                 isWatched(title.id, title.mediaType) ||

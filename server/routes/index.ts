@@ -46,6 +46,7 @@ import tvRoutes from './tv';
 import user from './user';
 import storageRoutes from './storage';
 import recommendationRoutes from './recommendations';
+import trailerRoutes from './trailer';
 
 const router = Router();
 
@@ -183,6 +184,7 @@ router.use('/collection', isAuthenticated(), collectionRoutes);
 router.use('/service', isAuthenticated(), serviceRoutes);
 router.use('/storage', storageRoutes);
 router.use('/recommendations', isAuthenticated(), recommendationRoutes);
+router.use('/trailer', trailerRoutes);
 router.use('/issue', isAuthenticated(), issueRoutes);
 router.use('/issueComment', isAuthenticated(), issueCommentRoutes);
 router.use('/auth', authRoutes);

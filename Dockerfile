@@ -58,7 +58,7 @@ ARG COMMIT_TAG
 ENV NODE_ENV=production
 ENV COMMIT_TAG=${COMMIT_TAG}
 
-RUN apk add --no-cache tzdata ffmpeg aria2
+RUN apk add --no-cache tzdata ffmpeg aria2 yt-dlp
 
 USER node:node
 

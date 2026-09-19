@@ -19,10 +19,12 @@ import ExternalLinkBlock from '@app/components/ExternalLinkBlock';
 import IssueModal from '@app/components/IssueModal';
 import ManageSlideOver from '@app/components/ManageSlideOver';
 import MediaSlider from '@app/components/MediaSlider';
+import MediaHeroTrailer from '@app/components/MediaHeroTrailer';
 import PersonCard from '@app/components/PersonCard';
 import RequestButton from '@app/components/RequestButton';
 import RequestModal from '@app/components/RequestModal';
 import SimilarRecommendationsModal from '@app/components/SimilarRecommendationsModal';
+import TrailerModal from '@app/components/TrailerModal';
 import Slider from '@app/components/Slider';
 import StatusBadge from '@app/components/StatusBadge';
 import Season from '@app/components/TvDetails/Season';
@@ -134,6 +136,9 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   const { locale } = useLocale();
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showSimilarModal, setShowSimilarModal] = useState(false);
+  const [showTrailerModal, setShowTrailerModal] = useState(false);
+  const [modalTrailerKey, setModalTrailerKey] = useState<string | undefined>();
+  const [isTrailerEnlarged, setIsTrailerEnlarged] = useState(false);
   const [showManager, setShowManager] = useState(false);
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
@@ -298,10 +303,12 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
     });
   }
 
-  const trailerVideo = data.relatedVideos
-    ?.filter((r) => r.type === 'Trailer')
-    .sort((a, b) => a.size - b.size)
-    .pop();
+  const trailerVideo =
+    data.relatedVideos
+      ?.filter((r) => r.type === 'Trailer' || r.type === 'Teaser')
+      .sort((a, b) => a.size - b.size)
+      .pop() ??
+    data.relatedVideos?.find((r) => r.site === 'YouTube');
   const trailerUrl =
     trailerVideo?.site === 'YouTube' &&
     settings.currentSettings.youtubeUrl != ''
@@ -557,30 +564,35 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
 
   return (
     <div
-      className="media-page"
+      className="media-page transition-all duration-700 ease-out"
       style={{
-        height: 493,
+        height: isTrailerEnlarged ? 'min(860px, 85vh)' : 493,
       }}
     >
-      {data.backdropPath && (
-        <div className="media-page-bg-image">
-          <CachedImage
-            type="tmdb"
-            alt=""
-            src={`https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/${data.backdropPath}`}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            fill
-            priority
-          />
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage:
-                'linear-gradient(180deg, rgba(17, 24, 39, 0.47) 0%, rgba(17, 24, 39, 1) 100%)',
-            }}
-          />
-        </div>
-      )}
+      <MediaHeroTrailer
+        backdropPath={data.backdropPath}
+        title={data.name}
+        trailerKey={trailerVideo?.key}
+        videos={data.relatedVideos}
+        isEnlarged={isTrailerEnlarged}
+        onEnlargeChange={setIsTrailerEnlarged}
+        onOpenModal={
+          trailerVideo
+            ? (key) => {
+                setModalTrailerKey(key || trailerVideo?.key);
+                setShowTrailerModal(true);
+              }
+            : undefined
+        }
+        isModalOpen={showTrailerModal}
+      />
+      <TrailerModal
+        title={data.name}
+        videos={data.relatedVideos}
+        show={showTrailerModal}
+        onClose={() => setShowTrailerModal(false)}
+        initialKey={modalTrailerKey}
+      />
       <PageTitle title={data.name} />
       <BlocklistModal
         tmdbId={data.id}
@@ -626,7 +638,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
         revalidate={() => revalidate()}
         show={showManager}
       />
-      <div className="media-header">
+      <div className={`media-header transition-all duration-700 ease-out ${isTrailerEnlarged ? 'pt-48 sm:pt-60 xl:pt-72' : 'pt-4'}`}>
         <div className="media-poster">
           <CachedImage
             type="tmdb"
@@ -643,6 +655,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             priority
           />
         </div>
+        <div className="flex flex-1 min-w-0 w-full flex-col justify-end">
         <div className="media-title">
           <div className="media-status">
             <StatusBadge
@@ -765,7 +778,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
               >
                 <Button
                   buttonType={'ghost'}
-                  className="z-40 mr-2"
+                  className="z-40"
                   buttonSize={'md'}
                   onClick={() => setShowBlocklistModal(true)}
                 >
@@ -782,7 +795,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                   >
                     <Button
                       buttonType={'ghost'}
-                      className="z-40 mr-2"
+                      className="z-40"
                       buttonSize={'md'}
                       onClick={onClickWatchlistBtn}
                     >
@@ -798,7 +811,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                     content={intl.formatMessage(messages.removefromwatchlist)}
                   >
                     <Button
-                      className="z-40 mr-2"
+                      className="z-40"
                       buttonSize={'md'}
                       onClick={onClickDeleteWatchlistBtn}
                     >
@@ -818,7 +831,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             >
               <Button
                 buttonType={isSeriesWatched ? 'primary' : 'ghost'}
-                className={`z-40 mr-2 ${
+                className={`z-40 ${
                   isSeriesWatched
                     ? '!bg-emerald-600 hover:!bg-emerald-700 text-white'
                     : ''
@@ -843,7 +856,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             >
               <Button
                 buttonType={'danger'}
-                className="z-40 mr-2"
+                className="z-40"
                 buttonSize={'md'}
                 disabled={isWatchUpdating}
                 onClick={cleanWatchedSeries}
@@ -871,10 +884,26 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
           <div className="z-20">
             <PlayButton links={mediaLinks} />
           </div>
+          {trailerVideo && (
+            <Tooltip content="Ver Trailer Oficial">
+              <Button
+                buttonType="ghost"
+                className="z-40 border border-rose-500/40 text-rose-300 hover:bg-rose-600/20"
+                buttonSize="md"
+                onClick={() => {
+                  setModalTrailerKey(trailerVideo?.key);
+                  setShowTrailerModal(true);
+                }}
+              >
+                <FilmIcon className="h-5 w-5 text-rose-400" />
+                <span className="hidden sm:inline ml-1.5 font-medium">Trailer</span>
+              </Button>
+            </Tooltip>
+          )}
           <Tooltip content="Sugerir Títulos Similares (Suggestarr & IA)">
             <Button
               buttonType="ghost"
-              className="z-40 mr-2 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-600/20"
+              className="z-40 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-600/20"
               buttonSize="md"
               onClick={() => setShowSimilarModal(true)}
             >
@@ -908,7 +937,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                 <Button
                   buttonType="warning"
                   onClick={() => setShowIssueModal(true)}
-                  className="ml-2 first:ml-0"
+                  className="z-40"
                 >
                   <ExclamationTriangleIcon />
                 </Button>
@@ -919,7 +948,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
               <Button
                 buttonType="ghost"
                 onClick={() => setShowManager(true)}
-                className="relative ml-2 first:ml-0"
+                className="relative z-40"
               >
                 <CogIcon className="!mr-0" />
                 {hasPermission(
@@ -941,6 +970,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
               </Button>
             </Tooltip>
           )}
+        </div>
         </div>
       </div>
       <div className="media-overview">

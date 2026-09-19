@@ -26,6 +26,7 @@ import {
   CheckCircleIcon,
 } from '@heroicons/react/24/outline';
 import { CheckCircleIcon as CheckCircleSolidIcon } from '@heroicons/react/24/solid';
+import { useNetflixPreview } from '@app/context/NetflixPreviewContext';
 import useWatched from '@app/hooks/useWatched';
 import { MediaStatus } from '@server/constants/media';
 import type { Watchlist } from '@server/entity/Watchlist';
@@ -40,6 +41,7 @@ import useSWR, { mutate } from 'swr';
 interface TitleCardProps {
   id: number;
   image?: string;
+  backdropPath?: string;
   summary?: string;
   year?: string;
   releaseDate?: string;
@@ -105,10 +107,12 @@ const getReleaseStatus = (
 const TitleCard = ({
   id,
   image,
+  backdropPath,
   summary,
   year,
   releaseDate,
   title,
+  userScore,
   status,
   mediaType,
   isAddedToWatchlist = false,
@@ -121,6 +125,7 @@ const TitleCard = ({
   const intl = useIntl();
   const { user, hasPermission } = useUser();
   const router = useRouter();
+  const { requestPreview, cancelPreview, isPreviewEnabled } = useNetflixPreview();
   const { isWatched: checkIsWatched, markWatched, unmarkWatched } = useWatched();
   const isWatched = isWatchedItem ?? checkIsWatched(id, mediaType);
 
@@ -414,6 +419,18 @@ const TitleCard = ({
     type: 'or',
   });
 
+  const hasBottomButton =
+    isAvailable ||
+    isDownloading ||
+    isProcessing ||
+    isRequested ||
+    Boolean(
+      showRequestButton &&
+        (!currentStatus ||
+          currentStatus === MediaStatus.UNKNOWN ||
+          currentStatus === MediaStatus.DELETED)
+    );
+
   const statusBadgeElement = (isDownloading ||
     isProcessing ||
     isRequested ||
@@ -492,9 +509,35 @@ const TitleCard = ({
         onMouseEnter={() => {
           if (!isTouch) {
             setShowDetail(true);
+            if (isPreviewEnabled && cardRef.current) {
+              requestPreview(
+                {
+                  id,
+                  mediaType: mediaType as 'movie' | 'tv',
+                  title,
+                  summary,
+                  image,
+                  backdropPath,
+                  year: displayYear,
+                  releaseDate: dateString,
+                  userScore,
+                  status: currentStatus,
+                  isWatched,
+                  isAddedToWatchlist: !toggleWatchlist,
+                  inProgress,
+                  mutateParent,
+                },
+                cardRef.current
+              );
+            }
           }
         }}
-        onMouseLeave={() => setShowDetail(false)}
+        onMouseLeave={() => {
+          setShowDetail(false);
+          if (isPreviewEnabled) {
+            cancelPreview();
+          }
+        }}
         onClick={() => setShowDetail(true)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -567,16 +610,17 @@ const TitleCard = ({
                 </div>
               )}
             </div>
-            <div className="pointer-events-auto flex items-center gap-1">
+            <div className="pointer-events-auto flex flex-col items-end gap-1.5">
+              {!Boolean(releaseStatus) && statusBadgeElement}
               {showDetail && currentStatus !== MediaStatus.BLOCKLISTED && (
-                <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-1 rounded-lg border border-gray-700/60 bg-gray-900/80 p-0.5 shadow-md backdrop-blur-sm">
                   {user && (
                     <Tooltip
                       content={isWatched ? 'Mark as Unwatched' : 'Mark as Watched'}
                     >
                       <Button
                         buttonType={isWatched ? 'primary' : 'ghost'}
-                        className={`z-40 ${
+                        className={`z-40 !p-1 ${
                           isWatched
                             ? '!bg-emerald-600 hover:!bg-emerald-700 text-white'
                             : ''
@@ -585,9 +629,9 @@ const TitleCard = ({
                         onClick={onClickWatchedBtn}
                       >
                         {isWatched ? (
-                          <CheckCircleSolidIcon className={'h-3 text-white'} />
+                          <CheckCircleSolidIcon className={'h-3.5 w-3.5 text-white'} />
                         ) : (
-                          <CheckCircleIcon className={'h-3 text-emerald-400'} />
+                          <CheckCircleIcon className={'h-3.5 w-3.5 text-emerald-400'} />
                         )}
                       </Button>
                     </Tooltip>
@@ -596,19 +640,19 @@ const TitleCard = ({
                     (toggleWatchlist ? (
                       <Button
                         buttonType={'ghost'}
-                        className="z-40"
+                        className="z-40 !p-1"
                         buttonSize={'sm'}
                         onClick={onClickWatchlistBtn}
                       >
-                        <StarIcon className={'h-3 text-amber-300'} />
+                        <StarIcon className={'h-3.5 w-3.5 text-amber-300'} />
                       </Button>
                     ) : (
                       <Button
-                        className="z-40"
+                        className="z-40 !p-1"
                         buttonSize={'sm'}
                         onClick={onClickDeleteWatchlistBtn}
                       >
-                        <MinusCircleIcon className={'h-3'} />
+                        <MinusCircleIcon className={'h-3.5 w-3.5'} />
                       </Button>
                     ))}
                   {showHideButton &&
@@ -618,11 +662,11 @@ const TitleCard = ({
                     currentStatus !== MediaStatus.PENDING && (
                       <Button
                         buttonType={'ghost'}
-                        className="z-40"
+                        className="z-40 !p-1"
                         buttonSize={'sm'}
                         onClick={() => setShowBlocklistModal(true)}
                       >
-                        <EyeSlashIcon className={'h-3'} />
+                        <EyeSlashIcon className={'h-3.5 w-3.5'} />
                       </Button>
                     )}
                 </div>
@@ -637,15 +681,14 @@ const TitleCard = ({
                   >
                     <Button
                       buttonType={'ghost'}
-                      className="z-40"
+                      className="z-40 !p-1"
                       buttonSize={'sm'}
                       onClick={() => onClickShowBlocklistBtn()}
                     >
-                      <EyeIcon className={'h-3'} />
+                      <EyeIcon className={'h-3.5 w-3.5'} />
                     </Button>
                   </Tooltip>
                 )}
-              {!Boolean(releaseStatus) && statusBadgeElement}
             </div>
           </div>
           <Transition
@@ -691,12 +734,7 @@ const TitleCard = ({
                 <div className="flex h-full w-full items-end">
                   <div
                     className={`px-2 text-white ${
-                      !showRequestButton ||
-                      (currentStatus &&
-                        currentStatus !== MediaStatus.UNKNOWN &&
-                        currentStatus !== MediaStatus.DELETED)
-                        ? 'pb-2'
-                        : 'pb-11'
+                      hasBottomButton ? 'pb-12' : 'pb-2'
                     }`}
                   >
                     {displayYear && (
@@ -719,17 +757,7 @@ const TitleCard = ({
                     <div
                       className="whitespace-normal text-xs"
                       style={{
-                        WebkitLineClamp:
-                          (!showRequestButton ||
-                          (currentStatus &&
-                            currentStatus !== MediaStatus.UNKNOWN &&
-                            currentStatus !== MediaStatus.DELETED)) &&
-                          !isAvailable &&
-                          !isDownloading &&
-                          !isProcessing &&
-                          !isRequested
-                            ? 5
-                            : 3,
+                        WebkitLineClamp: hasBottomButton ? 2 : 4,
                         display: '-webkit-box',
                         overflow: 'hidden',
                         WebkitBoxOrient: 'vertical',

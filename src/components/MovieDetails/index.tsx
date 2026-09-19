@@ -18,9 +18,11 @@ import ExternalLinkBlock from '@app/components/ExternalLinkBlock';
 import IssueModal from '@app/components/IssueModal';
 import ManageSlideOver from '@app/components/ManageSlideOver';
 import MediaSlider from '@app/components/MediaSlider';
+import MediaHeroTrailer from '@app/components/MediaHeroTrailer';
 import PersonCard from '@app/components/PersonCard';
 import RequestButton from '@app/components/RequestButton';
 import SimilarRecommendationsModal from '@app/components/SimilarRecommendationsModal';
+import TrailerModal from '@app/components/TrailerModal';
 import Slider from '@app/components/Slider';
 import StatusBadge from '@app/components/StatusBadge';
 import useDeepLinks from '@app/hooks/useDeepLinks';
@@ -137,6 +139,9 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
   const { locale } = useLocale();
   const [showManager, setShowManager] = useState(false);
   const [showSimilarModal, setShowSimilarModal] = useState(false);
+  const [showTrailerModal, setShowTrailerModal] = useState(false);
+  const [modalTrailerKey, setModalTrailerKey] = useState<string | undefined>();
+  const [isTrailerEnlarged, setIsTrailerEnlarged] = useState(false);
   const minStudios = 3;
   const [showMoreStudios, setShowMoreStudios] = useState(false);
   const [showIssueModal, setShowIssueModal] = useState(false);
@@ -303,10 +308,12 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
     });
   }
 
-  const trailerVideo = data.relatedVideos
-    ?.filter((r) => r.type === 'Trailer')
-    .sort((a, b) => a.size - b.size)
-    .pop();
+  const trailerVideo =
+    data.relatedVideos
+      ?.filter((r) => r.type === 'Trailer' || r.type === 'Teaser')
+      .sort((a, b) => a.size - b.size)
+      .pop() ??
+    data.relatedVideos?.find((r) => r.site === 'YouTube');
   const trailerUrl =
     trailerVideo?.site === 'YouTube' &&
     settings.currentSettings.youtubeUrl != ''
@@ -565,30 +572,35 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
 
   return (
     <div
-      className="media-page"
+      className="media-page transition-all duration-700 ease-out"
       style={{
-        height: 493,
+        height: isTrailerEnlarged ? 'min(860px, 85vh)' : 493,
       }}
     >
-      {data.backdropPath && (
-        <div className="media-page-bg-image">
-          <CachedImage
-            type="tmdb"
-            alt=""
-            src={`https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/${data.backdropPath}`}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            fill
-            priority
-          />
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage:
-                'linear-gradient(180deg, rgba(17, 24, 39, 0.47) 0%, rgba(17, 24, 39, 1) 100%)',
-            }}
-          />
-        </div>
-      )}
+      <MediaHeroTrailer
+        backdropPath={data.backdropPath}
+        title={data.title}
+        trailerKey={trailerVideo?.key}
+        videos={data.relatedVideos}
+        isEnlarged={isTrailerEnlarged}
+        onEnlargeChange={setIsTrailerEnlarged}
+        onOpenModal={
+          trailerVideo
+            ? (key) => {
+                setModalTrailerKey(key || trailerVideo?.key);
+                setShowTrailerModal(true);
+              }
+            : undefined
+        }
+        isModalOpen={showTrailerModal}
+      />
+      <TrailerModal
+        title={data.title}
+        videos={data.relatedVideos}
+        show={showTrailerModal}
+        onClose={() => setShowTrailerModal(false)}
+        initialKey={modalTrailerKey}
+      />
       <PageTitle title={data.title} />
       <IssueModal
         onCancel={() => setShowIssueModal(false)}
@@ -624,7 +636,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
         show={showSimilarModal}
         onClose={() => setShowSimilarModal(false)}
       />
-      <div className="media-header">
+      <div className={`media-header transition-all duration-700 ease-out ${isTrailerEnlarged ? 'pt-48 sm:pt-60 xl:pt-72' : 'pt-4'}`}>
         <div className="media-poster">
           <CachedImage
             type="tmdb"
@@ -641,6 +653,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
             priority
           />
         </div>
+        <div className="flex flex-1 min-w-0 w-full flex-col justify-end">
         <div className="media-title">
           <div className="media-status">
             <StatusBadge
@@ -766,7 +779,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
               >
                 <Button
                   buttonType={'ghost'}
-                  className="z-40 mr-2"
+                  className="z-40"
                   buttonSize={'md'}
                   onClick={() => setShowBlocklistModal(true)}
                 >
@@ -783,7 +796,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                   >
                     <Button
                       buttonType={'ghost'}
-                      className="z-40 mr-2"
+                      className="z-40"
                       buttonSize={'md'}
                       onClick={onClickWatchlistBtn}
                     >
@@ -799,7 +812,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                     content={intl.formatMessage(messages.removefromwatchlist)}
                   >
                     <Button
-                      className="z-40 mr-2"
+                      className="z-40"
                       buttonSize={'md'}
                       onClick={onClickDeleteWatchlistBtn}
                     >
@@ -819,7 +832,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
             >
               <Button
                 buttonType={isMovieWatched ? 'primary' : 'ghost'}
-                className={`z-40 mr-2 ${
+                className={`z-40 ${
                   isMovieWatched
                     ? '!bg-emerald-600 hover:!bg-emerald-700 text-white'
                     : ''
@@ -844,7 +857,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
             >
               <Button
                 buttonType={'danger'}
-                className="z-40 mr-2"
+                className="z-40"
                 buttonSize={'md'}
                 disabled={isWatchUpdating}
                 onClick={deleteWatchedMovie}
@@ -872,10 +885,26 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
           <div className="z-20">
             <PlayButton links={mediaLinks} />
           </div>
+          {trailerVideo && (
+            <Tooltip content="Ver Trailer Oficial">
+              <Button
+                buttonType="ghost"
+                className="z-40 border border-rose-500/40 text-rose-300 hover:bg-rose-600/20"
+                buttonSize="md"
+                onClick={() => {
+                  setModalTrailerKey(trailerVideo?.key);
+                  setShowTrailerModal(true);
+                }}
+              >
+                <FilmIcon className="h-5 w-5 text-rose-400" />
+                <span className="hidden sm:inline ml-1.5 font-medium">Trailer</span>
+              </Button>
+            </Tooltip>
+          )}
           <Tooltip content="Sugerir Títulos Similares (Suggestarr & IA)">
             <Button
               buttonType="ghost"
-              className="z-40 mr-2 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-600/20"
+              className="z-40 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-600/20"
               buttonSize="md"
               onClick={() => setShowSimilarModal(true)}
             >
@@ -907,7 +936,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 <Button
                   buttonType="warning"
                   onClick={() => setShowIssueModal(true)}
-                  className="ml-2 first:ml-0"
+                  className="z-40"
                 >
                   <ExclamationTriangleIcon />
                 </Button>
@@ -923,7 +952,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 <Button
                   buttonType="ghost"
                   onClick={() => setShowManager(true)}
-                  className="relative ml-2 first:ml-0"
+                  className="relative z-40"
                 >
                   <CogIcon className="!mr-0" />
                   {hasPermission(
@@ -945,6 +974,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                 </Button>
               </Tooltip>
             )}
+        </div>
         </div>
       </div>
       <div className="media-overview">
