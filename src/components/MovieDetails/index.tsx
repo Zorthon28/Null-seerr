@@ -154,6 +154,16 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
   const [showBlocklistModal, setShowBlocklistModal] = useState(false);
   const { addToast } = useToasts();
 
+  // Reset all modals and trailer expand states when switching to a different movie
+  useEffect(() => {
+    setShowSimilarModal(false);
+    setShowTrailerModal(false);
+    setShowBlocklistModal(false);
+    setShowIssueModal(false);
+    setShowManager(false);
+    setIsTrailerEnlarged(false);
+  }, [router.query.movieId]);
+
   const {
     data,
     error,

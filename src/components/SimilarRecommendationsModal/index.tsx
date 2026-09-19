@@ -7,7 +7,8 @@ import { Transition } from '@headlessui/react';
 import { SparklesIcon, StarIcon } from '@heroicons/react/24/solid';
 import type Media from '@server/entity/Media';
 import Link from 'next/link';
-import React, { useState } from 'react';
+import { useRouter } from 'next/router';
+import React, { useEffect, useState } from 'react';
 import useSWR from 'swr';
 
 export interface SmartRecommendationItem {
@@ -48,12 +49,24 @@ const SimilarRecommendationsModal: React.FC<SimilarRecommendationsModalProps> = 
   show,
   onClose,
 }) => {
+  const router = useRouter();
   const { data, error, isLoading, mutate } =
     useSWR<SmartRecommendationsResponse>(
       show ? `/api/v1/recommendations/smart/${mediaType}/${tmdbId}` : null
     );
 
   const [activeTab, setActiveTab] = useState<'all' | 'unrequested'>('all');
+
+  // Automatically close modal when navigating to another movie/series
+  useEffect(() => {
+    const handleRouteChange = () => {
+      onClose();
+    };
+    router.events.on('routeChangeStart', handleRouteChange);
+    return () => {
+      router.events.off('routeChangeStart', handleRouteChange);
+    };
+  }, [router, onClose]);
 
   const items = (data?.results || []).filter((item) => {
     if (activeTab === 'unrequested') {
@@ -154,6 +167,7 @@ const SimilarRecommendationsModal: React.FC<SimilarRecommendationsModalProps> = 
                       {/* Poster */}
                       <Link
                         href={detailUrl}
+                        onClick={onClose}
                         className="relative h-24 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-gray-900 shadow-md ring-1 ring-white/10 transition group-hover:scale-105"
                       >
                         <CachedImage
@@ -174,6 +188,7 @@ const SimilarRecommendationsModal: React.FC<SimilarRecommendationsModalProps> = 
                         <div className="flex flex-wrap items-center gap-2">
                           <Link
                             href={detailUrl}
+                            onClick={onClose}
                             className="font-semibold text-white transition hover:text-indigo-400 text-sm sm:text-base truncate"
                           >
                             {item.title}
