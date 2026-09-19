@@ -62,6 +62,7 @@ const TmdbTitleCard = ({
     <TitleCard
       key={title.id}
       id={title.id}
+      backdropPath={title.backdropPath}
       isAddedToWatchlist={
         title.mediaInfo?.watchlists?.length || isAddedToWatchlist
       }
@@ -81,6 +82,7 @@ const TmdbTitleCard = ({
     <TitleCard
       key={title.id}
       id={title.id}
+      backdropPath={title.backdropPath}
       isAddedToWatchlist={
         title.mediaInfo?.watchlists?.length || isAddedToWatchlist
       }

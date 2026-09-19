@@ -338,7 +338,8 @@ const CollectionDetails = ({ collection }: CollectionDetailsProps) => {
             priority
           />
         </div>
-        <div className="media-title">
+        <div className="flex flex-1 min-w-0 w-full flex-col justify-end">
+          <div className="media-title">
           <div className="media-status">
             <StatusBadge
               status={collectionStatus}
@@ -406,7 +407,7 @@ const CollectionDetails = ({ collection }: CollectionDetailsProps) => {
               >
                 <Button
                   buttonType="ghost"
-                  className="z-40 mr-2"
+                  className="z-40"
                   buttonSize="md"
                   onClick={onClickUnblocklistBtn}
                   disabled={isBlocklistUpdating}
@@ -420,7 +421,7 @@ const CollectionDetails = ({ collection }: CollectionDetailsProps) => {
               >
                 <Button
                   buttonType="ghost"
-                  className="z-40 mr-2"
+                  className="z-40"
                   buttonSize="md"
                   onClick={() => setShowBlocklistModal(true)}
                   disabled={isBlocklistUpdating}
@@ -465,6 +466,7 @@ const CollectionDetails = ({ collection }: CollectionDetailsProps) => {
               )}
             </ButtonWithDropdown>
           )}
+        </div>
         </div>
       </div>
       {data.overview && (

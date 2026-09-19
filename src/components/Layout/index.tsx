@@ -9,8 +9,9 @@ import Tooltip from '@app/components/Common/Tooltip';
 import useLocale from '@app/hooks/useLocale';
 import useSettings from '@app/hooks/useSettings';
 import { useUser } from '@app/hooks/useUser';
+import { useNetflixPreview } from '@app/context/NetflixPreviewContext';
 import useWatched from '@app/hooks/useWatched';
-import { ArrowLeftIcon, Bars3BottomLeftIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/solid';
+import { ArrowLeftIcon, Bars3BottomLeftIcon, EyeIcon, EyeSlashIcon, SparklesIcon } from '@heroicons/react/24/solid';
 import type { AvailableLocale } from '@server/types/languages';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
@@ -22,12 +23,38 @@ type LayoutProps = {
 
 const Layout = ({ children }: LayoutProps) => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const { user } = useUser();
   const router = useRouter();
   const { currentSettings } = useSettings();
   const { hideWatched, toggleHideWatched } = useWatched();
+  const { isPreviewEnabled, togglePreviewEnabled } = useNetflixPreview();
   const { setLocale } = useLocale();
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('nullseerr_sidebar_hidden');
+      if (stored === 'true') {
+        setIsSidebarHidden(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const toggleSidebarHidden = () => {
+    setIsSidebarHidden((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('nullseerr_sidebar_hidden', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
   const { data: requestResponse, mutate: revalidateRequestsCount } = useSWR(
     '/api/v1/request/count',
     {
@@ -80,6 +107,8 @@ const Layout = ({ children }: LayoutProps) => {
         openIssuesCount={issueResponse?.open ?? 0}
         revalidateIssueCount={() => revalidateIssueCount()}
         revalidateRequestsCount={() => revalidateRequestsCount()}
+        isSidebarHidden={isSidebarHidden}
+        onToggleHide={toggleSidebarHidden}
       />
       <div className="sm:hidden">
         <MobileMenu
@@ -90,12 +119,16 @@ const Layout = ({ children }: LayoutProps) => {
         />
       </div>
 
-      <div className="relative mb-16 flex w-0 min-w-0 flex-1 flex-col lg:ml-64">
+      <div
+        className={`relative mb-16 flex w-0 min-w-0 flex-1 flex-col transition-all duration-300 ease-in-out ${
+          isSidebarHidden ? 'lg:ml-0' : 'lg:ml-64'
+        }`}
+      >
         <PullToRefresh />
         <div
-          className={`searchbar fixed left-0 right-0 top-0 z-10 flex flex-shrink-0 transition duration-300 ${
+          className={`searchbar fixed left-0 right-0 top-0 z-10 flex flex-shrink-0 transition-all duration-300 ease-in-out ${
             isScrolled ? 'bg-gray-700/80' : 'bg-transparent'
-          } lg:left-64`}
+          } ${isSidebarHidden ? 'lg:left-0' : 'lg:left-64'}`}
           style={{
             backdropFilter: isScrolled ? 'blur(5px)' : undefined,
             WebkitBackdropFilter: isScrolled ? 'blur(5px)' : undefined,
@@ -103,9 +136,9 @@ const Layout = ({ children }: LayoutProps) => {
         >
           <div className="flex flex-1 items-center justify-between px-4 md:pl-4 md:pr-4">
             <button
-              className={`mr-2 hidden text-white sm:block ${
+              className={`mr-2 text-white transition duration-300 focus:outline-none ${
                 isScrolled ? 'opacity-90' : 'opacity-70'
-              } transition duration-300 focus:outline-none lg:hidden`}
+              } ${isSidebarHidden ? 'hidden sm:block' : 'hidden sm:block lg:hidden'}`}
               aria-label="Open sidebar"
               onClick={() => setSidebarOpen(true)}
               data-testid="sidebar-toggle"
@@ -123,35 +156,58 @@ const Layout = ({ children }: LayoutProps) => {
             <SearchInput />
             <div className="flex items-center">
               {user && (
-                <Tooltip
-                  content={
-                    hideWatched
-                      ? 'Seen titles are currently hidden. Tap to show all.'
-                      : 'Tap to hide seen titles from Discover.'
-                  }
-                >
-                  <button
-                    onClick={toggleHideWatched}
-                    className={`mr-2.5 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide transition-all border shadow-sm ${
-                      hideWatched
-                        ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
-                        : 'border-gray-700 bg-gray-800/80 text-gray-400 hover:border-gray-600 hover:text-gray-200'
-                    }`}
-                    aria-label="Toggle hide watched titles"
+                <>
+                  <Tooltip
+                    content={
+                      isPreviewEnabled
+                        ? 'Netflix hover preview enabled. Click to disable.'
+                        : 'Netflix hover preview disabled. Click to enable.'
+                    }
                   >
-                    {hideWatched ? (
-                      <>
-                        <EyeSlashIcon className="h-4 w-4 text-emerald-400" />
-                        <span className="hidden sm:inline">Seen Hidden</span>
-                      </>
-                    ) : (
-                      <>
-                        <EyeIcon className="h-4 w-4 text-gray-400" />
-                        <span className="hidden sm:inline">Hide Seen</span>
-                      </>
-                    )}
-                  </button>
-                </Tooltip>
+                    <button
+                      onClick={togglePreviewEnabled}
+                      className={`mr-2.5 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide transition-all border shadow-sm ${
+                        isPreviewEnabled
+                          ? 'border-indigo-500/60 bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30'
+                          : 'border-gray-700 bg-gray-800/80 text-gray-400 hover:border-gray-600 hover:text-gray-200'
+                      }`}
+                      aria-label="Toggle Netflix hover previews"
+                    >
+                      <SparklesIcon className={`h-4 w-4 ${isPreviewEnabled ? 'text-indigo-400' : 'text-gray-400'}`} />
+                      <span className="hidden sm:inline">Preview</span>
+                    </button>
+                  </Tooltip>
+
+                  <Tooltip
+                    content={
+                      hideWatched
+                        ? 'Seen titles are currently hidden. Tap to show all.'
+                        : 'Tap to hide seen titles from Discover.'
+                    }
+                  >
+                    <button
+                      onClick={toggleHideWatched}
+                      className={`mr-2.5 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide transition-all border shadow-sm ${
+                        hideWatched
+                          ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                          : 'border-gray-700 bg-gray-800/80 text-gray-400 hover:border-gray-600 hover:text-gray-200'
+                      }`}
+                      aria-label="Toggle hide watched titles"
+                    >
+                      {hideWatched ? (
+                        <>
+                          <EyeSlashIcon className="h-4 w-4 text-emerald-400" />
+                          <span className="hidden sm:inline">Seen Hidden</span>
+                        </>
+                      ) : (
+                        <>
+                          <EyeIcon className="h-4 w-4 text-gray-400" />
+                          <span className="hidden sm:inline">Hide Seen</span>
+                        </>
+                      )}
+                    </button>
+                  </Tooltip>
+                </>
               )}
               <UserDropdown />
             </div>
