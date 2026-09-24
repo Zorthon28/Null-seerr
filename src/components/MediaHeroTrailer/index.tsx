@@ -354,9 +354,16 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
       });
   }, []);
 
+  const hasConfirmedPlaybackRef = useRef<boolean>(false);
+  const fallbackCooldownRef = useRef<number>(0);
+
   const triggerFallback = useCallback(() => {
     if (!activeKey) return;
+    if (Date.now() - fallbackCooldownRef.current < 1200) return;
+    fallbackCooldownRef.current = Date.now();
+
     failedKeysRef.current.add(activeKey);
+    hasConfirmedPlaybackRef.current = false;
 
     const nextCandidate = videos.find(
       (v) => v.site === 'YouTube' && !failedKeysRef.current.has(v.key)
@@ -388,6 +395,46 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
     fetchStreamFallback(activeKey);
   }, [activeKey, videos, title, fetchStreamFallback]);
 
+  // Send listening handshake to YouTube iframe & start watchdog for unplayable videos
+  useEffect(() => {
+    if (!activeKey || hasError || streamUrl || isModalOpen) return;
+
+    hasConfirmedPlaybackRef.current = false;
+
+    const sendHandshake = () => {
+      if (iframeRef.current?.contentWindow) {
+        iframeRef.current.contentWindow.postMessage(
+          JSON.stringify({ event: 'listening' }),
+          '*'
+        );
+      }
+    };
+
+    const h1 = setTimeout(sendHandshake, 400);
+    const h2 = setTimeout(sendHandshake, 1200);
+
+    // Watchdog: If after 4.5s playback not confirmed, verify with server and triggerFallback
+    const watchdog = setTimeout(() => {
+      if (!hasConfirmedPlaybackRef.current && !hasError && !streamUrl && !isModalOpen) {
+        fetch(`/api/v1/trailer/stream?key=${encodeURIComponent(activeKey)}`)
+          .then((r) => {
+            if (!r.ok) {
+              triggerFallback();
+            }
+          })
+          .catch(() => {
+            triggerFallback();
+          });
+      }
+    }, 4500);
+
+    return () => {
+      clearTimeout(h1);
+      clearTimeout(h2);
+      clearTimeout(watchdog);
+    };
+  }, [activeKey, hasError, streamUrl, isModalOpen, triggerFallback]);
+
   // Listen for YouTube IFrame API messages (playback confirmation, genuine errors, restriction)
   useEffect(() => {
     if (isModalOpen) return;
@@ -399,6 +446,16 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
         const data =
           typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         if (!data) return;
+
+        // Playback confirmed
+        if (
+          (data.event === 'onStateChange' && (data.info === 1 || data.data === 1)) ||
+          (data.event === 'infoDelivery' &&
+            (data.info?.playerState === 1 || data.info?.playerState === 3))
+        ) {
+          hasConfirmedPlaybackRef.current = true;
+          return;
+        }
 
         const playabilityStatus =
           data.info?.playerResponse?.playabilityStatus?.status;

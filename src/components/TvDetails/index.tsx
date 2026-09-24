@@ -24,7 +24,7 @@ import PersonCard from '@app/components/PersonCard';
 import RequestButton from '@app/components/RequestButton';
 import RequestModal from '@app/components/RequestModal';
 import SimilarRecommendationsModal from '@app/components/SimilarRecommendationsModal';
-import TrailerModal from '@app/components/TrailerModal';
+import TrailerModal, { sortTrailerPriority } from '@app/components/TrailerModal';
 import Slider from '@app/components/Slider';
 import StatusBadge from '@app/components/StatusBadge';
 import Season from '@app/components/TvDetails/Season';
@@ -359,10 +359,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   }
 
   const trailerVideo =
-    data.relatedVideos
-      ?.filter((r) => r.type === 'Trailer' || r.type === 'Teaser')
-      .sort((a, b) => a.size - b.size)
-      .pop() ??
+    sortTrailerPriority(data.relatedVideos).pop() ??
     data.relatedVideos?.find((r) => r.site === 'YouTube');
   const trailerUrl =
     trailerVideo?.site === 'YouTube' &&

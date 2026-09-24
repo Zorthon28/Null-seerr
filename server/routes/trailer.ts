@@ -99,6 +99,9 @@ function getDirectUrl(youtubeKey: string): Promise<string> {
   });
 }
 
+const negativeCache = new Map<string, number>();
+const NEGATIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 /**
  * GET /api/v1/trailer/stream?key=VIDEO_KEY
  *
@@ -110,6 +113,12 @@ trailerRoutes.get('/stream', async (req, res) => {
   const key = String(req.query.key || '').trim();
   if (!key || !/^[a-zA-Z0-9_-]{11}$/.test(key)) {
     return res.status(400).json({ error: 'Invalid YouTube key' });
+  }
+
+  // Check negative cache (known unavailable / geo-blocked keys)
+  const failedAt = negativeCache.get(key);
+  if (failedAt && Date.now() - failedAt < NEGATIVE_CACHE_TTL_MS) {
+    return res.status(404).json({ error: 'Unable to extract trailer URL', unavailable: true, cached: true });
   }
 
   // Serve from cache if still fresh
@@ -132,7 +141,8 @@ trailerRoutes.get('/stream', async (req, res) => {
     return res.json({ url, type, cached: false });
   } catch (e: any) {
     logger.debug(`[Trailer] yt-dlp failed for ${key}: ${e.message}`);
-    return res.status(404).json({ error: 'Unable to extract trailer URL' });
+    negativeCache.set(key, Date.now());
+    return res.status(404).json({ error: 'Unable to extract trailer URL', unavailable: true });
   }
 });
 
