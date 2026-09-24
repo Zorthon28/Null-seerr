@@ -390,22 +390,24 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
     fetchStreamFallback(activeKey);
   }, [activeKey, videos, title, fetchStreamFallback]);
 
-  // Watchdog timer: if video doesn't confirm playback (onStateChange: 1 or 3) within 3.8s, trigger fallback!
+  // Watchdog timer: if video doesn't confirm playback within 5s, trigger fallback!
   useEffect(() => {
-    if (!activeKey || hasError || streamUrl) return;
+    if (!activeKey || hasError || streamUrl || isModalOpen) return;
     playbackConfirmedRef.current = false;
 
     const timeout = setTimeout(() => {
       if (!playbackConfirmedRef.current) {
         triggerFallback();
       }
-    }, 3800);
+    }, 5000);
 
     return () => clearTimeout(timeout);
-  }, [activeKey, hasError, streamUrl, triggerFallback]);
+  }, [activeKey, hasError, streamUrl, isModalOpen, triggerFallback]);
 
   // Listen for YouTube IFrame API messages (playback confirmation, genuine errors, restriction)
   useEffect(() => {
+    if (isModalOpen) return;
+
     const handleMessage = (event: MessageEvent) => {
       if (!event.origin || !event.origin.includes('youtube')) return;
 
@@ -424,17 +426,29 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
           // ignore
         }
 
+        const playabilityStatus =
+          data.info?.playerResponse?.playabilityStatus?.status;
+
+        if (playabilityStatus === 'OK') {
+          playbackConfirmedRef.current = true;
+          setHasError(false);
+        }
+
         const info = data.info;
         if (data.event === 'onStateChange') {
-          // 1 = PLAYING, 3 = BUFFERING
-          if (info === 1 || info === 3) {
+          // 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
+          if (info === 1 || info === 2 || info === 3) {
             playbackConfirmedRef.current = true;
             setHasError(false);
           }
         }
 
         if (data.event === 'infoDelivery' && data.info?.playerState) {
-          if (data.info.playerState === 1 || data.info.playerState === 3) {
+          if (
+            data.info.playerState === 1 ||
+            data.info.playerState === 2 ||
+            data.info.playerState === 3
+          ) {
             playbackConfirmedRef.current = true;
             setHasError(false);
           }
@@ -443,20 +457,16 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
         // Genuine YouTube restriction / error indicators (avoid false positives on bundle JS / null error codes)
         const isRestrictedOrError =
           data.event === 'onError' ||
-          data.info === 150 ||
-          data.info === 101 ||
-          data.info === 100 ||
-          data.info === 2 ||
-          data.info === 5 ||
-          rawStr.includes('Viewer discretion is advised') ||
-          rawStr.includes('unavailable') ||
-          rawStr.includes('country') ||
-          rawStr.includes('blocked') ||
-          rawStr.includes('restricted') ||
-          rawStr.includes('"LOGIN_REQUIRED"') ||
-          rawStr.includes('"UNPLAYABLE"') ||
           (data.event === 'infoDelivery' &&
-            Boolean(data.info?.errorCode && data.info.errorCode !== 0));
+            Boolean(data.info?.errorCode && data.info.errorCode !== 0)) ||
+          playabilityStatus === 'UNPLAYABLE' ||
+          playabilityStatus === 'LOGIN_REQUIRED' ||
+          playabilityStatus === 'ERROR' ||
+          rawStr.includes('Viewer discretion is advised') ||
+          rawStr.includes('The uploader has not made this video available in your country') ||
+          rawStr.includes('Video unavailable') ||
+          rawStr.includes('"LOGIN_REQUIRED"') ||
+          rawStr.includes('"UNPLAYABLE"');
 
         if (isRestrictedOrError) {
           triggerFallback();
@@ -469,7 +479,7 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [activeKey, triggerFallback]);
+  }, [activeKey, isModalOpen, triggerFallback]);
 
   const iframeSrc =
     activeKey && !hasError

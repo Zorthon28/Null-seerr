@@ -122,7 +122,7 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
     [youtubeVideos, title, fetchModalStreamFallback]
   );
 
-  // Watchdog timer: if video doesn't confirm playback (onStateChange: 1 or 3) within 3.8s, trigger fallback!
+  // Watchdog timer: if video doesn't confirm playback within 5s, trigger fallback!
   useEffect(() => {
     if (!show || !selectedKey || modalError || streamUrl) return;
     playbackConfirmedRef.current = false;
@@ -131,7 +131,7 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
       if (!playbackConfirmedRef.current) {
         handlePlaybackFailure(selectedKey);
       }
-    }, 3800);
+    }, 5000);
 
     return () => clearTimeout(timeout);
   }, [show, selectedKey, modalError, streamUrl, handlePlaybackFailure]);
@@ -170,17 +170,29 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
           // ignore
         }
 
+        const playabilityStatus =
+          data.info?.playerResponse?.playabilityStatus?.status;
+
+        if (playabilityStatus === 'OK') {
+          playbackConfirmedRef.current = true;
+          setModalError(false);
+        }
+
         const info = data.info;
         if (data.event === 'onStateChange') {
-          // 1 = PLAYING, 3 = BUFFERING
-          if (info === 1 || info === 3) {
+          // 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
+          if (info === 1 || info === 2 || info === 3) {
             playbackConfirmedRef.current = true;
             setModalError(false);
           }
         }
 
         if (data.event === 'infoDelivery' && data.info?.playerState) {
-          if (data.info.playerState === 1 || data.info.playerState === 3) {
+          if (
+            data.info.playerState === 1 ||
+            data.info.playerState === 2 ||
+            data.info.playerState === 3
+          ) {
             playbackConfirmedRef.current = true;
             setModalError(false);
           }
@@ -188,20 +200,16 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
 
         const isRestrictedOrError =
           data.event === 'onError' ||
-          data.info === 150 ||
-          data.info === 101 ||
-          data.info === 100 ||
-          data.info === 2 ||
-          data.info === 5 ||
-          rawStr.includes('Viewer discretion is advised') ||
-          rawStr.includes('unavailable') ||
-          rawStr.includes('country') ||
-          rawStr.includes('blocked') ||
-          rawStr.includes('restricted') ||
-          rawStr.includes('"LOGIN_REQUIRED"') ||
-          rawStr.includes('"UNPLAYABLE"') ||
           (data.event === 'infoDelivery' &&
-            Boolean(data.info?.errorCode && data.info.errorCode !== 0));
+            Boolean(data.info?.errorCode && data.info.errorCode !== 0)) ||
+          playabilityStatus === 'UNPLAYABLE' ||
+          playabilityStatus === 'LOGIN_REQUIRED' ||
+          playabilityStatus === 'ERROR' ||
+          rawStr.includes('Viewer discretion is advised') ||
+          rawStr.includes('The uploader has not made this video available in your country') ||
+          rawStr.includes('Video unavailable') ||
+          rawStr.includes('"LOGIN_REQUIRED"') ||
+          rawStr.includes('"UNPLAYABLE"');
 
         if (isRestrictedOrError) {
           handlePlaybackFailure(selectedKey);
