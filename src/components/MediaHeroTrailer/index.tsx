@@ -39,7 +39,6 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
   const [activeKey, setActiveKey] = useState<string>(trailerKey ?? '');
   const [hasError, setHasError] = useState<boolean>(false);
   const failedKeysRef = useRef<Set<string>>(new Set());
-  const playbackConfirmedRef = useRef<boolean>(false);
   const hasSearchedRef = useRef<boolean>(false);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
@@ -57,7 +56,6 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
       setActiveKey(trailerKey);
       setHasError(false);
       setStreamUrl(null);
-      playbackConfirmedRef.current = false;
       hasSearchedRef.current = false;
       failedKeysRef.current.clear();
     }
@@ -390,22 +388,10 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
     fetchStreamFallback(activeKey);
   }, [activeKey, videos, title, fetchStreamFallback]);
 
-  // Watchdog timer: if video doesn't confirm playback (onStateChange: 1 or 3) within 3.8s, trigger fallback!
-  useEffect(() => {
-    if (!activeKey || hasError || streamUrl) return;
-    playbackConfirmedRef.current = false;
-
-    const timeout = setTimeout(() => {
-      if (!playbackConfirmedRef.current) {
-        triggerFallback();
-      }
-    }, 3800);
-
-    return () => clearTimeout(timeout);
-  }, [activeKey, hasError, streamUrl, triggerFallback]);
-
   // Listen for YouTube IFrame API messages (playback confirmation, genuine errors, restriction)
   useEffect(() => {
+    if (isModalOpen) return;
+
     const handleMessage = (event: MessageEvent) => {
       if (!event.origin || !event.origin.includes('youtube')) return;
 
@@ -414,49 +400,17 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
           typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         if (!data) return;
 
-        let rawStr = '';
-        try {
-          rawStr =
-            typeof event.data === 'string'
-              ? event.data
-              : JSON.stringify(event.data);
-        } catch {
-          // ignore
-        }
+        const playabilityStatus =
+          data.info?.playerResponse?.playabilityStatus?.status;
 
-        const info = data.info;
-        if (data.event === 'onStateChange') {
-          // 1 = PLAYING, 3 = BUFFERING
-          if (info === 1 || info === 3) {
-            playbackConfirmedRef.current = true;
-            setHasError(false);
-          }
-        }
-
-        if (data.event === 'infoDelivery' && data.info?.playerState) {
-          if (data.info.playerState === 1 || data.info.playerState === 3) {
-            playbackConfirmedRef.current = true;
-            setHasError(false);
-          }
-        }
-
-        // Genuine YouTube restriction / error indicators (avoid false positives on bundle JS / null error codes)
+        // Genuine YouTube restriction / error indicators
         const isRestrictedOrError =
           data.event === 'onError' ||
-          data.info === 150 ||
-          data.info === 101 ||
-          data.info === 100 ||
-          data.info === 2 ||
-          data.info === 5 ||
-          rawStr.includes('Viewer discretion is advised') ||
-          rawStr.includes('unavailable') ||
-          rawStr.includes('country') ||
-          rawStr.includes('blocked') ||
-          rawStr.includes('restricted') ||
-          rawStr.includes('"LOGIN_REQUIRED"') ||
-          rawStr.includes('"UNPLAYABLE"') ||
           (data.event === 'infoDelivery' &&
-            Boolean(data.info?.errorCode && data.info.errorCode !== 0));
+            Boolean(data.info?.errorCode && data.info.errorCode !== 0)) ||
+          playabilityStatus === 'UNPLAYABLE' ||
+          playabilityStatus === 'LOGIN_REQUIRED' ||
+          playabilityStatus === 'ERROR';
 
         if (isRestrictedOrError) {
           triggerFallback();
@@ -469,7 +423,7 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [activeKey, triggerFallback]);
+  }, [activeKey, isModalOpen, triggerFallback]);
 
   const iframeSrc =
     activeKey && !hasError
