@@ -1,5 +1,7 @@
+import AvatarModal from '@app/components/Common/AvatarModal';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
+import CachedImage from '@app/components/Common/CachedImage';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import LanguageSelector from '@app/components/LanguageSelector';
@@ -13,7 +15,7 @@ import { Permission, UserType, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import ErrorPage from '@app/pages/_error';
 import defineMessages from '@app/utils/defineMessages';
-import { ArrowDownOnSquareIcon } from '@heroicons/react/24/outline';
+import { ArrowDownOnSquareIcon, PencilIcon } from '@heroicons/react/24/outline';
 import { ApiErrorCode } from '@server/constants/error';
 import type { UserSettingsGeneralResponse } from '@server/interfaces/api/userSettingsInterfaces';
 import type { AvailableLocale } from '@server/types/languages';
@@ -78,6 +80,7 @@ const UserGeneralSettings = () => {
   const { locale, setLocale } = useLocale();
   const [movieQuotaEnabled, setMovieQuotaEnabled] = useState(false);
   const [tvQuotaEnabled, setTvQuotaEnabled] = useState(false);
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const router = useRouter();
   const {
     user,
@@ -237,6 +240,35 @@ const UserGeneralSettings = () => {
         }) => {
           return (
             <Form className="section">
+              <div className="form-row">
+                <label className="text-label">Avatar del Perfil</label>
+                <div className="mb-1 flex items-center gap-4 sm:mt-2">
+                  <div className="relative h-14 w-14 overflow-hidden rounded-full ring-2 ring-indigo-500/60 shadow-md">
+                    {user?.avatar ? (
+                      <CachedImage
+                        type="avatar"
+                        src={user.avatar}
+                        alt={user.displayName}
+                        fill
+                        className="object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-gray-700 text-lg font-bold text-gray-200">
+                        {user?.displayName?.[0] || 'U'}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    buttonType="ghost"
+                    type="button"
+                    onClick={() => setIsAvatarModalOpen(true)}
+                    className="text-xs"
+                  >
+                    <PencilIcon className="h-4 w-4 mr-1.5" />
+                    Cambiar Avatar
+                  </Button>
+                </div>
+              </div>
               <div className="form-row">
                 <label className="text-label">
                   {intl.formatMessage(messages.accounttype)}
@@ -618,6 +650,20 @@ const UserGeneralSettings = () => {
           );
         }}
       </Formik>
+
+      {user && (
+        <AvatarModal
+          isOpen={isAvatarModalOpen}
+          onClose={() => setIsAvatarModalOpen(false)}
+          userId={user.id}
+          userName={user.displayName}
+          currentAvatar={user.avatar}
+          onAvatarSaved={() => {
+            revalidateUser();
+            revalidate();
+          }}
+        />
+      )}
     </>
   );
 };
