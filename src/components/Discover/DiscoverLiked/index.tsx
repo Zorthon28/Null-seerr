@@ -16,23 +16,28 @@ const DiscoverLiked = () => {
   const { user: currentUser } = useUser();
   const { data: profiles } = useSWR<ProfileItem[]>('/api/v1/auth/profiles');
 
-  const initialUserId: number | 'all' = router.query.userId
-    ? router.query.userId === 'all'
-      ? 'all'
-      : Number(router.query.userId)
-    : currentUser?.id ?? 'all';
-
-  const [selectedUserId, setSelectedUserId] = useState<number | 'all'>(initialUserId);
+  const [selectedUserId, setSelectedUserId] = useState<number | 'all' | null>(() => {
+    if (router.query.userId) {
+      return router.query.userId === 'all' ? 'all' : Number(router.query.userId);
+    }
+    return currentUser?.id ?? null;
+  });
 
   useEffect(() => {
     if (router.query.userId) {
       setSelectedUserId(
         router.query.userId === 'all' ? 'all' : Number(router.query.userId)
       );
-    } else if (currentUser?.id && selectedUserId !== 'all') {
+    } else if (currentUser?.id && selectedUserId === null) {
       setSelectedUserId(currentUser.id);
     }
-  }, [router.query.userId, currentUser?.id]);
+  }, [router.query.userId, currentUser?.id, selectedUserId]);
+
+  const isProfileRoute = router.pathname.startsWith('/profile');
+  const targetId =
+    selectedUserId === 'all'
+      ? 'all'
+      : selectedUserId ?? (isProfileRoute ? 'me' : 'all');
 
   const {
     isLoadingInitialData,
@@ -44,7 +49,7 @@ const DiscoverLiked = () => {
     error,
     mutate,
   } = useDiscover<LikedItem>(
-    `/api/v1/user/${selectedUserId}/liked`,
+    `/api/v1/user/${targetId}/liked`,
     undefined,
     { hideAvailable: false, hideBlocklisted: false }
   );
@@ -53,13 +58,20 @@ const DiscoverLiked = () => {
     return <ErrorPage statusCode={500} />;
   }
 
+  const effectiveUserId =
+    targetId === 'all'
+      ? 'all'
+      : targetId === 'me'
+      ? currentUser?.id
+      : targetId;
+
   const selectedProfile =
-    selectedUserId !== 'all'
-      ? profiles?.find((p) => p.id === selectedUserId)
+    effectiveUserId !== 'all'
+      ? profiles?.find((p) => p.id === effectiveUserId)
       : null;
 
   const title =
-    selectedUserId === 'all'
+    effectiveUserId === 'all'
       ? 'Títulos que gustan (Todos los perfiles)'
       : selectedProfile
       ? selectedProfile.id === currentUser?.id
@@ -73,7 +85,7 @@ const DiscoverLiked = () => {
       <div className="mb-5 mt-1">
         <Header
           subtext={
-            selectedUserId === 'all'
+            effectiveUserId === 'all'
               ? 'Películas y series favoritas de todos los perfiles de la casa'
               : selectedProfile
               ? `Títulos marcados con Me gusta por ${selectedProfile.displayName}`
@@ -90,7 +102,7 @@ const DiscoverLiked = () => {
             Filtrar por perfil:
           </span>
           {profiles.map((p) => {
-            const isSelected = selectedUserId === p.id;
+            const isSelected = effectiveUserId === p.id;
             return (
               <button
                 key={`liked-profile-tab-${p.id}`}
@@ -115,7 +127,7 @@ const DiscoverLiked = () => {
           <button
             onClick={() => setSelectedUserId('all')}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-              selectedUserId === 'all'
+              effectiveUserId === 'all'
                 ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
                 : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 hover:text-white'
             }`}
