@@ -22,7 +22,6 @@ import {
 } from '@heroicons/react/24/solid';
 import { CheckCircleIcon as CheckCircleOutlineIcon } from '@heroicons/react/24/outline';
 import axios from 'axios';
-import Link from 'next/link';
 import { useRouter } from 'next/router';
 import React, {
   useCallback,
@@ -119,8 +118,25 @@ export const NetflixPreviewCard: React.FC = () => {
       setShowVideo(true);
     }, 450);
 
-    return () => clearTimeout(timer);
-  }, [activePreview?.item?.id]);
+    const iframe = iframeRef.current;
+    return () => {
+      clearTimeout(timer);
+      if (iframe?.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage(
+            JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }),
+            '*'
+          );
+          iframe.contentWindow.postMessage(
+            JSON.stringify({ event: 'command', func: 'mute', args: [] }),
+            '*'
+          );
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [activePreview]);
 
   // Find the primary YouTube trailer or teaser
   const trailer = useMemo(() => {
@@ -168,7 +184,7 @@ export const NetflixPreviewCard: React.FC = () => {
     if (item) {
       setInWatchlist(Boolean(item.isAddedToWatchlist));
     }
-  }, [item?.id, item?.isAddedToWatchlist]);
+  }, [item]);
 
   const onClickWatchlist = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -342,8 +358,16 @@ export const NetflixPreviewCard: React.FC = () => {
       <div className="relative overflow-hidden rounded-2xl bg-gray-900 border border-gray-700/80 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.9)] ring-1 ring-white/10 transform-gpu animate-in fade-in zoom-in-95 duration-200">
         {/* Media Preview Area (16:9) */}
         <div
-          className="relative w-full aspect-video overflow-hidden bg-gray-950 cursor-pointer"
+          role="button"
+          tabIndex={0}
+          className="relative w-full aspect-video overflow-hidden bg-gray-950 cursor-pointer focus:outline-none"
           onClick={handleDetailsClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleDetailsClick();
+            }
+          }}
         >
           {/* Backdrop Image with Ken Burns animation */}
           <CachedImage

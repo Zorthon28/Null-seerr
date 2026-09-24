@@ -487,7 +487,11 @@ mediaRoutes.get('/queue', async (req, res, next) => {
               let swarmHealth: 'healthy' | 'slow' | 'stalled' | 'idle' = 'slow';
               if (torrentState.includes('UP') || progress >= 100) {
                 swarmHealth = 'idle';
-              } else if (torrentState === 'stalledDL' || (seedsConnected === 0 && dlSpeed === 0)) {
+              } else if (
+                torrentState === 'stalledDL' ||
+                torrentState === 'metaDL' ||
+                (seedsConnected === 0 && dlSpeed === 0)
+              ) {
                 swarmHealth = 'stalled';
               } else if (seedsConnected >= 5 || dlSpeed >= 1048576) {
                 swarmHealth = 'healthy';
@@ -498,7 +502,10 @@ mediaRoutes.get('/queue', async (req, res, next) => {
               // Format ETA from qBit's seconds value
               let etaFormatted = '';
               if (swarmHealth === 'stalled') {
-                etaFormatted = 'Stalled (0 seeds)';
+                etaFormatted =
+                  torrentState === 'metaDL'
+                    ? 'Stalled (fetching metadata)'
+                    : 'Stalled (0 seeds)';
               } else if (eta && eta < 8640000) {
                 const h = Math.floor(eta / 3600);
                 const m = Math.floor((eta % 3600) / 60);
@@ -512,7 +519,11 @@ mediaRoutes.get('/queue', async (req, res, next) => {
 
               // Map qBit state to our status
               let qbitStatus = item.status;
-              if (['downloading', 'stalledDL', 'checkingDL', 'forcedDL'].includes(qbt.state)) {
+              if (
+                ['downloading', 'stalledDL', 'metaDL', 'checkingDL', 'forcedDL'].includes(
+                  qbt.state
+                )
+              ) {
                 qbitStatus = 'downloading';
               } else if (['uploading', 'stalledUP', 'forcedUP', 'checkingUP'].includes(qbt.state)) {
                 qbitStatus = 'processing';

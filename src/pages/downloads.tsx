@@ -6,8 +6,7 @@ import useToasts from '@app/hooks/useToasts';
 import axios from 'axios';
 import useSWR from 'swr';
 import type { NextPage } from 'next';
-import { useIntl } from 'react-intl';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ArrowDownTrayIcon,
   ArrowPathIcon,
@@ -540,15 +539,27 @@ const DownloadsPage: NextPage = () => {
     revalidateOnFocus: true,
   });
 
+  // Memoize completedIds key to avoid unnecessary re-renders on polling intervals
+  const completedIdsKey = useMemo(
+    () =>
+      data?.completedIds && data.completedIds.length > 0
+        ? data.completedIds.join(',')
+        : '',
+    [data?.completedIds]
+  );
+
   // When a download completes, trigger an extra immediate re-fetch so UI updates fast
   useEffect(() => {
-    if (data?.completedIds && data.completedIds.length > 0) {
+    if (completedIdsKey) {
       // Re-fetch a couple times to catch the status update
       const t1 = setTimeout(() => mutate(), 3000);
       const t2 = setTimeout(() => mutate(), 8000);
-      return () => { clearTimeout(t1); clearTimeout(t2); };
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     }
-  }, [data?.completedIds?.join(','), mutate]);
+  }, [completedIdsKey, mutate]);
 
   const handleScanNow = useCallback(async () => {
     setIsScanning(true);

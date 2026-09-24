@@ -71,26 +71,37 @@ const DownloadBlock = ({
               4K
             </Badge>
           )}
-          <Badge className="capitalize">{downloadItem.status}</Badge>
+          {downloadItem.timeLeft?.toLowerCase().includes('stalled') ||
+          downloadItem.status === 'warning' ? (
+            <Badge badgeType="danger" className="capitalize">
+              Stalled (0 Seeds)
+            </Badge>
+          ) : (
+            <Badge className="capitalize">{downloadItem.status}</Badge>
+          )}
         </span>
         <span>
-          {downloadItem.estimatedCompletionTime
-            ? intl.formatMessage(messages.estimatedtime, {
-                time: (
-                  <FormattedRelativeTime
-                    value={Math.floor(
-                      (new Date(
-                        downloadItem.estimatedCompletionTime
-                      ).getTime() -
-                        Date.now()) /
-                        1000
-                    )}
-                    updateIntervalInSeconds={1}
-                    numeric="auto"
-                  />
-                ),
-              })
-            : ''}
+          {downloadItem.timeLeft?.toLowerCase().includes('stalled') ? (
+            <span className="text-red-400 font-medium">Sin semillas activas</span>
+          ) : downloadItem.estimatedCompletionTime ? (
+            intl.formatMessage(messages.estimatedtime, {
+              time: (
+                <FormattedRelativeTime
+                  value={Math.floor(
+                    (new Date(
+                      downloadItem.estimatedCompletionTime
+                    ).getTime() -
+                      Date.now()) /
+                      1000
+                  )}
+                  updateIntervalInSeconds={1}
+                  numeric="auto"
+                />
+              ),
+            })
+          ) : (
+            ''
+          )}
         </span>
       </div>
     </div>

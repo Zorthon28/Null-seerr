@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs';
 import logger from '@server/logger';
 
 const trailerRoutes = Router();
@@ -13,11 +15,67 @@ interface CacheEntry {
 const urlCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
+const cacheFilePath = process.env.CONFIG_DIRECTORY
+  ? `${process.env.CONFIG_DIRECTORY}/trailer-cache.json`
+  : path.join(__dirname, '../../config/trailer-cache.json');
+
+// Load cached URLs from disk
+function loadPersistentCache(): void {
+  try {
+    if (fs.existsSync(cacheFilePath)) {
+      const raw = fs.readFileSync(cacheFilePath, 'utf-8');
+      const parsed: Record<string, CacheEntry> = JSON.parse(raw);
+      const now = Date.now();
+      let count = 0;
+      for (const [key, entry] of Object.entries(parsed)) {
+        if (entry?.url && now - (entry.cachedAt || 0) < CACHE_TTL_MS) {
+          urlCache.set(key, entry);
+          count++;
+        }
+      }
+      logger.info(`[Trailer] Loaded ${count} trailer streams from persistent cache`);
+    }
+  } catch (e: any) {
+    logger.warn(`[Trailer] Failed to load persistent cache from disk: ${e.message}`);
+  }
+}
+
+// Debounced save to disk
+let saveTimer: NodeJS.Timeout | null = null;
+function savePersistentCacheDebounced(): void {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      const now = Date.now();
+      const exportObj: Record<string, CacheEntry> = {};
+      for (const [key, entry] of urlCache.entries()) {
+        if (now - entry.cachedAt < CACHE_TTL_MS) {
+          exportObj[key] = entry;
+        }
+      }
+      fs.writeFileSync(cacheFilePath, JSON.stringify(exportObj, null, 2), 'utf-8');
+    } catch (e: any) {
+      logger.warn(`[Trailer] Failed to persist cache to disk: ${e.message}`);
+    }
+  }, 1000);
+}
+
+// Initialize persistent cache on module load
+loadPersistentCache();
+
 function getDirectUrl(youtubeKey: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const ytdlp = spawn('yt-dlp', [
       '--no-warnings',
       '--quiet',
+      '--no-playlist',
+      '--force-ipv4',
+      '--socket-timeout',
+      '10',
+      '--extractor-args',
+      'youtube:player_client=android,web',
+      '--user-agent',
+      'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
       '--format',
       'best[ext=mp4]/best',
       '--get-url',
@@ -45,7 +103,7 @@ function getDirectUrl(youtubeKey: string): Promise<string> {
  * GET /api/v1/trailer/stream?key=VIDEO_KEY
  *
  * Extracts a direct stream URL for a YouTube video via yt-dlp.
- * Results are cached in-memory for 4 hours (YouTube signed URLs are valid ~6h).
+ * Results are cached in-memory and persisted to disk for 4 hours.
  * Does NOT require authentication — trailers are public content.
  */
 trailerRoutes.get('/stream', async (req, res) => {
@@ -69,6 +127,7 @@ trailerRoutes.get('/stream', async (req, res) => {
 
     const entry: CacheEntry = { url, type, cachedAt: Date.now() };
     urlCache.set(key, entry);
+    savePersistentCacheDebounced();
 
     return res.json({ url, type, cached: false });
   } catch (e: any) {
