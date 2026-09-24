@@ -136,4 +136,110 @@ trailerRoutes.get('/stream', async (req, res) => {
   }
 });
 
+interface SearchCacheEntry {
+  key: string;
+  name: string;
+  cachedAt: number;
+}
+
+const searchCache = new Map<string, SearchCacheEntry>();
+const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function searchTrailer(
+  title: string,
+  year?: string
+): Promise<{ key: string; name: string } | null> {
+  const query = `${title} ${year ? year + ' ' : ''}official trailer`.trim();
+  return new Promise((resolve) => {
+    const ytdlp = spawn('yt-dlp', [
+      '--no-warnings',
+      '--quiet',
+      '--no-playlist',
+      '--force-ipv4',
+      '--socket-timeout',
+      '8',
+      '--no-update',
+      '--get-id',
+      '--get-title',
+      `ytsearch3:${query}`,
+    ]);
+
+    let stdout = '';
+    ytdlp.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
+    ytdlp.on('close', (code) => {
+      if (code !== 0 || !stdout.trim()) {
+        resolve(null);
+      } else {
+        const lines = stdout
+          .trim()
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean);
+        for (let i = 0; i < lines.length; i += 2) {
+          const name = lines[i];
+          const key = lines[i + 1];
+          if (key && /^[a-zA-Z0-9_-]{11}$/.test(key)) {
+            resolve({ key, name });
+            return;
+          }
+        }
+        resolve(null);
+      }
+    });
+    ytdlp.on('error', () => resolve(null));
+  });
+}
+
+/**
+ * GET /api/v1/trailer/search?title=TITLE&year=YEAR
+ *
+ * Searches YouTube for an official trailer when TMDB has no trailers
+ * or when TMDB trailer links are geo-restricted / blocked.
+ */
+trailerRoutes.get('/search', async (req, res) => {
+  const title = String(req.query.title || '').trim();
+  const year = req.query.year ? String(req.query.year).trim() : undefined;
+
+  if (!title) {
+    return res.status(400).json({ error: 'Title is required' });
+  }
+
+  const cacheKey = `${title.toLowerCase()}_${year || ''}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < SEARCH_CACHE_TTL_MS) {
+    return res.json({
+      key: cached.key,
+      name: cached.name,
+      site: 'YouTube',
+      type: 'Trailer',
+      cached: true,
+    });
+  }
+
+  try {
+    const result = await searchTrailer(title, year);
+    if (!result) {
+      return res.status(404).json({ error: 'No trailer found' });
+    }
+
+    searchCache.set(cacheKey, {
+      key: result.key,
+      name: result.name,
+      cachedAt: Date.now(),
+    });
+
+    return res.json({
+      key: result.key,
+      name: result.name,
+      site: 'YouTube',
+      type: 'Trailer',
+      cached: false,
+    });
+  } catch (e: any) {
+    logger.debug(`[Trailer] Search failed for "${title}": ${e.message}`);
+    return res.status(500).json({ error: 'Trailer search failed' });
+  }
+});
+
 export default trailerRoutes;
+
