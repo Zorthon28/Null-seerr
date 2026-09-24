@@ -172,19 +172,73 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
     e.preventDefault();
     e.stopPropagation();
 
+    // Immediately collapse and silence background playback
+    if (onEnlargeChange) {
+      onEnlargeChange(false);
+    }
+    setIsMuted(true);
+
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.muted = true;
+    }
+
+    sendIframeCommand('mute');
+    sendIframeCommand('setVolume', [0]);
+    sendIframeCommand('pauseVideo');
+
     if (onOpenModal) {
       onOpenModal(activeKey);
     }
   };
 
-  // Pause background playback when modal is active
+  // Pause and silence background playback when modal is active
   useEffect(() => {
     if (isModalOpen) {
+      // Force muted and collapsed state
+      setIsMuted(true);
+      if (onEnlargeChange && isEnlarged) {
+        onEnlargeChange(false);
+      }
+
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.muted = true;
+      }
+
+      // Immediately silence and pause the background iframe
+      sendIframeCommand('mute');
+      sendIframeCommand('setVolume', [0]);
       sendIframeCommand('pauseVideo');
+
+      // Re-send to guarantee no iframe race condition
+      const t1 = setTimeout(() => {
+        sendIframeCommand('mute');
+        sendIframeCommand('setVolume', [0]);
+        sendIframeCommand('pauseVideo');
+      }, 100);
+      const t2 = setTimeout(() => {
+        sendIframeCommand('mute');
+        sendIframeCommand('setVolume', [0]);
+        sendIframeCommand('pauseVideo');
+      }, 300);
+
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     } else if (isPlaying) {
+      // Modal closed: resume playing as ambient background (ALWAYS MUTED)
+      setIsMuted(true);
+      if (videoRef.current) {
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
+      }
+      sendIframeCommand('mute');
+      sendIframeCommand('setVolume', [0]);
       sendIframeCommand('playVideo');
     }
-  }, [isModalOpen, isPlaying, sendIframeCommand]);
+  }, [isModalOpen, isPlaying, isEnlarged, sendIframeCommand, onEnlargeChange]);
 
   // Scroll and touch detection: enlarge & unmute when scrolling up to the hero
   const isEnlargedRef = useRef(isEnlarged);
@@ -193,9 +247,10 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
   const touchStartY = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!trailerKey) return;
+    if (!trailerKey || isModalOpen) return;
 
     const handleScroll = () => {
+      if (isModalOpen) return;
       const currentScrollY = window.scrollY;
       const scrollDiff = currentScrollY - lastScrollY.current;
 
@@ -221,6 +276,7 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
 
     // Wheeling UP when already sitting at the top of the page
     const handleWheel = (e: WheelEvent) => {
+      if (isModalOpen) return;
       if (window.scrollY <= 20 && e.deltaY < -15) {
         if (!isEnlargedRef.current) {
           handleEnlarge();
@@ -237,12 +293,14 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
 
     // Touch gesture support for tablets and mobile touch screens
     const handleTouchStart = (e: TouchEvent) => {
+      if (isModalOpen) return;
       if (e.touches.length > 0) {
         touchStartY.current = e.touches[0].clientY;
       }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
+      if (isModalOpen) return;
       if (touchStartY.current === null || e.touches.length === 0) return;
       const currentTouchY = e.touches[0].clientY;
       const diffY = currentTouchY - touchStartY.current;
@@ -281,7 +339,7 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [trailerKey, handleEnlarge, handleCollapse]);
+  }, [trailerKey, handleEnlarge, handleCollapse, isModalOpen]);
 
   const fetchStreamFallback = useCallback((key: string) => {
     fetch(`/api/v1/trailer/stream?key=${encodeURIComponent(key)}`)

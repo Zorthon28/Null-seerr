@@ -901,6 +901,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                 className="z-40 border border-rose-500/40 text-rose-300 hover:bg-rose-600/20"
                 buttonSize="md"
                 onClick={() => {
+                  setIsTrailerEnlarged(false);
                   setModalTrailerKey(trailerVideo?.key);
                   setShowTrailerModal(true);
                 }}
