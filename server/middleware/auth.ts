@@ -53,16 +53,19 @@ export const checkUser: Middleware = async (req, _res, next) => {
 
       // If user not found, check if this is the primary user / admin (e.g. dev.gustavo.tello@gmail.com)
       if (!user) {
+        const gusUser = await userRepository.findOne({ where: { id: 2 } });
         const adminUser = await userRepository.findOne({ where: { id: 1 } });
+        const targetPrimary = gusUser || adminUser;
         if (
-          adminUser &&
+          targetPrimary &&
           (ssoEmail === 'dev.gustavo.tello@gmail.com' ||
-            adminUser.email.toLowerCase() === 'admin@nullseerr.local')
+            ssoEmail.includes('gustavo') ||
+            targetPrimary.email.toLowerCase() === 'admin@nullseerr.local')
         ) {
-          user = adminUser;
-          if (adminUser.email.toLowerCase() !== ssoEmail) {
-            adminUser.email = ssoEmail;
-            await userRepository.save(adminUser);
+          user = targetPrimary;
+          if (targetPrimary.email.toLowerCase() !== ssoEmail) {
+            targetPrimary.email = ssoEmail;
+            await userRepository.save(targetPrimary);
             logger.info(
               `Associated primary admin account with Cloudflare SSO email: ${ssoEmail}`,
               { label: 'Auth' }
