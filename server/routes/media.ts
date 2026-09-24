@@ -988,7 +988,20 @@ async function getJellyfinWatchStatus(
           playCount,
           playbackPositionPercentage,
         };
-      } catch (e) {
+      } catch (e: any) {
+        if (e?.response?.status === 404) {
+          try {
+            const mediaRepository = getRepository(Media);
+            if (is4k) {
+              media.jellyfinMediaId4k = null;
+            } else {
+              media.jellyfinMediaId = null;
+            }
+            await mediaRepository.save(media);
+          } catch {
+            // ignore
+          }
+        }
         logger.debug('[Watch Status] Failed to fetch movie watch status from Jellyfin', {
           errorMessage: e.message,
         });
@@ -1051,7 +1064,20 @@ async function getJellyfinWatchStatus(
           totalEpisodesCount,
           episodes: episodesMap,
         };
-      } catch (e) {
+      } catch (e: any) {
+        if (e?.response?.status === 404) {
+          try {
+            const mediaRepository = getRepository(Media);
+            if (is4k) {
+              media.jellyfinMediaId4k = null;
+            } else {
+              media.jellyfinMediaId = null;
+            }
+            await mediaRepository.save(media);
+          } catch {
+            // ignore
+          }
+        }
         logger.debug('[Watch Status] Failed to fetch TV watch status from Jellyfin', {
           errorMessage: e.message,
         });
@@ -1062,7 +1088,7 @@ async function getJellyfinWatchStatus(
   return {
     mediaType,
     tmdbId,
-    hasMedia: !!(media?.jellyfinMediaId || media?.ratingKey),
+    hasMedia: !!((is4k ? media?.jellyfinMediaId4k : media?.jellyfinMediaId) || media?.ratingKey),
     played: false,
     playCount: 0,
   };
@@ -1217,7 +1243,39 @@ mediaRoutes.post(
       // Return freshly updated status
       const updatedStatus = await getJellyfinWatchStatus(media, tmdbId, mediaType, is4k, userId);
       return res.status(200).json({ success: true, ...updatedStatus });
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.response?.status === 404) {
+        logger.warn('[Watch Status] Media not found in Jellyfin, clearing stale ID', {
+          tmdbId: req.params.id,
+          mediaType: req.params.mediaType,
+        });
+        try {
+          const mediaRepository = getRepository(Media);
+          const media = await mediaRepository.findOne({
+            where: {
+              tmdbId: Number(req.params.id),
+              mediaType: req.params.mediaType as MediaType,
+            },
+          });
+          if (media) {
+            if (String(req.body.is4k) === 'true') {
+              media.jellyfinMediaId4k = null;
+            } else {
+              media.jellyfinMediaId = null;
+            }
+            await mediaRepository.save(media);
+          }
+        } catch {
+          // ignore
+        }
+        return res.status(200).json({
+          success: true,
+          mediaType: req.params.mediaType,
+          tmdbId: Number(req.params.id),
+          hasMedia: false,
+          played: false,
+        });
+      }
       logger.error('[Watch Status] Failed to update watch status in Jellyfin', {
         errorMessage: e.message,
       });

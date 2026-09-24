@@ -230,7 +230,11 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
       if (isSeriesWatched) {
         await unmarkWatched(data.id, 'tv');
         if (watchStatus?.hasMedia && watchStatus.played) {
-          await markWatchStatus({ played: false });
+          try {
+            await markWatchStatus({ played: false });
+          } catch {
+            // Jellyfin sync is secondary; ignore if item is missing on media server
+          }
         }
         addToast(
           <span>
@@ -241,7 +245,11 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
       } else {
         await markWatched(data.id, 'tv', data.name);
         if (watchStatus?.hasMedia && !watchStatus.played) {
-          await markWatchStatus({ played: true });
+          try {
+            await markWatchStatus({ played: true });
+          } catch {
+            // Jellyfin sync is secondary; ignore if item is missing on media server
+          }
         }
         addToast(
           <span>
