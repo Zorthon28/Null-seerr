@@ -1,5 +1,7 @@
 import ImageProxy from '@server/lib/imageproxy';
+import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
+import axios from 'axios';
 import { Router } from 'express';
 
 const router = Router();
@@ -47,6 +49,20 @@ router.get<{
       imageData = await initTmdbImageProxy().getImage(imagePath);
     } else if (req.params.type === 'tvdb') {
       imageData = await initTvdbImageProxy().getImage(imagePath);
+    } else if (req.params.type === 'jellyfin') {
+      const settings = getSettings();
+      const jfUrl = `http://${settings.jellyfin.ip}:${settings.jellyfin.port}${imagePath}`;
+      const response = await axios.get(jfUrl, {
+        headers: { 'X-Emby-Token': settings.jellyfin.apiKey },
+        responseType: 'arraybuffer',
+        timeout: 5000,
+      });
+
+      res.writeHead(200, {
+        'Content-Type': response.headers['content-type'] || 'image/jpeg',
+        'Cache-Control': 'public, max-age=86400',
+      });
+      return res.end(response.data);
     } else {
       logger.error('Unsupported image type', {
         imagePath,

@@ -1,3 +1,4 @@
+import AvatarModal from '@app/components/Common/AvatarModal';
 import CachedImage from '@app/components/Common/CachedImage';
 import useToasts from '@app/hooks/useToasts';
 import { useUser } from '@app/hooks/useUser';
@@ -5,6 +6,7 @@ import { Transition, Dialog } from '@headlessui/react';
 import {
   CheckCircleIcon,
   ChevronDownIcon,
+  PencilIcon,
   SparklesIcon,
   UserIcon,
   XMarkIcon,
@@ -30,6 +32,7 @@ const ProfileSwitcher = () => {
   const { user, revalidate } = useUser();
   const [isOpen, setIsOpen] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
+  const [avatarModalUser, setAvatarModalUser] = useState<ProfileItem | null>(null);
 
   const { data: profiles, mutate: mutateProfiles } = useSWR<ProfileItem[]>(
     '/api/v1/auth/profiles',
@@ -236,6 +239,20 @@ const ProfileSwitcher = () => {
                             </span>
                           )}
 
+                          {/* Edit Avatar Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAvatarModalUser(profile);
+                            }}
+                            className="absolute top-2 left-2 flex h-6 w-6 items-center justify-center rounded-full bg-gray-900/80 text-gray-300 hover:bg-indigo-600 hover:text-white border border-gray-700 transition-all shadow-md z-10 cursor-pointer"
+                            title={`Cambiar avatar de ${profile.displayName}`}
+                            aria-label={`Cambiar avatar de ${profile.displayName}`}
+                          >
+                            <PencilIcon className="h-3 w-3" />
+                          </button>
+
                           {/* Avatar */}
                           <div
                             className={`relative h-20 w-20 rounded-full overflow-hidden mb-3 transition-transform duration-200 group-hover:scale-105 shadow-md ${
@@ -299,6 +316,20 @@ const ProfileSwitcher = () => {
           </div>
         </Dialog>
       </Transition>
+
+      {avatarModalUser && (
+        <AvatarModal
+          isOpen={Boolean(avatarModalUser)}
+          onClose={() => setAvatarModalUser(null)}
+          userId={avatarModalUser.id}
+          userName={avatarModalUser.displayName}
+          currentAvatar={avatarModalUser.avatar}
+          onAvatarSaved={async () => {
+            await mutateProfiles();
+            await revalidate();
+          }}
+        />
+      )}
     </>
   );
 };

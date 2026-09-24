@@ -837,6 +837,40 @@ router.get<{ id: string }, QuotaResponse>(
   }
 );
 
+router.post<{ id: string }, any, { avatar: string }>(
+  '/:id/avatar',
+  isOwnProfileOrAdmin(),
+  async (req, res, next) => {
+    try {
+      const userRepository = getRepository(User);
+      const user = await userRepository.findOne({
+        where: { id: Number(req.params.id) },
+      });
+
+      if (!user) {
+        return next({ status: 404, message: 'User not found.' });
+      }
+
+      const avatar = req.body.avatar;
+      if (!avatar || typeof avatar !== 'string') {
+        return res.status(400).json({ error: 'Valid avatar string required' });
+      }
+
+      user.avatar = avatar.trim();
+      await userRepository.save(user);
+
+      logger.info(
+        `Updated avatar for user ${user.displayName || user.username} (ID: ${user.id})`,
+        { label: 'User' }
+      );
+
+      return res.status(200).json({ status: 'ok', avatar: user.avatar });
+    } catch (e: any) {
+      next({ status: 500, message: e.message });
+    }
+  }
+);
+
 router.get<{ id: string }, UserWatchDataResponse>(
   '/:id/watch_data',
   isOwnProfileOrAdmin(),

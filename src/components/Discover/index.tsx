@@ -3,6 +3,7 @@ import ConfirmButton from '@app/components/Common/ConfirmButton';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import Tooltip from '@app/components/Common/Tooltip';
+import ContinueWatchingSlider from '@app/components/Discover/ContinueWatchingSlider';
 import CreateSlider from '@app/components/Discover/CreateSlider';
 import DiscoverSliderEdit from '@app/components/Discover/DiscoverSliderEdit';
 import MovieGenreSlider from '@app/components/Discover/MovieGenreSlider';
@@ -206,6 +207,7 @@ const Discover = () => {
           </Transition>
         </>
       )}
+      {!isEditing && <ContinueWatchingSlider />}
       {(isEditing ? sliders : discoverData)?.map((slider, index) => {
         let sliderComponent: React.ReactNode;
 

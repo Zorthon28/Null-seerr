@@ -1612,4 +1612,85 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/v1/discover/resume
+ * Returns in-progress media from Jellyfin for the logged-in user profile
+ */
+discoverRoutes.get('/resume', async (req, res, next) => {
+  try {
+    const settings = getSettings();
+    const isGusOrAdmin = !req.user || req.user.id === 2 || req.user.hasPermission(Permission.ADMIN);
+    const targetJellyfinUserId = req.user?.jellyfinUserId || (isGusOrAdmin ? settings.jellyfin.userId : undefined);
+
+    if (!settings.jellyfin.ip || !settings.jellyfin.apiKey || !targetJellyfinUserId) {
+      return res.status(200).json({ results: [] });
+    }
+
+    const jfBase = `http://${settings.jellyfin.ip}:${settings.jellyfin.port}`;
+    const resp = await axios.get(`${jfBase}/Users/${targetJellyfinUserId}/Items/Resume`, {
+      headers: { 'X-Emby-Token': settings.jellyfin.apiKey },
+      params: {
+        Fields: 'ProviderIds,UserData,Overview,MediaSources,SeriesName,SeasonName,IndexNumber,ParentIndexNumber',
+        Limit: 20,
+      },
+      timeout: 5000,
+    });
+
+    const jellyfinHost =
+      settings.jellyfin.externalHostname ||
+      `http://${settings.jellyfin.ip}:${settings.jellyfin.port}`;
+    const serverId = settings.jellyfin.serverId;
+
+    const items = (resp.data?.Items || []).map((item: any) => {
+      const isEpisode = item.Type === 'Episode';
+      const isMovie = item.Type === 'Movie';
+      const userData = item.UserData || {};
+      const playedPercentage = Math.round(userData.PlayedPercentage || 0);
+      const playbackPositionTicks = Number(userData.PlaybackPositionTicks) || 0;
+      const totalTicks = Number(item.RunTimeTicks) || 0;
+
+      const totalSeconds = Math.round(totalTicks / 10000000);
+      const positionSeconds = Math.round(playbackPositionTicks / 10000000);
+      const remainingMinutes = Math.max(0, Math.round((totalSeconds - positionSeconds) / 60));
+      const runtimeMinutes = Math.round(totalSeconds / 60);
+
+      const tmdbId = Number(item.ProviderIds?.Tmdb) || undefined;
+      const deepLinkUrl = `${jellyfinHost}/web/index.html#!/details?id=${item.Id}&serverId=${serverId}`;
+
+      return {
+        id: item.Id,
+        title: item.Name,
+        seriesName: item.SeriesName,
+        seasonNumber: item.ParentIndexNumber,
+        episodeNumber: item.IndexNumber,
+        mediaType: isEpisode ? 'tv' : 'movie',
+        tmdbId,
+        overview: item.Overview,
+        playedPercentage,
+        playbackPositionTicks,
+        totalTicks,
+        runtimeMinutes,
+        remainingMinutes,
+        posterPath: `/imageproxy/jellyfin/Items/${item.Id}/Images/Primary?fillWidth=400&quality=90`,
+        backdropPath:
+          item.BackdropImageTags && item.BackdropImageTags.length > 0
+            ? `/imageproxy/jellyfin/Items/${item.Id}/Images/Backdrop/0?fillWidth=800&quality=90`
+            : `/imageproxy/jellyfin/Items/${item.Id}/Images/Thumb?fillWidth=800&quality=90`,
+        deepLinkUrl,
+      };
+    });
+
+    return res.status(200).json({
+      results: items,
+      totalResults: items.length,
+    });
+  } catch (e: any) {
+    logger.error('Failed to get resume items from Jellyfin', {
+      label: 'Discover',
+      error: e.message,
+    });
+    return res.status(200).json({ results: [] });
+  }
+});
+
 export default discoverRoutes;
