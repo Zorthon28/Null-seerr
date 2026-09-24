@@ -1092,7 +1092,11 @@ mediaRoutes.get(
       }
 
       const settings = getSettings();
-      const userId = req.user?.jellyfinUserId || settings.jellyfin.userId;
+      const userId =
+        req.user?.jellyfinUserId ||
+        (req.user?.hasPermission(Permission.ADMIN)
+          ? settings.jellyfin.userId
+          : undefined);
 
       const watchStatus = await getJellyfinWatchStatus(media, tmdbId, mediaType, is4k, userId);
       return res.status(200).json(watchStatus);
@@ -1131,7 +1135,11 @@ mediaRoutes.post(
 
       const settings = getSettings();
       const jellyfinMediaId = is4k ? media.jellyfinMediaId4k : media.jellyfinMediaId;
-      const userId = req.user?.jellyfinUserId || settings.jellyfin.userId;
+      const userId =
+        req.user?.jellyfinUserId ||
+        (req.user?.hasPermission(Permission.ADMIN)
+          ? settings.jellyfin.userId
+          : undefined);
 
       if (!jellyfinMediaId || !settings.jellyfin.apiKey || !userId) {
         return res.status(400).json({ message: 'Jellyfin integration not configured or media not available' });

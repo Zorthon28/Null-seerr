@@ -1001,4 +1001,94 @@ authRoutes.post('/reset-password/:guid', async (req, res, next) => {
   return res.status(200).json({ status: 'ok' });
 });
 
+/**
+ * GET /api/v1/auth/profiles
+ * Returns all household profiles available for fast 1-click switching.
+ */
+authRoutes.get('/profiles', async (req, res, next) => {
+  try {
+    const userRepository = getRepository(User);
+    const users = await userRepository.find({
+      order: { id: 'ASC' },
+    });
+
+    // Exclude default placeholder admin@nullseerr.local if Gus (id: 2) exists
+    const hasGusAdmin = users.some((u) => u.id === 2);
+    const filteredUsers = users.filter((u) => {
+      if (hasGusAdmin && u.id === 1 && u.email === 'admin@nullseerr.local') {
+        return false;
+      }
+      return true;
+    });
+
+    const activeUserId = req.user?.id || req.session?.userId;
+
+    const profiles = filteredUsers.map((u) => ({
+      id: u.id,
+      displayName: u.displayName || u.username || u.jellyfinUsername || u.email,
+      email: u.email,
+      avatar: u.avatar,
+      jellyfinUserId: u.jellyfinUserId,
+      isAdmin: u.hasPermission(Permission.ADMIN),
+      isActive: u.id === activeUserId,
+    }));
+
+    return res.status(200).json(profiles);
+  } catch (e: any) {
+    logger.error('Error fetching household profiles', {
+      label: 'Auth',
+      message: e.message,
+    });
+    return next({ status: 500, message: 'Failed to retrieve profiles' });
+  }
+});
+
+/**
+ * POST /api/v1/auth/switch-profile
+ * Switches the active profile in the session without requiring password re-entry.
+ */
+authRoutes.post('/switch-profile', async (req, res, next) => {
+  try {
+    const targetUserId = Number(req.body.userId);
+    if (!targetUserId) {
+      return res.status(400).json({ error: 'Valid userId required' });
+    }
+
+    const userRepository = getRepository(User);
+    const targetUser = await userRepository.findOne({
+      where: { id: targetUserId },
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    if (req.session) {
+      req.session.userId = targetUser.id;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    }
+
+    logger.info(
+      `Switched active profile to ${targetUser.displayName} (ID: ${targetUser.id})`,
+      { label: 'Auth' }
+    );
+
+    return res.status(200).json({
+      status: 'ok',
+      user: targetUser.filter(),
+    });
+  } catch (e: any) {
+    logger.error('Error switching profile', {
+      label: 'Auth',
+      message: e.message,
+    });
+    return next({ status: 500, message: 'Failed to switch profile' });
+  }
+});
+
 export default authRoutes;

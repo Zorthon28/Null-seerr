@@ -14,6 +14,7 @@ import type {
   GenreSliderItem,
   WatchlistResponse,
 } from '@server/interfaces/api/discoverInterfaces';
+import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { mapProductionCompany } from '@server/models/Movie';
@@ -985,8 +986,8 @@ discoverRoutes.get<Record<string, unknown>, WatchlistResponse>(
   }
 );
 
-// Helper: Retrieve user watched media history from DB, Media table, and Jellyfin
-async function getWatchedMediaHistory(): Promise<{
+// Helper: Retrieve user watched media history from DB, Media table, and Jellyfin for the active profile
+async function getWatchedMediaHistory(user?: User | null): Promise<{
   watchedSeriesIds: number[];
   watchedMovieIds: number[];
   allLibraryMovieIds: Set<number>;
@@ -997,12 +998,19 @@ async function getWatchedMediaHistory(): Promise<{
   const allLibraryMovieIds = new Set<number>();
   const allLibrarySeriesIds = new Set<number>();
 
-  // 1. Explicitly marked watched items from Watched table (user clicks "Mark as Watched")
+  const isGusOrAdmin = !user || user.id === 2 || user.hasPermission(Permission.ADMIN);
+
+  // 1. Explicitly marked watched items from Watched table for active user
   try {
     const watchedRepo = getRepository(Watched);
-    const dbWatched = await watchedRepo.find({
-      order: { createdAt: 'DESC' },
-    });
+    const dbWatched = user
+      ? await watchedRepo.find({
+          where: { userId: user.id },
+          order: { createdAt: 'DESC' },
+        })
+      : await watchedRepo.find({
+          order: { createdAt: 'DESC' },
+        });
 
     for (const w of dbWatched) {
       if (w.mediaType === MediaType.TV) {
@@ -1013,11 +1021,11 @@ async function getWatchedMediaHistory(): Promise<{
         allLibraryMovieIds.add(w.tmdbId);
       }
     }
-  } catch (e) {
+  } catch (e: any) {
     logger.debug('Error reading Watched table', { label: 'Discover', error: e.message });
   }
 
-  // 2. All media in library (AVAILABLE, PARTIALLY_AVAILABLE, or DELETED/completed after watching)
+  // 2. All media in library (for exclusion so we don't recommend already downloaded media)
   try {
     const mediaRepo = getRepository(Media);
     const dbMedia = await mediaRepo.find({
@@ -1028,6 +1036,7 @@ async function getWatchedMediaHistory(): Promise<{
       if (m.mediaType === MediaType.MOVIE) {
         allLibraryMovieIds.add(m.tmdbId);
         if (
+          isGusOrAdmin &&
           (m.status === MediaStatus.AVAILABLE ||
             m.status === MediaStatus.PARTIALLY_AVAILABLE ||
             m.status === 7) &&
@@ -1038,6 +1047,7 @@ async function getWatchedMediaHistory(): Promise<{
       } else if (m.mediaType === MediaType.TV) {
         allLibrarySeriesIds.add(m.tmdbId);
         if (
+          isGusOrAdmin &&
           (m.status === MediaStatus.AVAILABLE ||
             m.status === MediaStatus.PARTIALLY_AVAILABLE ||
             m.status === 7) &&
@@ -1047,16 +1057,19 @@ async function getWatchedMediaHistory(): Promise<{
         }
       }
     }
-  } catch (e) {
+  } catch (e: any) {
     logger.debug('Error reading Media table', { label: 'Discover', error: e.message });
   }
 
-  // 3. Query Jellyfin for played/watched items
+  // 3. Query Jellyfin for played/watched items for the specific profile
   const settings = getSettings();
-  if (settings.jellyfin.ip && settings.jellyfin.apiKey && settings.jellyfin.userId) {
+  const targetJellyfinUserId =
+    user?.jellyfinUserId || (isGusOrAdmin ? settings.jellyfin.userId : undefined);
+
+  if (settings.jellyfin.ip && settings.jellyfin.apiKey && targetJellyfinUserId) {
     try {
       const jfBase = `http://${settings.jellyfin.ip}:${settings.jellyfin.port}`;
-      const resp = await axios.get(`${jfBase}/Users/${settings.jellyfin.userId}/Items`, {
+      const resp = await axios.get(`${jfBase}/Users/${targetJellyfinUserId}/Items`, {
         headers: { 'X-Emby-Token': settings.jellyfin.apiKey },
         params: {
           Recursive: 'true',
@@ -1092,29 +1105,27 @@ async function getWatchedMediaHistory(): Promise<{
               watchedSeriesIds.unshift(tmdbId);
             }
           }
-        } else if (item.Type === 'Episode' && item.SeriesName) {
-          if (
-            item.SeriesName.includes('Smoking Behind the Supermarket') &&
-            !watchedSeriesIds.includes(296286)
-          ) {
-            watchedSeriesIds.unshift(296286);
-            allLibrarySeriesIds.add(296286);
-          }
         }
       }
-    } catch (e) {
-      logger.debug('Error reading Jellyfin items', { label: 'Discover', error: e.message });
+    } catch (e: any) {
+      logger.debug('Error reading Jellyfin items for profile', {
+        label: 'Discover',
+        targetJellyfinUserId,
+        error: e.message,
+      });
     }
   }
 
-  // Ensure known watched series in stack are included
-  if (!watchedSeriesIds.includes(296286)) {
-    watchedSeriesIds.push(296286); // Smoking Behind the Supermarket with You
-    allLibrarySeriesIds.add(296286);
-  }
-  if (!watchedSeriesIds.includes(65930)) {
-    watchedSeriesIds.push(65930); // My Hero Academia
-    allLibrarySeriesIds.add(65930);
+  // For Gus/Admin, preserve specific historical series seeds
+  if (isGusOrAdmin) {
+    if (!watchedSeriesIds.includes(296286)) {
+      watchedSeriesIds.push(296286); // Smoking Behind the Supermarket with You
+      allLibrarySeriesIds.add(296286);
+    }
+    if (!watchedSeriesIds.includes(65930)) {
+      watchedSeriesIds.push(65930); // My Hero Academia
+      allLibrarySeriesIds.add(65930);
+    }
   }
 
   return { watchedSeriesIds, watchedMovieIds, allLibraryMovieIds, allLibrarySeriesIds };
@@ -1131,7 +1142,7 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       watchedMovieIds,
       allLibraryMovieIds,
       allLibrarySeriesIds,
-    } = await getWatchedMediaHistory();
+    } = await getWatchedMediaHistory(req.user);
 
     const recentCandidates: { id: number; mediaType: 'movie' | 'tv'; data: any }[] = [];
     const addedIds = new Set<number>();
@@ -1244,6 +1255,39 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       }
     }
 
+    // If profile has little or no watched history (e.g. fresh profile), backfill with trending media
+    if (recentCandidates.length < 15) {
+      try {
+        const trending = await tmdb.getAllTrending({
+          page: 1,
+          timeWindow: 'week',
+        });
+        for (const item of trending.results || []) {
+          if (recentCandidates.length >= 25) break;
+          const isShow = (item as any).media_type === 'tv' || Boolean((item as any).name);
+          const mType = isShow ? 'tv' : 'movie';
+          const isExcluded =
+            mType === 'movie'
+              ? allLibraryMovieIds.has(item.id) || watchedMovieIds.includes(item.id)
+              : allLibrarySeriesIds.has(item.id) || watchedSeriesIds.includes(item.id);
+
+          if (!isExcluded && !addedIds.has(item.id)) {
+            addedIds.add(item.id);
+            recentCandidates.push({
+              id: item.id,
+              mediaType: mType,
+              data: {
+                ...item,
+                media_type: mType,
+              },
+            });
+          }
+        }
+      } catch {
+        // Continue
+      }
+    }
+
     // Interleave movie and tv recommendations for a balanced recent slider
     const movieCandidates = recentCandidates.filter((c) => c.mediaType === 'movie');
     const tvCandidates = recentCandidates.filter((c) => c.mediaType === 'tv');
@@ -1307,7 +1351,7 @@ discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
   const tmdb = createTmdbWithRegionLanguage(req.user);
 
   try {
-    const { watchedMovieIds, allLibraryMovieIds } = await getWatchedMediaHistory();
+    const { watchedMovieIds, allLibraryMovieIds } = await getWatchedMediaHistory(req.user);
     const candidateScores = new Map<number, number>();
     const candidateMovieMap = new Map<number, any>();
 
@@ -1354,6 +1398,24 @@ discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
         } catch {
           // Continue
         }
+      }
+    }
+
+    // If no candidate scores (fresh profile), provide popular / trending movies
+    if (candidateScores.size === 0) {
+      try {
+        const popular = await tmdb.getDiscoverMovies({
+          sortBy: 'popularity.desc',
+          page: 1,
+        });
+        for (const movie of popular.results || []) {
+          if (!allLibraryMovieIds.has(movie.id)) {
+            candidateScores.set(movie.id, Math.round((movie.vote_average || 7) * 10));
+            candidateMovieMap.set(movie.id, { ...movie, media_type: 'movie' });
+          }
+        }
+      } catch {
+        // Continue
       }
     }
 
@@ -1409,7 +1471,7 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
   const suggestarrApi = new SuggestarrAPI();
 
   try {
-    const { watchedSeriesIds, allLibrarySeriesIds } = await getWatchedMediaHistory();
+    const { watchedSeriesIds, allLibrarySeriesIds } = await getWatchedMediaHistory(req.user);
     const candidateScores = new Map<number, number>();
     const candidateSeriesMap = new Map<number, any>();
 
@@ -1479,6 +1541,24 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
             !candidateSeriesMap.has(show.id) ||
             !candidateSeriesMap.get(show.id).overview
           ) {
+            candidateSeriesMap.set(show.id, { ...show, media_type: 'tv' });
+          }
+        }
+      } catch {
+        // Continue
+      }
+    }
+
+    // If no candidate scores (fresh profile), provide popular / trending series
+    if (candidateScores.size === 0) {
+      try {
+        const popular = await tmdb.getDiscoverTv({
+          sortBy: 'popularity.desc',
+          page: 1,
+        });
+        for (const show of popular.results || []) {
+          if (!allLibrarySeriesIds.has(show.id)) {
+            candidateScores.set(show.id, Math.round((show.vote_average || 7) * 10));
             candidateSeriesMap.set(show.id, { ...show, media_type: 'tv' });
           }
         }

@@ -1,5 +1,7 @@
 import CachedImage from '@app/components/Common/CachedImage';
 import MiniQuotaDisplay from '@app/components/Layout/UserDropdown/MiniQuotaDisplay';
+import type { ProfileItem } from '@app/components/ProfileSwitcher';
+import useToasts from '@app/hooks/useToasts';
 import { Permission, useUser } from '@app/hooks/useUser';
 import defineMessages from '@app/utils/defineMessages';
 import { Menu, Transition } from '@headlessui/react';
@@ -11,8 +13,10 @@ import { CogIcon, UserIcon } from '@heroicons/react/24/solid';
 import axios from 'axios';
 import type { LinkProps } from 'next/link';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { Fragment, forwardRef } from 'react';
 import { useIntl } from 'react-intl';
+import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.Layout.UserDropdown', {
   myprofile: 'Profile',
@@ -36,7 +40,35 @@ ForwardedLink.displayName = 'ForwardedLink';
 
 const UserDropdown = () => {
   const intl = useIntl();
+  const router = useRouter();
+  const toasts = useToasts();
   const { user, revalidate, hasPermission } = useUser();
+
+  const { data: profiles, mutate: mutateProfiles } = useSWR<ProfileItem[]>(
+    '/api/v1/auth/profiles'
+  );
+  const otherProfiles = profiles?.filter((p) => p.id !== user?.id) || [];
+
+  const handleSwitchProfile = async (targetId: number, targetName: string) => {
+    try {
+      await axios.post('/api/v1/auth/switch-profile', { userId: targetId });
+      toasts.addToast(`Perfil cambiado a ${targetName}`, {
+        appearance: 'success',
+        autoDismiss: true,
+      });
+      await revalidate();
+      await mutateProfiles();
+      mutate('/api/v1/auth/me');
+      mutate('/api/v1/discover/recommendations/recent');
+      mutate('/api/v1/discover/recommendations/movies');
+      mutate('/api/v1/discover/recommendations/series');
+      mutate('/api/v1/discover/smart-recommendations');
+      mutate('/api/v1/user/me/watched');
+      router.replace(router.asPath);
+    } catch {
+      toasts.addToast('Error al cambiar de perfil.', { appearance: 'error' });
+    }
+  };
 
   const logout = async () => {
     const response = await axios.post('/api/v1/auth/logout');
@@ -98,6 +130,64 @@ const UserDropdown = () => {
               </div>
               {user && <MiniQuotaDisplay userId={user?.id} />}
             </div>
+            {otherProfiles.length > 0 && (
+              <div className="p-1">
+                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  Cambiar perfil
+                </div>
+                {otherProfiles.map((p) => {
+                  const isGusP =
+                    p.displayName?.toLowerCase().includes('gus') ||
+                    p.id === 2;
+                  return (
+                    <Menu.Item key={p.id}>
+                      {({ active }) => (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSwitchProfile(p.id, p.displayName)
+                          }
+                          className={`flex w-full items-center rounded px-3 py-1.5 text-sm font-medium text-gray-200 transition duration-150 ease-in-out cursor-pointer ${
+                            active
+                              ? isGusP
+                                ? 'bg-amber-900/40 text-amber-200'
+                                : 'bg-purple-900/40 text-purple-200'
+                              : 'hover:bg-gray-700/50'
+                          }`}
+                        >
+                          <div
+                            className={`relative mr-2.5 h-6 w-6 overflow-hidden rounded-full ring-1 flex-shrink-0 ${
+                              isGusP
+                                ? 'ring-amber-500/60'
+                                : 'ring-purple-500/60'
+                            }`}
+                          >
+                            {p.avatar ? (
+                              <CachedImage
+                                type="avatar"
+                                src={p.avatar}
+                                alt=""
+                                width={24}
+                                height={24}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-gray-700 text-xs font-bold text-gray-200">
+                                {p.displayName?.[0] || 'U'}
+                              </div>
+                            )}
+                          </div>
+                          <span className="truncate">{p.displayName}</span>
+                          <span className="ml-auto text-[11px] text-gray-400">
+                            {isGusP ? 'Admin' : 'Esposa'}
+                          </span>
+                        </button>
+                      )}
+                    </Menu.Item>
+                  );
+                })}
+              </div>
+            )}
             <div className="p-1">
               <Menu.Item>
                 {({ active }) => (
