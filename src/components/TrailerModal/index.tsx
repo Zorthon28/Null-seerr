@@ -47,12 +47,19 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
     initialKey || defaultTrailer?.key || ''
   );
   const [modalError, setModalError] = useState<boolean>(false);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const failedKeysRef = useRef<Set<string>>(new Set());
+  const playbackConfirmedRef = useRef<boolean>(false);
+  const hasSearchedRef = useRef<boolean>(false);
 
   // Reset or initialize state when modal opens or closes
   useEffect(() => {
     if (!show) {
       setModalError(false);
+      setStreamUrl(null);
+      playbackConfirmedRef.current = false;
+      hasSearchedRef.current = false;
       failedKeysRef.current.clear();
       return;
     }
@@ -60,10 +67,26 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
     const keyToUse = initialKey || defaultTrailer?.key || '';
     setSelectedKey(keyToUse);
     setModalError(false);
+    setStreamUrl(null);
+    playbackConfirmedRef.current = false;
+    hasSearchedRef.current = false;
     failedKeysRef.current.clear();
   }, [show, initialKey, defaultTrailer?.key]);
 
-  // Fallback to next available candidate when a video fails (private, deleted, age-restricted)
+  const fetchModalStreamFallback = useCallback((key: string) => {
+    fetch(`/api/v1/trailer/stream?key=${encodeURIComponent(key)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((data: { url: string }) => {
+        setStreamUrl(data.url);
+        setModalError(false);
+      })
+      .catch(() => {
+        setStreamUrl(null);
+        setModalError(true);
+      });
+  }, []);
+
+  // Fallback to next available candidate when a video fails (private, deleted, age-restricted, geo-blocked)
   const handlePlaybackFailure = useCallback(
     (failedKey: string) => {
       failedKeysRef.current.add(failedKey);
@@ -73,12 +96,45 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
 
       if (nextCandidate?.key) {
         setSelectedKey(nextCandidate.key);
-      } else {
-        setModalError(true);
+        return;
       }
+
+      // No more TMDB videos! Search YouTube for an alternative working trailer
+      if (!hasSearchedRef.current && title) {
+        hasSearchedRef.current = true;
+        fetch(`/api/v1/trailer/search?title=${encodeURIComponent(title)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (data?.key && !failedKeysRef.current.has(data.key)) {
+              setSelectedKey(data.key);
+            } else {
+              fetchModalStreamFallback(failedKey);
+            }
+          })
+          .catch(() => {
+            fetchModalStreamFallback(failedKey);
+          });
+        return;
+      }
+
+      fetchModalStreamFallback(failedKey);
     },
-    [youtubeVideos]
+    [youtubeVideos, title, fetchModalStreamFallback]
   );
+
+  // Watchdog timer: if video doesn't confirm playback (onStateChange: 1 or 3) within 3.8s, trigger fallback!
+  useEffect(() => {
+    if (!show || !selectedKey || modalError || streamUrl) return;
+    playbackConfirmedRef.current = false;
+
+    const timeout = setTimeout(() => {
+      if (!playbackConfirmedRef.current) {
+        handlePlaybackFailure(selectedKey);
+      }
+    }, 3800);
+
+    return () => clearTimeout(timeout);
+  }, [show, selectedKey, modalError, streamUrl, handlePlaybackFailure]);
 
   // Close on ESC key
   useEffect(() => {
@@ -114,9 +170,34 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
           // ignore
         }
 
+        const info = data.info;
+        if (data.event === 'onStateChange') {
+          // 1 = PLAYING, 3 = BUFFERING
+          if (info === 1 || info === 3) {
+            playbackConfirmedRef.current = true;
+            setModalError(false);
+          }
+        }
+
+        if (data.event === 'infoDelivery' && data.info?.playerState) {
+          if (data.info.playerState === 1 || data.info.playerState === 3) {
+            playbackConfirmedRef.current = true;
+            setModalError(false);
+          }
+        }
+
         const isRestrictedOrError =
           data.event === 'onError' ||
+          data.info === 150 ||
+          data.info === 101 ||
+          data.info === 100 ||
+          data.info === 2 ||
+          data.info === 5 ||
           rawStr.includes('Viewer discretion is advised') ||
+          rawStr.includes('unavailable') ||
+          rawStr.includes('country') ||
+          rawStr.includes('blocked') ||
+          rawStr.includes('restricted') ||
           rawStr.includes('"LOGIN_REQUIRED"') ||
           rawStr.includes('"UNPLAYABLE"') ||
           (data.event === 'infoDelivery' &&
@@ -229,6 +310,19 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
                 )}
               </div>
             </div>
+          ) : streamUrl ? (
+            <video
+              ref={videoRef}
+              src={streamUrl}
+              autoPlay
+              controls
+              playsInline
+              className="w-full h-full object-contain bg-black"
+              onError={() => {
+                setStreamUrl(null);
+                setModalError(true);
+              }}
+            />
           ) : (
             /* Clean 16:9 YouTube Embed */
             <iframe

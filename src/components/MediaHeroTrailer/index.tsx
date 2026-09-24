@@ -39,9 +39,14 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
   const [activeKey, setActiveKey] = useState<string>(trailerKey ?? '');
   const [hasError, setHasError] = useState<boolean>(false);
   const failedKeysRef = useRef<Set<string>>(new Set());
+  const playbackConfirmedRef = useRef<boolean>(false);
+  const hasSearchedRef = useRef<boolean>(false);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isMuted, setIsMuted] = useState<boolean>(true);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
   const [origin, setOrigin] = useState<string>(() =>
     typeof window !== 'undefined' ? window.location.origin : ''
   );
@@ -51,6 +56,9 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
     if (trailerKey) {
       setActiveKey(trailerKey);
       setHasError(false);
+      setStreamUrl(null);
+      playbackConfirmedRef.current = false;
+      hasSearchedRef.current = false;
       failedKeysRef.current.clear();
     }
   }, [trailerKey]);
@@ -125,6 +133,10 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
 
+    if (videoRef.current) {
+      videoRef.current.muted = nextMuted;
+    }
+
     if (nextMuted) {
       sendIframeCommand('mute');
     } else {
@@ -140,6 +152,14 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
 
     const nextPlaying = !isPlaying;
     setIsPlaying(nextPlaying);
+
+    if (videoRef.current) {
+      if (nextPlaying) {
+        videoRef.current.play().catch(() => {});
+      } else {
+        videoRef.current.pause();
+      }
+    }
 
     if (nextPlaying) {
       sendIframeCommand('playVideo');
@@ -263,6 +283,21 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
     };
   }, [trailerKey, handleEnlarge, handleCollapse]);
 
+  const fetchStreamFallback = useCallback((key: string) => {
+    fetch(`/api/v1/trailer/stream?key=${encodeURIComponent(key)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((data: { url: string }) => {
+        setStreamUrl(data.url);
+        setHasError(false);
+        setIsPlaying(true);
+      })
+      .catch(() => {
+        setStreamUrl(null);
+        setHasError(true);
+        setIsPlaying(false);
+      });
+  }, []);
+
   const triggerFallback = useCallback(() => {
     if (!activeKey) return;
     failedKeysRef.current.add(activeKey);
@@ -273,11 +308,43 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
 
     if (nextCandidate?.key) {
       setActiveKey(nextCandidate.key);
-    } else {
-      setHasError(true);
-      setIsPlaying(false);
+      return;
     }
-  }, [activeKey, videos]);
+
+    // No other TMDB trailer available. Search YouTube for an alternative working trailer!
+    if (!hasSearchedRef.current && title) {
+      hasSearchedRef.current = true;
+      fetch(`/api/v1/trailer/search?title=${encodeURIComponent(title)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data?.key && !failedKeysRef.current.has(data.key)) {
+            setActiveKey(data.key);
+          } else {
+            fetchStreamFallback(activeKey);
+          }
+        })
+        .catch(() => {
+          fetchStreamFallback(activeKey);
+        });
+      return;
+    }
+
+    fetchStreamFallback(activeKey);
+  }, [activeKey, videos, title, fetchStreamFallback]);
+
+  // Watchdog timer: if video doesn't confirm playback (onStateChange: 1 or 3) within 3.8s, trigger fallback!
+  useEffect(() => {
+    if (!activeKey || hasError || streamUrl) return;
+    playbackConfirmedRef.current = false;
+
+    const timeout = setTimeout(() => {
+      if (!playbackConfirmedRef.current) {
+        triggerFallback();
+      }
+    }, 3800);
+
+    return () => clearTimeout(timeout);
+  }, [activeKey, hasError, streamUrl, triggerFallback]);
 
   // Listen for YouTube IFrame API messages (playback confirmation, genuine errors, restriction)
   useEffect(() => {
@@ -299,10 +366,35 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
           // ignore
         }
 
+        const info = data.info;
+        if (data.event === 'onStateChange') {
+          // 1 = PLAYING, 3 = BUFFERING
+          if (info === 1 || info === 3) {
+            playbackConfirmedRef.current = true;
+            setHasError(false);
+          }
+        }
+
+        if (data.event === 'infoDelivery' && data.info?.playerState) {
+          if (data.info.playerState === 1 || data.info.playerState === 3) {
+            playbackConfirmedRef.current = true;
+            setHasError(false);
+          }
+        }
+
         // Genuine YouTube restriction / error indicators (avoid false positives on bundle JS / null error codes)
         const isRestrictedOrError =
           data.event === 'onError' ||
+          data.info === 150 ||
+          data.info === 101 ||
+          data.info === 100 ||
+          data.info === 2 ||
+          data.info === 5 ||
           rawStr.includes('Viewer discretion is advised') ||
+          rawStr.includes('unavailable') ||
+          rawStr.includes('country') ||
+          rawStr.includes('blocked') ||
+          rawStr.includes('restricted') ||
           rawStr.includes('"LOGIN_REQUIRED"') ||
           rawStr.includes('"UNPLAYABLE"') ||
           (data.event === 'infoDelivery' &&
@@ -342,15 +434,37 @@ const MediaHeroTrailer: React.FC<MediaHeroTrailerProps> = ({
             fill
             priority
             className={`transition-opacity duration-700 ${
-              isPlaying && activeKey && !hasError
+              (isPlaying && activeKey && !hasError) || streamUrl
                 ? 'opacity-0'
                 : 'opacity-100 animate-kenburns'
             }`}
           />
         )}
 
+        {/* Native Video Stream Fallback (yt-dlp) */}
+        {streamUrl && (
+          <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+            <video
+              ref={videoRef}
+              src={streamUrl}
+              autoPlay
+              muted={isMuted}
+              loop
+              playsInline
+              className={`w-full h-full object-cover pointer-events-none transition-transform duration-700 ${
+                isEnlarged ? 'scale-[1.42]' : 'scale-[1.38]'
+              }`}
+              onError={() => {
+                setStreamUrl(null);
+                setHasError(true);
+                setIsPlaying(false);
+              }}
+            />
+          </div>
+        )}
+
         {/* Ambient Background Video Iframe */}
-        {activeKey && (
+        {!streamUrl && activeKey && (
           <div
             className={`absolute inset-0 z-0 overflow-hidden pointer-events-none transition-opacity duration-700 ${
               isPlaying && !hasError ? 'opacity-100' : 'opacity-0'
