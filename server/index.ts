@@ -281,6 +281,10 @@ app
     server.use('/imageproxy', clearCookies, imageproxy);
     server.use('/avatarproxy', clearCookies, avatarproxy);
 
+    server.get(['/discover', '/discover/'], (_req, res) => {
+      res.redirect(302, '/');
+    });
+
     server.get('*path', (req, res) => handle(req, res));
     server.use(
       (

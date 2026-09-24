@@ -14,6 +14,7 @@ import type { QuotaResponse } from '@server/interfaces/api/userInterfaces';
 import { Permission } from '@server/lib/permissions';
 import type { MovieDetails } from '@server/models/Movie';
 import axios from 'axios';
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import useSWR, { mutate } from 'swr';
@@ -229,12 +230,12 @@ const MovieRequestModal = ({
           <span>
             Descarga de stream en <strong>Español Latino</strong> iniciada para{' '}
             <strong>{data.title}</strong>. Puedes seguir el progreso en{' '}
-            <a
+            <Link
               href="/downloads"
               className="underline font-bold text-indigo-300 hover:text-indigo-200"
             >
               Descargas
-            </a>
+            </Link>
             .
           </span>,
           { appearance: 'success', autoDismiss: true }

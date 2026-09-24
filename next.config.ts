@@ -44,6 +44,11 @@ const nextConfig: NextConfig = {
         destination: '/downloads',
         permanent: true,
       },
+      {
+        source: '/discover',
+        destination: '/',
+        permanent: false,
+      },
     ];
   },
 };

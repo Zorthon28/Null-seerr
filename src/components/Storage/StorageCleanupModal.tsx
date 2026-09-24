@@ -44,7 +44,6 @@ const StorageCleanupModal: React.FC<StorageCleanupModalProps> = ({
   const {
     data,
     error,
-    isValidating,
     mutate: mutateCandidates,
   } = useSWR<{
     totalCount: number;
@@ -53,7 +52,7 @@ const StorageCleanupModal: React.FC<StorageCleanupModalProps> = ({
     revalidateOnFocus: false,
   });
 
-  const candidates = data?.candidates ?? [];
+  const candidates = useMemo(() => data?.candidates ?? [], [data?.candidates]);
 
   // Filter and sort candidates
   const displayedCandidates = useMemo(() => {
@@ -391,8 +390,16 @@ const StorageCleanupModal: React.FC<StorageCleanupModalProps> = ({
                   return (
                     <div
                       key={candidate.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => toggleSelect(candidate.id)}
-                      className={`flex cursor-pointer select-none items-center justify-between gap-3 rounded-lg border p-2.5 transition ${
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleSelect(candidate.id);
+                        }
+                      }}
+                      className={`flex cursor-pointer select-none items-center justify-between gap-3 rounded-lg border p-2.5 transition focus:outline-none ${
                         isSelected
                           ? 'border-indigo-500/70 bg-indigo-500/10'
                           : 'border-gray-700/60 bg-gray-800/40 hover:border-gray-600 hover:bg-gray-800'
