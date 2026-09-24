@@ -48,6 +48,7 @@ import {
   StarIcon,
   TicketIcon,
   CheckCircleIcon,
+  HeartIcon,
   ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
   GlobeAltIcon,
@@ -57,8 +58,10 @@ import {
   ChevronDoubleDownIcon,
   ChevronDoubleUpIcon,
   CheckCircleIcon as CheckCircleSolidIcon,
+  HeartIcon as HeartSolidIcon,
 } from '@heroicons/react/24/solid';
 import useWatched from '@app/hooks/useWatched';
+import useLiked from '@app/hooks/useLiked';
 import { type RatingResponse } from '@server/api/ratings';
 import { IssueStatus } from '@server/constants/issue';
 import { MediaStatus, MediaType } from '@server/constants/media';
@@ -259,6 +262,40 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
       });
     } finally {
       setIsWatchedUpdating(false);
+    }
+  };
+
+  const { isLiked, toggleLiked } = useLiked();
+  const [isLikedUpdating, setIsLikedUpdating] = useState(false);
+  const isMovieLiked = isLiked(data?.id, 'movie');
+
+  const toggleMovieLiked = async () => {
+    if (!data) return;
+    setIsLikedUpdating(true);
+    try {
+      await toggleLiked(data.id, 'movie', data.title);
+      if (isMovieLiked) {
+        addToast(
+          <span>
+            Removed <strong>{data.title}</strong> from liked titles
+          </span>,
+          { appearance: 'info', autoDismiss: true }
+        );
+      } else {
+        addToast(
+          <span>
+            Added <strong>{data.title}</strong> to liked titles!
+          </span>,
+          { appearance: 'success', autoDismiss: true }
+        );
+      }
+    } catch {
+      addToast('Something went wrong updating liked status', {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    } finally {
+      setIsLikedUpdating(false);
     }
   };
 
@@ -857,6 +894,35 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                   <CheckCircleSolidIcon className="h-5 w-5 text-white" />
                 ) : (
                   <CheckCircleIcon className="h-5 w-5 text-emerald-400" />
+                )}
+              </Button>
+            </Tooltip>
+          )}
+          {user && (
+            <Tooltip
+              content={
+                isMovieLiked
+                  ? 'Quitar de Me gusta'
+                  : 'Me gusta'
+              }
+            >
+              <Button
+                buttonType={isMovieLiked ? 'primary' : 'ghost'}
+                className={`z-40 ${
+                  isMovieLiked
+                    ? '!bg-rose-600 hover:!bg-rose-700 text-white shadow-lg'
+                    : 'text-rose-400 hover:bg-rose-500/20'
+                }`}
+                buttonSize={'md'}
+                disabled={isLikedUpdating}
+                onClick={toggleMovieLiked}
+              >
+                {isLikedUpdating ? (
+                  <Spinner />
+                ) : isMovieLiked ? (
+                  <HeartSolidIcon className="h-5 w-5 text-white" />
+                ) : (
+                  <HeartIcon className="h-5 w-5 text-rose-400" />
                 )}
               </Button>
             </Tooltip>

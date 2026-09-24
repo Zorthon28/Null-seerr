@@ -5,14 +5,13 @@ import type { ProfileItem } from '@app/components/ProfileSwitcher';
 import useDiscover from '@app/hooks/useDiscover';
 import { useUser } from '@app/hooks/useUser';
 import ErrorPage from '@app/pages/_error';
-import { UserGroupIcon } from '@heroicons/react/24/outline';
-import type { WatchedItem } from '@server/interfaces/api/discoverInterfaces';
-import Link from 'next/link';
+import { HeartIcon, UserGroupIcon } from '@heroicons/react/24/outline';
+import type { LikedItem } from '@server/interfaces/api/discoverInterfaces';
 import { useRouter } from 'next/router';
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 
-const DiscoverWatched = () => {
+const DiscoverLiked = () => {
   const router = useRouter();
   const { user: currentUser } = useUser();
   const { data: profiles } = useSWR<ProfileItem[]>('/api/v1/auth/profiles');
@@ -44,8 +43,8 @@ const DiscoverWatched = () => {
     fetchMore,
     error,
     mutate,
-  } = useDiscover<WatchedItem>(
-    `/api/v1/user/${selectedUserId}/watched`,
+  } = useDiscover<LikedItem>(
+    `/api/v1/user/${selectedUserId}/liked`,
     undefined,
     { hideAvailable: false, hideBlocklisted: false }
   );
@@ -61,12 +60,12 @@ const DiscoverWatched = () => {
 
   const title =
     selectedUserId === 'all'
-      ? 'Títulos vistos (Todos los perfiles)'
+      ? 'Títulos que gustan (Todos los perfiles)'
       : selectedProfile
       ? selectedProfile.id === currentUser?.id
-        ? 'Mis títulos vistos'
-        : `Títulos vistos de ${selectedProfile.displayName}`
-      : 'Títulos vistos';
+        ? 'Mis títulos favoritos'
+        : `Títulos que le gustan a ${selectedProfile.displayName}`
+      : 'Me gusta';
 
   return (
     <>
@@ -75,10 +74,10 @@ const DiscoverWatched = () => {
         <Header
           subtext={
             selectedUserId === 'all'
-              ? 'Películas y series marcadas como vistas en todos los perfiles de la casa'
+              ? 'Películas y series favoritas de todos los perfiles de la casa'
               : selectedProfile
-              ? `Historial de títulos vistos por ${selectedProfile.displayName}`
-              : 'Películas y series que has registrado como vistas'
+              ? `Títulos marcados con Me gusta por ${selectedProfile.displayName}`
+              : 'Películas y series que has añadido a tus favoritos'
           }
         >
           {title}
@@ -94,11 +93,11 @@ const DiscoverWatched = () => {
             const isSelected = selectedUserId === p.id;
             return (
               <button
-                key={`watched-profile-tab-${p.id}`}
+                key={`liked-profile-tab-${p.id}`}
                 onClick={() => setSelectedUserId(p.id)}
                 className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
                   isSelected
-                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                    ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
                     : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 hover:text-white'
                 }`}
               >
@@ -117,7 +116,7 @@ const DiscoverWatched = () => {
             onClick={() => setSelectedUserId('all')}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
               selectedUserId === 'all'
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
                 : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 hover:text-white'
             }`}
           >
@@ -147,4 +146,4 @@ const DiscoverWatched = () => {
   );
 };
 
-export default DiscoverWatched;
+export default DiscoverLiked;

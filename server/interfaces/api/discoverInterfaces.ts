@@ -25,6 +25,12 @@ export interface WatchedItem {
   mediaType: 'movie' | 'tv';
   title: string;
   createdAt?: string;
+  userId?: number;
+  user?: {
+    id: number;
+    displayName: string;
+    avatar?: string;
+  };
 }
 
 export interface WatchedResponse {
@@ -32,5 +38,26 @@ export interface WatchedResponse {
   totalPages: number;
   totalResults: number;
   results: WatchedItem[];
+}
+
+export interface LikedItem {
+  id: number;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  title: string;
+  createdAt?: string;
+  userId?: number;
+  user?: {
+    id: number;
+    displayName: string;
+    avatar?: string;
+  };
+}
+
+export interface LikedResponse {
+  page: number;
+  totalPages: number;
+  totalResults: number;
+  results: LikedItem[];
 }
 

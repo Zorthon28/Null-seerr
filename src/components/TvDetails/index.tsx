@@ -43,6 +43,7 @@ import { Disclosure, Transition } from '@headlessui/react';
 import {
   ChevronDownIcon,
   CheckCircleIcon,
+  HeartIcon,
   ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
   GlobeAltIcon,
@@ -58,8 +59,10 @@ import {
   SparklesIcon,
   StarIcon,
   CheckCircleIcon as CheckCircleSolidIcon,
+  HeartIcon as HeartSolidIcon,
 } from '@heroicons/react/24/solid';
 import useWatched from '@app/hooks/useWatched';
+import useLiked from '@app/hooks/useLiked';
 import type { RTRating } from '@server/api/rating/rottentomatoes';
 import { ANIME_KEYWORD_ID } from '@server/api/themoviedb/constants';
 import { IssueStatus } from '@server/constants/issue';
@@ -255,6 +258,40 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
       });
     } finally {
       setIsWatchedUpdating(false);
+    }
+  };
+
+  const { isLiked, toggleLiked } = useLiked();
+  const [isLikedUpdating, setIsLikedUpdating] = useState(false);
+  const isSeriesLiked = isLiked(data?.id, 'tv');
+
+  const toggleSeriesLiked = async () => {
+    if (!data) return;
+    setIsLikedUpdating(true);
+    try {
+      await toggleLiked(data.id, 'tv', data.name);
+      if (isSeriesLiked) {
+        addToast(
+          <span>
+            Removed <strong>{data.name}</strong> from liked titles
+          </span>,
+          { appearance: 'info', autoDismiss: true }
+        );
+      } else {
+        addToast(
+          <span>
+            Added <strong>{data.name}</strong> to liked titles!
+          </span>,
+          { appearance: 'success', autoDismiss: true }
+        );
+      }
+    } catch {
+      addToast('Something went wrong updating liked status', {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    } finally {
+      setIsLikedUpdating(false);
     }
   };
 
@@ -856,6 +893,35 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                   <CheckCircleSolidIcon className="h-5 w-5 text-white" />
                 ) : (
                   <CheckCircleIcon className="h-5 w-5 text-emerald-400" />
+                )}
+              </Button>
+            </Tooltip>
+          )}
+          {user && (
+            <Tooltip
+              content={
+                isSeriesLiked
+                  ? 'Quitar de Me gusta'
+                  : 'Me gusta'
+              }
+            >
+              <Button
+                buttonType={isSeriesLiked ? 'primary' : 'ghost'}
+                className={`z-40 ${
+                  isSeriesLiked
+                    ? '!bg-rose-600 hover:!bg-rose-700 text-white shadow-lg'
+                    : 'text-rose-400 hover:bg-rose-500/20'
+                }`}
+                buttonSize={'md'}
+                disabled={isLikedUpdating}
+                onClick={toggleSeriesLiked}
+              >
+                {isLikedUpdating ? (
+                  <Spinner />
+                ) : isSeriesLiked ? (
+                  <HeartSolidIcon className="h-5 w-5 text-white" />
+                ) : (
+                  <HeartIcon className="h-5 w-5 text-rose-400" />
                 )}
               </Button>
             </Tooltip>

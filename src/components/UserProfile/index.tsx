@@ -9,8 +9,17 @@ import ProfileHeader from '@app/components/UserProfile/ProfileHeader';
 import { Permission, UserType, useUser } from '@app/hooks/useUser';
 import ErrorPage from '@app/pages/_error';
 import defineMessages from '@app/utils/defineMessages';
-import { ArrowRightCircleIcon } from '@heroicons/react/24/outline';
-import type { WatchlistResponse, WatchedResponse } from '@server/interfaces/api/discoverInterfaces';
+import {
+  ArrowRightCircleIcon,
+  HeartIcon,
+  UserGroupIcon,
+} from '@heroicons/react/24/outline';
+import type { ProfileItem } from '@app/components/ProfileSwitcher';
+import type {
+  WatchlistResponse,
+  WatchedResponse,
+  LikedResponse,
+} from '@server/interfaces/api/discoverInterfaces';
 import type {
   QuotaResponse,
   UserRequestsResponse,
@@ -52,6 +61,16 @@ const UserProfile = () => {
   const [availableTitles, setAvailableTitles] = useState<
     Record<number, MediaTitle>
   >({});
+  const { data: profiles } = useSWR<ProfileItem[]>('/api/v1/auth/profiles');
+  const [selectedProfileId, setSelectedProfileId] = useState<number | 'all'>(
+    user?.id ?? 'all'
+  );
+
+  useEffect(() => {
+    if (user?.id) {
+      setSelectedProfileId(user.id);
+    }
+  }, [user?.id]);
 
   const { data: requests, error: requestError } = useSWR<UserRequestsResponse>(
     user &&
@@ -106,7 +125,23 @@ const UserProfile = () => {
             type: 'or',
           }
         )
-        ? `/api/v1/user/${user?.id}/watched`
+        ? `/api/v1/user/${selectedProfileId}/watched`
+        : null,
+      {
+        revalidateOnMount: true,
+      }
+    );
+
+  const { data: likedItems, error: likedError } =
+    useSWR<LikedResponse>(
+      user?.id === currentUser?.id ||
+        currentHasPermission(
+          [Permission.MANAGE_REQUESTS, Permission.WATCHLIST_VIEW],
+          {
+            type: 'or',
+          }
+        )
+        ? `/api/v1/user/${selectedProfileId}/liked`
         : null,
       {
         revalidateOnMount: true,
@@ -398,6 +433,106 @@ const UserProfile = () => {
             type: 'or',
           }
         )) &&
+        profiles &&
+        profiles.length > 1 && (
+          <div className="mb-2 mt-6 flex flex-wrap items-center gap-2 rounded-xl bg-gray-800/60 p-2.5 ring-1 ring-gray-700/60 backdrop-blur-md">
+            <span className="px-2 text-xs font-semibold text-gray-400">
+              Ver actividad por perfil:
+            </span>
+            {profiles.map((p) => {
+              const isSelected = selectedProfileId === p.id;
+              return (
+                <button
+                  key={`userprofile-filter-${p.id}`}
+                  onClick={() => setSelectedProfileId(p.id)}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                    isSelected
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 hover:text-white'
+                  }`}
+                >
+                  <img
+                    src={p.avatar}
+                    alt=""
+                    className="h-4 w-4 rounded-full object-cover ring-1 ring-white/20"
+                  />
+                  <span>
+                    {p.displayName} {p.id === currentUser?.id ? '(Tú)' : ''}
+                  </span>
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setSelectedProfileId('all')}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                selectedProfileId === 'all'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                  : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              <UserGroupIcon className="h-4 w-4" />
+              <span>Todos los perfiles</span>
+            </button>
+          </div>
+        )}
+      {(user.id === currentUser?.id ||
+        currentHasPermission(
+          [Permission.MANAGE_REQUESTS, Permission.WATCHLIST_VIEW],
+          {
+            type: 'or',
+          }
+        )) &&
+        (!likedItems || !!likedItems.results.length) &&
+        !likedError && (
+          <>
+            <div className="slider-header">
+              <Link
+                href={
+                  user.id === currentUser?.id
+                    ? `/profile/liked${selectedProfileId !== user.id ? `?userId=${selectedProfileId}` : ''}`
+                    : `/users/${user.id}/liked${selectedProfileId !== user.id ? `?userId=${selectedProfileId}` : ''}`
+                }
+                className="slider-title"
+              >
+                <span className="flex items-center gap-2">
+                  <HeartIcon className="h-5 w-5 text-rose-500" />
+                  <span>
+                    {selectedProfileId === 'all'
+                      ? 'Títulos que gustan (Todos los perfiles)'
+                      : selectedProfileId === currentUser?.id
+                      ? 'Títulos que te gustan'
+                      : `Títulos que le gustan a ${
+                          profiles?.find((p) => p.id === selectedProfileId)
+                            ?.displayName ?? 'Usuario'
+                        }`}
+                  </span>
+                </span>
+                <ArrowRightCircleIcon />
+              </Link>
+            </div>
+            <Slider
+              sliderKey="liked"
+              isLoading={!likedItems}
+              isEmpty={!!likedItems && likedItems.results.length === 0}
+              emptyMessage="No hay títulos marcados con Me gusta."
+              items={likedItems?.results.map((item) => (
+                <TmdbTitleCard
+                  id={item.tmdbId}
+                  key={`liked-slider-item-${item.id}`}
+                  tmdbId={item.tmdbId}
+                  type={item.mediaType}
+                />
+              ))}
+            />
+          </>
+        )}
+      {(user.id === currentUser?.id ||
+        currentHasPermission(
+          [Permission.MANAGE_REQUESTS, Permission.WATCHLIST_VIEW],
+          {
+            type: 'or',
+          }
+        )) &&
         (!watchedItems || !!watchedItems.results.length) &&
         !watchedError && (
           <>
@@ -405,12 +540,23 @@ const UserProfile = () => {
               <Link
                 href={
                   user.id === currentUser?.id
-                    ? '/profile/watched'
-                    : `/users/${user.id}/watched`
+                    ? `/profile/watched${selectedProfileId !== user.id ? `?userId=${selectedProfileId}` : ''}`
+                    : `/users/${user.id}/watched${selectedProfileId !== user.id ? `?userId=${selectedProfileId}` : ''}`
                 }
                 className="slider-title"
               >
-                <span>Watched Titles</span>
+                <span className="flex items-center gap-2">
+                  <span>
+                    {selectedProfileId === 'all'
+                      ? 'Títulos vistos (Todos los perfiles)'
+                      : selectedProfileId === currentUser?.id
+                      ? 'Títulos vistos'
+                      : `Títulos vistos por ${
+                          profiles?.find((p) => p.id === selectedProfileId)
+                            ?.displayName ?? 'Usuario'
+                        }`}
+                  </span>
+                </span>
                 <ArrowRightCircleIcon />
               </Link>
             </div>

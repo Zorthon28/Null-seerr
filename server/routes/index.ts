@@ -20,6 +20,7 @@ import overrideRuleRoutes from '@server/routes/overrideRule';
 import settingsRoutes from '@server/routes/settings';
 import watchlistRoutes from '@server/routes/watchlist';
 import watchedRoutes from '@server/routes/watched';
+import likedRoutes from '@server/routes/liked';
 import streamRoutes from '@server/routes/stream';
 import {
   appDataPath,
@@ -164,6 +165,7 @@ router.use('/discover', isAuthenticated(), discoverRoutes);
 router.use('/request', isAuthenticated(), requestRoutes);
 router.use('/watchlist', isAuthenticated(), watchlistRoutes);
 router.use('/watched', isAuthenticated(), watchedRoutes);
+router.use('/liked', isAuthenticated(), likedRoutes);
 router.use('/stream', isAuthenticated(), streamRoutes);
 router.use('/blocklist', isAuthenticated(), blocklistRoutes);
 router.use(
