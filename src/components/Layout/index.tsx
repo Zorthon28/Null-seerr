@@ -3,7 +3,6 @@ import PullToRefresh from '@app/components/Layout/PullToRefresh';
 import SearchInput from '@app/components/Layout/SearchInput';
 import Sidebar from '@app/components/Layout/Sidebar';
 import UserDropdown from '@app/components/Layout/UserDropdown';
-import ProfileSwitcher from '@app/components/ProfileSwitcher';
 import UserWarnings from '@app/components/Layout/UserWarnings';
 import LowStorageAlertBanner from '@app/components/Storage/LowStorageAlertBanner';
 import Tooltip from '@app/components/Common/Tooltip';
@@ -210,7 +209,6 @@ const Layout = ({ children }: LayoutProps) => {
                   </Tooltip>
                 </>
               )}
-              <ProfileSwitcher />
               <UserDropdown />
             </div>
           </div>
