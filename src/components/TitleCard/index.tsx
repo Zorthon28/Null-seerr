@@ -69,6 +69,7 @@ const messages = defineMessages('components.TitleCard', {
   upcoming: 'Upcoming',
   inCinemas: 'In Cinemas',
   becauseYouLiked: 'Because you liked {title}',
+  becauseYouLikedShort: 'Because you liked',
 });
 
 const getReleaseStatus = (
@@ -577,13 +578,19 @@ const TitleCard = ({
           )}
           {basedOnTitle && !showDetail && (
             <div className="absolute bottom-1.5 inset-x-1.5 pointer-events-none z-30">
-              <div className="flex items-center gap-1 rounded-md bg-gray-950/90 backdrop-blur-md border border-rose-500/50 px-1.5 py-0.5 text-[10px] sm:text-xs font-semibold text-rose-200 shadow-lg">
-                <SparklesIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-rose-400 flex-shrink-0" />
-                <span className="truncate">
-                  {intl.formatMessage(messages.becauseYouLiked, {
-                    title: basedOnTitle,
-                  })}
-                </span>
+              <div className="flex flex-col rounded-lg bg-gray-950/95 backdrop-blur-md border border-rose-500/50 px-2 py-1 shadow-xl">
+                <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold text-rose-400">
+                  <SparklesIcon className="h-2.5 w-2.5 flex-shrink-0 text-rose-400" />
+                  <span className="truncate">
+                    {intl.formatMessage(messages.becauseYouLikedShort)}
+                  </span>
+                </div>
+                <div
+                  className="truncate text-[11px] sm:text-xs font-semibold text-white leading-tight"
+                  title={basedOnTitle}
+                >
+                  {basedOnTitle}
+                </div>
               </div>
             </div>
           )}
@@ -757,15 +764,16 @@ const TitleCard = ({
                     }`}
                   >
                     {(basedOnTitle || recommendationReason) && (
-                      <div className="mb-1.5 inline-flex items-center gap-1 rounded bg-rose-500/25 border border-rose-500/40 px-1.5 py-0.5 text-[10px] font-semibold text-rose-200 backdrop-blur-sm">
-                        <SparklesIcon className="h-3 w-3 text-rose-300 flex-shrink-0" />
-                        <span className="truncate max-w-[170px]">
-                          {basedOnTitle
-                            ? intl.formatMessage(messages.becauseYouLiked, {
-                                title: basedOnTitle,
-                              })
-                            : recommendationReason}
-                        </span>
+                      <div className="mb-1.5 flex flex-col rounded-md bg-rose-950/80 border border-rose-500/40 px-2 py-1 backdrop-blur-md">
+                        <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold text-rose-300">
+                          <SparklesIcon className="h-2.5 w-2.5 text-rose-400 flex-shrink-0" />
+                          <span>
+                            {intl.formatMessage(messages.becauseYouLikedShort)}
+                          </span>
+                        </div>
+                        <div className="text-xs font-semibold text-white line-clamp-2 leading-snug">
+                          {basedOnTitle || recommendationReason}
+                        </div>
                       </div>
                     )}
                     {displayYear && (
