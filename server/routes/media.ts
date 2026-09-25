@@ -1418,6 +1418,16 @@ async function deleteWatchedMediaFile({
     const remainingFiles = episodeFiles.filter((ef) => !deletedFileIds.has(ef.id));
 
     if (remainingFiles.length === 0) {
+      try {
+        await sonarr.deleteSeries(sonarrSeriesId, false);
+        logger.info(
+          `[Media Cleanup] Removed series ${sonarrTitle} (ID ${sonarrSeriesId}) from Sonarr since all files have been deleted.`
+        );
+      } catch (err: any) {
+        logger.warn(
+          `[Media Cleanup] Failed to remove series ${sonarrSeriesId} from Sonarr: ${err.message}`
+        );
+      }
       media[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
       if (
         (!is4k && media.status4k !== MediaStatus.AVAILABLE) ||
