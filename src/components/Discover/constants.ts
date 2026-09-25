@@ -88,8 +88,8 @@ export const sliderTitles = defineMessages('components.Discover', {
   tmdbsearch: 'TMDB Search',
   tmdbmoviestreamingservices: 'TMDB Movie Streaming Services',
   tmdbtvstreamingservices: 'TMDB TV Streaming Services',
-  smartrecommendations: '✨ AI Smart Recommendations',
-  recommendationsRecent: '✨ AI Smart Recommendations',
+  smartrecommendations: 'Based on what you liked',
+  recommendationsRecent: 'Based on what you liked',
   recommendationsMovies: 'Movies for You',
   recommendationsSeries: 'Series for You',
 });
