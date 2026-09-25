@@ -190,8 +190,12 @@ class StalledDownloadAutomation {
         for (const item of queue) {
           if (!item.movieId) continue;
           try {
-            const movie = await radarrApi.getMovie({ id: item.movieId });
-            if (movie && movie.hasFile) {
+            // Check directly from item.movie returned by atomic includeMovie: true
+            const movieHasFile =
+              Boolean(item.movie?.hasFile) ||
+              Boolean(item.movie?.movieFileId && item.movie.movieFileId > 0);
+
+            if (movieHasFile) {
               const downloadId = item.downloadId?.toLowerCase();
               const tor = downloadId ? torrentMap.get(downloadId) : null;
               const isRedundantOrStalled =
@@ -202,8 +206,9 @@ class StalledDownloadAutomation {
                 (tor.num_seeds === 0 && tor.progress < 0.05);
 
               if (isRedundantOrStalled) {
+                const title = item.movie?.title || item.title;
                 logger.info(
-                  `[GhostQueueCleanup] Removing ghost queue item ID ${item.id} for movie "${movie.title}" — movie already has file on disk.`
+                  `[GhostQueueCleanup] Removing ghost queue item ID ${item.id} for movie "${title}" — movie already has file on disk.`
                 );
 
                 await radarrApi.deleteQueueItem({

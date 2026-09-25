@@ -66,7 +66,10 @@ export interface RadarrMovie {
   };
 }
 
-class RadarrAPI extends ServarrBase<{ movieId: number }> {
+class RadarrAPI extends ServarrBase<{
+  movieId: number;
+  movie?: RadarrMovie & { movieFileId?: number };
+}> {
   constructor({ url, apiKey }: { url: string; apiKey: string }) {
     super({ url, apiKey, cacheName: 'radarr', apiName: 'Radarr' });
   }
