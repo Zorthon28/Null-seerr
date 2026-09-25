@@ -605,23 +605,6 @@ const TitleCard = ({
               />
             </div>
           )}
-          {basedOnTitle && !showDetail && (
-            <div className="absolute bottom-1.5 inset-x-1.5 pointer-events-none z-30">
-              <div className="flex flex-col rounded-lg bg-gray-950/95 backdrop-blur-md border border-rose-500/50 px-2 py-1 shadow-xl">
-                <div className="text-[9px] uppercase tracking-wider font-bold text-rose-400">
-                  <span className="truncate">
-                    {intl.formatMessage(messages.becauseYouLikedShort)}
-                  </span>
-                </div>
-                <div
-                  className="truncate text-[11px] sm:text-xs font-semibold text-white leading-tight"
-                  title={basedOnTitle}
-                >
-                  {basedOnTitle}
-                </div>
-              </div>
-            </div>
-          )}
           <div className="absolute left-0 right-0 top-0 flex items-start justify-between p-2 pointer-events-none z-40">
             <div className="flex flex-col items-start gap-1">
               {releaseStatus === 'inCinemas' ? (
@@ -935,6 +918,32 @@ const TitleCard = ({
           </Transition>
         </div>
       </div>
+      {basedOnTitle && (
+        <Link
+          href={
+            mediaType === 'movie'
+              ? `/movie/${id}${basedOnTitle ? `?basedOn=${encodeURIComponent(basedOnTitle)}` : ''}`
+              : mediaType === 'collection'
+                ? `/collection/${id}`
+                : `/tv/${id}${basedOnTitle ? `?basedOn=${encodeURIComponent(basedOnTitle)}` : ''}`
+          }
+          className="mt-1.5 block px-0.5 text-left transition hover:opacity-90"
+        >
+          <div className="flex flex-col rounded-lg bg-gray-900/90 border border-rose-500/40 px-2 py-1 shadow-sm backdrop-blur-sm">
+            <div className="text-[9px] uppercase tracking-wider font-bold text-rose-400">
+              <span className="truncate">
+                {intl.formatMessage(messages.becauseYouLikedShort)}
+              </span>
+            </div>
+            <div
+              className="truncate text-[11px] sm:text-xs font-semibold text-white leading-tight"
+              title={basedOnTitle}
+            >
+              {basedOnTitle}
+            </div>
+          </div>
+        </Link>
+      )}
     </div>
   );
 };
