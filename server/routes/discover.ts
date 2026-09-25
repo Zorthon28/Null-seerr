@@ -10,6 +10,7 @@ import { User } from '@server/entity/User';
 import { Watched } from '@server/entity/Watched';
 import { Watchlist } from '@server/entity/Watchlist';
 import { Liked } from '@server/entity/Liked';
+import { DismissedRecommendation } from '@server/entity/DismissedRecommendation';
 import axios from 'axios';
 import type {
   GenreSliderItem,
@@ -1166,6 +1167,26 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       }
     }
 
+    const dismissedRepository = getRepository(DismissedRecommendation);
+    let dismissedSeriesIds: number[] = [];
+    let dismissedMovieIds: number[] = [];
+
+    if (req.user?.id) {
+      try {
+        const dismissedItems = await dismissedRepository.find({
+          where: { userId: req.user.id },
+        });
+        dismissedSeriesIds = dismissedItems
+          .filter((d) => d.mediaType === 'tv')
+          .map((d) => d.tmdbId);
+        dismissedMovieIds = dismissedItems
+          .filter((d) => d.mediaType === 'movie')
+          .map((d) => d.tmdbId);
+      } catch {
+        // Continue
+      }
+    }
+
     const addedIds = new Set<number>();
 
     const isExcluded = (id: number, mediaType: 'movie' | 'tv') => {
@@ -1174,13 +1195,15 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
         return (
           allLibraryMovieIds.has(id) ||
           watchedMovieIds.includes(id) ||
-          likedMovieIds.includes(id)
+          likedMovieIds.includes(id) ||
+          dismissedMovieIds.includes(id)
         );
       } else {
         return (
           allLibrarySeriesIds.has(id) ||
           watchedSeriesIds.includes(id) ||
-          likedSeriesIds.includes(id)
+          likedSeriesIds.includes(id) ||
+          dismissedSeriesIds.includes(id)
         );
       }
     };
@@ -1471,6 +1494,13 @@ discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
 
   try {
     const { watchedMovieIds, allLibraryMovieIds } = await getWatchedMediaHistory(req.user);
+    const dismissedRepo = getRepository(DismissedRecommendation);
+    const dismissedMovies = req.user?.id
+      ? await dismissedRepo.find({
+          where: { userId: req.user.id, mediaType: MediaType.MOVIE },
+        })
+      : [];
+    const dismissedMovieIds = new Set(dismissedMovies.map((d) => d.tmdbId));
     const candidateScores = new Map<number, number>();
     const candidateMovieMap = new Map<number, any>();
 
@@ -1504,7 +1534,11 @@ discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
 
           for (let rank = 0; rank < Math.min((list || []).length, 10); rank++) {
             const movie = list[rank];
-            if (allLibraryMovieIds.has(movie.id) || watchedMovieIds.includes(movie.id)) {
+            if (
+              allLibraryMovieIds.has(movie.id) ||
+              watchedMovieIds.includes(movie.id) ||
+              dismissedMovieIds.has(movie.id)
+            ) {
               continue;
             }
             const currentScore = candidateScores.get(movie.id) || 0;
@@ -1591,6 +1625,13 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
 
   try {
     const { watchedSeriesIds, allLibrarySeriesIds } = await getWatchedMediaHistory(req.user);
+    const dismissedRepo = getRepository(DismissedRecommendation);
+    const dismissedSeries = req.user?.id
+      ? await dismissedRepo.find({
+          where: { userId: req.user.id, mediaType: MediaType.TV },
+        })
+      : [];
+    const dismissedSeriesIds = new Set(dismissedSeries.map((d) => d.tmdbId));
     const candidateScores = new Map<number, number>();
     const candidateSeriesMap = new Map<number, any>();
 
@@ -1604,7 +1645,8 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
           if (
             tid &&
             !allLibrarySeriesIds.has(tid) &&
-            !watchedSeriesIds.includes(tid)
+            !watchedSeriesIds.includes(tid) &&
+            !dismissedSeriesIds.has(tid)
           ) {
             candidateScores.set(
               tid,
@@ -1650,7 +1692,8 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
           const show = list[rank];
           if (
             allLibrarySeriesIds.has(show.id) ||
-            watchedSeriesIds.includes(show.id)
+            watchedSeriesIds.includes(show.id) ||
+            dismissedSeriesIds.has(show.id)
           ) {
             continue;
           }

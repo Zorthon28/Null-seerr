@@ -21,7 +21,11 @@ import {
   StarIcon,
   SparklesIcon,
 } from '@heroicons/react/24/solid';
-import { CheckCircleIcon as CheckCircleOutlineIcon } from '@heroicons/react/24/outline';
+import {
+  CheckCircleIcon as CheckCircleOutlineIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline';
+import { useDismissedRecommendations } from '@app/hooks/useDismissedRecommendations';
 import axios from 'axios';
 import { useRouter } from 'next/router';
 import React, {
@@ -275,6 +279,19 @@ export const NetflixPreviewCard: React.FC = () => {
     );
   }, [item, closePreviewNow, router]);
 
+  const { dismiss } = useDismissedRecommendations();
+
+  const handleDismissClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!item) return;
+      closePreviewNow();
+      dismiss(item.id, item.mediaType, item.title);
+    },
+    [item, closePreviewNow, dismiss]
+  );
+
   const handlePlayClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -515,6 +532,18 @@ export const NetflixPreviewCard: React.FC = () => {
                     ) : (
                       <StarIcon className="h-4 w-4 text-amber-400" />
                     )}
+                  </button>
+                </Tooltip>
+              )}
+
+              {/* Dismiss / Not Interested */}
+              {user && (
+                <Tooltip content="Not interested">
+                  <button
+                    onClick={handleDismissClick}
+                    className="p-2 rounded-full border border-gray-700 bg-gray-800 text-gray-400 hover:text-rose-400 hover:border-rose-500/50 hover:bg-gray-700 transition active:scale-95 shadow"
+                  >
+                    <XMarkIcon className="h-4 w-4" />
                   </button>
                 </Tooltip>
               )}

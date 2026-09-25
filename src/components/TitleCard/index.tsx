@@ -24,10 +24,12 @@ import {
   PlayIcon,
   TicketIcon,
   CheckCircleIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { CheckCircleIcon as CheckCircleSolidIcon, SparklesIcon } from '@heroicons/react/24/solid';
 import { useNetflixPreview } from '@app/context/NetflixPreviewContext';
 import useWatched from '@app/hooks/useWatched';
+import { useDismissedRecommendations } from '@app/hooks/useDismissedRecommendations';
 import { MediaStatus } from '@server/constants/media';
 import type { Watchlist } from '@server/entity/Watchlist';
 import type { MediaType } from '@server/models/Search';
@@ -70,6 +72,7 @@ const messages = defineMessages('components.TitleCard', {
   inCinemas: 'In Cinemas',
   becauseYouLiked: 'Because you liked {title}',
   becauseYouLikedShort: 'Because you liked',
+  notInterested: 'Not interested',
 });
 
 const getReleaseStatus = (
@@ -134,6 +137,17 @@ const TitleCard = ({
   const { requestPreview, cancelPreview, isPreviewEnabled } = useNetflixPreview();
   const { isWatched: checkIsWatched, markWatched, unmarkWatched } = useWatched();
   const isWatched = isWatchedItem ?? checkIsWatched(id, mediaType);
+  const { isDismissed, dismiss } = useDismissedRecommendations();
+  const isCardDismissed = isDismissed(id, mediaType);
+
+  const onClickDismissBtn = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dismiss(id, mediaType as 'movie' | 'tv', title);
+    },
+    [dismiss, id, mediaType, title]
+  );
 
   const { data: queueData } = useSWR<{ queue: Record<number, any> }>(
     '/api/v1/media/queue',
@@ -469,6 +483,10 @@ const TitleCard = ({
     </div>
   );
 
+  if (isCardDismissed) {
+    return null;
+  }
+
   return (
     <div
       className={canExpand ? 'w-full' : 'w-36 sm:w-36 md:w-44'}
@@ -694,6 +712,18 @@ const TitleCard = ({
                         <EyeSlashIcon className={'h-3.5 w-3.5'} />
                       </Button>
                     )}
+                  {user && (
+                    <Tooltip content={intl.formatMessage(messages.notInterested)}>
+                      <Button
+                        buttonType={'ghost'}
+                        className="z-40 !p-1 text-gray-400 hover:!text-rose-400 hover:!bg-rose-500/20"
+                        buttonSize={'sm'}
+                        onClick={onClickDismissBtn}
+                      >
+                        <XMarkIcon className={'h-3.5 w-3.5'} />
+                      </Button>
+                    </Tooltip>
+                  )}
                 </div>
               )}
               {showDetail &&

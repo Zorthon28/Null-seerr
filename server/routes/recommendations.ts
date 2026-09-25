@@ -7,6 +7,11 @@ import type {
   TmdbTvResult,
 } from '@server/api/themoviedb/interfaces';
 import { MediaType } from '@server/constants/media';
+import { getRepository } from '@server/datasource';
+import {
+  DismissedRecommendation,
+  DismissedNotFoundError,
+} from '@server/entity/DismissedRecommendation';
 import Media from '@server/entity/Media';
 import logger from '@server/logger';
 import { mapMovieResult, mapTvResult } from '@server/models/Search';
@@ -502,7 +507,26 @@ recommendationRoutes.get('/smart/:type/:id', async (req, res, next) => {
     }
 
     // 5. Compute calibrated affinity scores and dynamic reason tags
-    const candidateList = Array.from(rawCandidates.values());
+    let candidateList = Array.from(rawCandidates.values());
+    if (req.user?.id) {
+      try {
+        const dismissedRepo = getRepository(DismissedRecommendation);
+        const dismissed = await dismissedRepo.find({
+          where: { userId: req.user.id },
+          select: ['tmdbId', 'mediaType'],
+        });
+        const dismissedIds = new Set(
+          dismissed
+            .filter((d) => d.mediaType === mediaType)
+            .map((d) => d.tmdbId)
+        );
+        candidateList = candidateList.filter(
+          (c) => !dismissedIds.has(c.item.id)
+        );
+      } catch {
+        // Ignore
+      }
+    }
 
     // Fetch related media info from DB
     const mediaEntities = await Media.getRelatedMedia(
@@ -821,6 +845,95 @@ recommendationRoutes.post('/suggestarr/sync', async (_req, res, next) => {
       status: 500,
       message: 'Failed to sync with Suggestarr.',
     });
+  }
+});
+
+// GET /api/v1/recommendations/dismissed
+recommendationRoutes.get('/dismissed', async (req, res, next) => {
+  if (!req.user) {
+    return next({
+      status: 401,
+      message: 'You must be logged in to view dismissed recommendations.',
+    });
+  }
+
+  try {
+    const repo = getRepository(DismissedRecommendation);
+    const items = await repo.find({
+      where: { userId: req.user.id },
+      order: { createdAt: 'DESC' },
+    });
+
+    return res.status(200).json({
+      results: items.map((i) => ({
+        id: i.id,
+        tmdbId: i.tmdbId,
+        mediaType: i.mediaType,
+        title: i.title,
+        createdAt: i.createdAt,
+      })),
+    });
+  } catch (e: any) {
+    return next({ status: 500, message: e.message });
+  }
+});
+
+// POST /api/v1/recommendations/dismiss
+recommendationRoutes.post('/dismiss', async (req, res, next) => {
+  if (!req.user) {
+    return next({
+      status: 401,
+      message: 'You must be logged in to dismiss recommendations.',
+    });
+  }
+
+  const { tmdbId, mediaType, title } = req.body;
+  if (!tmdbId || !mediaType) {
+    return next({
+      status: 400,
+      message: 'tmdbId and mediaType are required.',
+    });
+  }
+
+  try {
+    const entry = await DismissedRecommendation.dismiss({
+      tmdbId: Number(tmdbId),
+      mediaType,
+      title,
+      user: req.user,
+    });
+
+    return res.status(201).json(entry);
+  } catch (e: any) {
+    return next({ status: 500, message: e.message });
+  }
+});
+
+// DELETE /api/v1/recommendations/dismiss/:tmdbId
+recommendationRoutes.delete('/dismiss/:tmdbId', async (req, res, next) => {
+  if (!req.user) {
+    return next({
+      status: 401,
+      message: 'You must be logged in to restore recommendations.',
+    });
+  }
+
+  const tmdbId = Number(req.params.tmdbId);
+  const mediaType = req.query.mediaType as MediaType | undefined;
+
+  try {
+    await DismissedRecommendation.undismiss({
+      tmdbId,
+      mediaType,
+      userId: req.user.id,
+    });
+
+    return res.status(204).send();
+  } catch (e: any) {
+    if (e instanceof DismissedNotFoundError) {
+      return next({ status: 404, message: e.message });
+    }
+    return next({ status: 500, message: e.message });
   }
 });
 

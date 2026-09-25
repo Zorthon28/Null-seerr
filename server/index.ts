@@ -107,6 +107,24 @@ app
       await dbConnection.query(`
         CREATE INDEX IF NOT EXISTS "IDX_watched_userId" ON "watched" ("userId")
       `);
+      await dbConnection.query(`
+        CREATE TABLE IF NOT EXISTS "dismissed_recommendation" (
+          "id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+          "mediaType" varchar NOT NULL,
+          "title" varchar NOT NULL DEFAULT '',
+          "tmdbId" integer NOT NULL,
+          "userId" integer NOT NULL,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now')),
+          CONSTRAINT "UNIQUE_USER_DISMISSED" UNIQUE ("tmdbId", "mediaType", "userId")
+        )
+      `);
+      await dbConnection.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_dismissed_tmdbId" ON "dismissed_recommendation" ("tmdbId")
+      `);
+      await dbConnection.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_dismissed_userId" ON "dismissed_recommendation" ("userId")
+      `);
     } catch {
       // Table/index already exists
     }
