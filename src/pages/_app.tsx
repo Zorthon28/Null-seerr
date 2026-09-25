@@ -197,6 +197,10 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
         fallback: {
           '/api/v1/auth/me': user,
         },
+        revalidateOnFocus: false,
+        revalidateOnReconnect: true,
+        dedupingInterval: 10000,
+        focusThrottleInterval: 30000,
       }}
     >
       <LanguageContext.Provider value={{ locale: currentLocale, setLocale }}>

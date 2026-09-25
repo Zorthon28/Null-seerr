@@ -69,6 +69,20 @@ export const createTmdbWithBlocklistSettings = (): TheMovieDb => {
 
 const discoverRoutes = Router();
 
+discoverRoutes.use((req, res, next) => {
+  if (req.method === 'GET' && !res.getHeader('Cache-Control')) {
+    if (req.path.includes('/watchlist')) {
+      res.setHeader('Cache-Control', 'private, no-cache');
+    } else {
+      res.setHeader(
+        'Cache-Control',
+        'private, max-age=60, stale-while-revalidate=180'
+      );
+    }
+  }
+  next();
+});
+
 const QueryFilterOptions = z.object({
   page: z.coerce.string().optional(),
   sortBy: z.coerce.string().optional(),

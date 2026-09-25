@@ -155,7 +155,7 @@ const TitleCard = ({
 
   const { data: queueData } = useSWR<{ queue: Record<number, any> }>(
     '/api/v1/media/queue',
-    { refreshInterval: 15000 }
+    { refreshInterval: 15000, revalidateOnFocus: false, dedupingInterval: 15000 }
   );
 
   const activeQueueItem = queueData?.queue?.[id];
@@ -537,6 +537,13 @@ const TitleCard = ({
         onMouseEnter={() => {
           if (!isTouch) {
             setShowDetail(true);
+            const targetUrl =
+              mediaType === 'movie'
+                ? `/movie/${id}${basedOnTitle ? `?basedOn=${encodeURIComponent(basedOnTitle)}` : ''}`
+                : mediaType === 'collection'
+                  ? `/collection/${id}`
+                  : `/tv/${id}${basedOnTitle ? `?basedOn=${encodeURIComponent(basedOnTitle)}` : ''}`;
+            router.prefetch(targetUrl);
             if (isPreviewEnabled && cardRef.current) {
               requestPreview(
                 {

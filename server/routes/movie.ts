@@ -86,6 +86,10 @@ movieRoutes.get('/:id', async (req, res, next) => {
       }
     }
 
+    res.setHeader(
+      'Cache-Control',
+      'private, max-age=60, stale-while-revalidate=180'
+    );
     return res.status(200).json(data);
   } catch (e) {
     logger.debug('Something went wrong retrieving movie', {
@@ -118,6 +122,10 @@ movieRoutes.get('/:id/recommendations', async (req, res, next) => {
       }))
     );
 
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=300, stale-while-revalidate=600'
+    );
     return res.status(200).json({
       page: results.page,
       totalPages: results.total_pages,
@@ -163,6 +171,10 @@ movieRoutes.get('/:id/similar', async (req, res, next) => {
       }))
     );
 
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=300, stale-while-revalidate=600'
+    );
     return res.status(200).json({
       page: results.page,
       totalPages: results.total_pages,
@@ -263,6 +275,10 @@ movieRoutes.get('/:id/ratingscombined', async (req, res, next) => {
       ...(imdbRatings ? { imdb: imdbRatings } : {}),
     };
 
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=1800, stale-while-revalidate=3600'
+    );
     return res.status(200).json(ratings);
   } catch (e) {
     logger.debug('Something went wrong retrieving movie ratings', {

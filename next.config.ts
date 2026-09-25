@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  compress: true,
+  poweredByHeader: false,
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -8,6 +10,7 @@ const nextConfig: NextConfig = {
     commitTag: process.env.COMMIT_TAG || 'local',
   },
   images: {
+    minimumCacheTTL: 86400,
     remotePatterns: [
       { hostname: 'gravatar.com' },
       { hostname: 'image.tmdb.org' },

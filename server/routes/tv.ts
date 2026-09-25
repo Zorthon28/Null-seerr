@@ -107,6 +107,10 @@ tvRoutes.get('/:id', async (req, res, next) => {
       }
     }
 
+    res.setHeader(
+      'Cache-Control',
+      'private, max-age=60, stale-while-revalidate=180'
+    );
     return res.status(200).json(data);
   } catch (e) {
     logger.debug('Something went wrong retrieving series', {
@@ -126,6 +130,10 @@ tvRoutes.get('/:id/season/:seasonNumber', async (req, res, next) => {
     Number(req.params.id) === 69346 &&
     Number(req.params.seasonNumber) === 3
   ) {
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=300, stale-while-revalidate=600'
+    );
     return res.status(200).json({
       airDate: null,
       id: 69346 * 1000 + 3,
@@ -155,6 +163,10 @@ tvRoutes.get('/:id/season/:seasonNumber', async (req, res, next) => {
       language: (req.query.language as string) ?? req.locale,
     });
 
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=300, stale-while-revalidate=600'
+    );
     return res.status(200).json(mapSeasonWithEpisodes(season));
   } catch (e) {
     logger.debug('Something went wrong retrieving season', {
@@ -188,6 +200,10 @@ tvRoutes.get('/:id/recommendations', async (req, res, next) => {
       }))
     );
 
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=300, stale-while-revalidate=600'
+    );
     return res.status(200).json({
       page: results.page,
       totalPages: results.total_pages,
@@ -232,6 +248,10 @@ tvRoutes.get('/:id/similar', async (req, res, next) => {
       }))
     );
 
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=300, stale-while-revalidate=600'
+    );
     return res.status(200).json({
       page: results.page,
       totalPages: results.total_pages,
@@ -279,6 +299,10 @@ tvRoutes.get('/:id/ratings', async (req, res, next) => {
       });
     }
 
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=1800, stale-while-revalidate=3600'
+    );
     return res.status(200).json(rtratings);
   } catch (e) {
     logger.debug('Something went wrong retrieving series ratings', {
