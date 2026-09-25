@@ -676,6 +676,15 @@ class SonarrAPI extends ServarrBase<{
       throw e;
     }
   }
+
+  public async searchEpisodes(episodeIds: number[]): Promise<void> {
+    try {
+      await this.runCommand('EpisodeSearch', { episodeIds });
+      logger.info(`[Sonarr] Triggered EpisodeSearch for episodeIds ${episodeIds.join(',')}`);
+    } catch (e) {
+      logger.error(`[Sonarr] Failed to trigger EpisodeSearch: ${e.message}`);
+    }
+  }
 }
 
 export default SonarrAPI;

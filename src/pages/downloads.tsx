@@ -73,6 +73,9 @@ interface QueueItem {
   peersTotal?: number | null;
   torrentState?: string | null;
   swarmHealth?: 'healthy' | 'slow' | 'stalled' | 'idle' | null;
+  queueId?: number;
+  serverId?: number;
+  externalId?: number;
   details?: {
     monitored: boolean;
     status: string;
@@ -105,6 +108,42 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
       mutateRetention({ policy: newPolicy });
     } catch {
       // ignore
+    }
+  };
+
+  const [isSkipping, setIsSkipping] = useState(false);
+  const { addToast } = useToasts();
+
+  const handleSkipStalled = async () => {
+    if (
+      !confirm(
+        `Blocklist dead release "${item.title}" and search for an alternative release?`
+      )
+    ) {
+      return;
+    }
+    setIsSkipping(true);
+    try {
+      const res = await axios.post('/api/v1/media/queue/skip-stalled', {
+        tmdbId: item.tmdbId,
+        mediaType: item.mediaType,
+        downloadId: item.downloadId,
+        queueId: item.queueId,
+        serverId: item.serverId,
+        externalId: item.externalId,
+      });
+      addToast(
+        res.data?.message || 'Release blocklisted. Searching for an alternative...',
+        { appearance: 'success', autoDismiss: true }
+      );
+      globalMutate('/api/v1/media/queue');
+    } catch (err: any) {
+      addToast(
+        err?.response?.data?.message || 'Failed to search for alternative release',
+        { appearance: 'error', autoDismiss: true }
+      );
+    } finally {
+      setIsSkipping(false);
     }
   };
 
@@ -349,13 +388,29 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                 />
               </div>
 
-              {/* Swarm Stalled Warning Banner */}
+              {/* Swarm Stalled Warning Banner with Alternative Action */}
               {item.swarmHealth === 'stalled' && (
-                <div className="mb-2 rounded-lg border border-red-500/20 bg-red-950/20 px-3 py-1.5 text-xs text-red-400 flex items-center gap-2">
-                  <ExclamationCircleIcon className="h-4 w-4 shrink-0 text-red-400" />
-                  <span>
-                    <strong>Swarm Stalled:</strong> 0 seeders currently connected ({item.seedsTotal ?? 0} listed in tracker). Public tracker seeds may be offline or unconnectable.
-                  </span>
+                <div className="mb-2 rounded-xl border border-red-500/30 bg-red-950/30 p-3 text-xs text-red-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
+                  <div className="flex items-start sm:items-center gap-2.5">
+                    <ExclamationCircleIcon className="h-5 w-5 shrink-0 text-red-400 mt-0.5 sm:mt-0" />
+                    <div>
+                      <div className="font-semibold text-red-200">
+                        Swarm Stalled (0 Connected Seeds)
+                      </div>
+                      <div className="text-red-300/80 text-[11px]">
+                        No seeders sending data ({item.seedsTotal ?? 0} listed in tracker). Click to blocklist this dead release and find a working alternative.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleSkipStalled}
+                    disabled={isSkipping}
+                    className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white shadow transition duration-200 disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                    title="Remove dead torrent, blocklist it, and search indexers for an alternative release"
+                  >
+                    <ArrowPathIcon className={`w-3.5 h-3.5 ${isSkipping ? 'animate-spin' : ''}`} />
+                    <span>{isSkipping ? 'Searching...' : 'Find Alternative Release'}</span>
+                  </button>
                 </div>
               )}
 
@@ -509,7 +564,7 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
 
 const DownloadsPage: NextPage = () => {
   const [searchFilter, setSearchFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('downloading');
   const [sortField, setSortField] = useState<'title' | 'status' | 'progress' | 'eta' | 'size'>('status');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [isScanning, setIsScanning] = useState(false);
@@ -604,12 +659,17 @@ const DownloadsPage: NextPage = () => {
   const filteredItems = items.filter((item) => {
     // Status Filter
     if (statusFilter !== 'all') {
-      if (statusFilter === 'stream') {
-        if (item.protocol !== 'stream') {
+      if (statusFilter === 'downloading') {
+        const isDownloading =
+          item.status === 'downloading' ||
+          item.protocol === 'stream' ||
+          item.status === 'processing' ||
+          item.status === 'queued';
+        if (!isDownloading) {
           return false;
         }
-      } else if (statusFilter === 'stalled') {
-        if (item.swarmHealth !== 'stalled' && item.status !== 'failed') {
+      } else if (statusFilter === 'searching') {
+        if (item.status !== 'searching') {
           return false;
         }
       } else if (item.status !== statusFilter) {
@@ -915,25 +975,39 @@ const DownloadsPage: NextPage = () => {
             {/* Filter Status */}
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center rounded-xl bg-gray-900 border border-gray-700/50 p-1">
-                {['all', 'downloading', 'stream', 'stalled', 'searching', 'processing', 'failed'].map((status) => (
+                {[
+                  {
+                    id: 'downloading',
+                    label: 'Downloading',
+                    count: items.filter(
+                      (i) =>
+                        i.status === 'downloading' ||
+                        i.protocol === 'stream' ||
+                        i.status === 'processing' ||
+                        i.status === 'queued'
+                    ).length,
+                  },
+                  {
+                    id: 'searching',
+                    label: 'Searching',
+                    count: items.filter((i) => i.status === 'searching').length,
+                  },
+                  {
+                    id: 'all',
+                    label: 'All',
+                    count: items.length,
+                  },
+                ].map(({ id, label, count }) => (
                   <button
-                    key={status}
-                    onClick={() => setStatusFilter(status)}
-                    className={`text-xs px-3 py-1.5 rounded-lg font-semibold uppercase tracking-wider transition duration-200 ${
-                      statusFilter === status
+                    key={id}
+                    onClick={() => setStatusFilter(id)}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-semibold uppercase tracking-wider transition duration-200 cursor-pointer ${
+                      statusFilter === id
                         ? 'bg-indigo-600 text-white shadow-md'
                         : 'text-gray-400 hover:text-gray-200'
                     }`}
                   >
-                    {status === 'all'
-                      ? 'All'
-                      : status === 'stream'
-                      ? '⚡ Stream Latino'
-                      : status === 'processing'
-                      ? 'Importing'
-                      : status === 'stalled'
-                      ? 'Stalled (0 Seeds)'
-                      : status}
+                    {label} ({count})
                   </button>
                 ))}
               </div>

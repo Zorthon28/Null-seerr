@@ -192,6 +192,30 @@ class ServarrBase<QueueItemAppendT> extends ExternalAPI {
     }
   };
 
+  public deleteQueueItem = async ({
+    id,
+    removeFromClient = true,
+    blocklist = true,
+  }: {
+    id: number;
+    removeFromClient?: boolean;
+    blocklist?: boolean;
+  }): Promise<void> => {
+    try {
+      await this.axios.delete(`/queue/${id}`, {
+        params: {
+          removeFromClient,
+          blocklist,
+        },
+      });
+    } catch (e) {
+      throw new Error(
+        `[${this.apiName}] Failed to remove item from queue: ${e.message}`,
+        { cause: e }
+      );
+    }
+  };
+
   public getTags = async (): Promise<Tag[]> => {
     try {
       const response = await this.axios.get<Tag[]>(`/tag`);

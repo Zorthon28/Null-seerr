@@ -2,6 +2,7 @@ import RadarrAPI from '@server/api/servarr/radarr';
 import SonarrAPI from '@server/api/servarr/sonarr';
 import { MediaType } from '@server/constants/media';
 import { getSettings } from '@server/lib/settings';
+import stalledDownloadAutomation from '@server/lib/stalledDownloadAutomation';
 import logger from '@server/logger';
 import { uniqWith } from 'lodash';
 
@@ -62,6 +63,7 @@ class DownloadTracker {
   public updateDownloads() {
     this.updateRadarrDownloads();
     this.updateSonarrDownloads();
+    stalledDownloadAutomation.checkAndCleanStalled().catch(() => {});
   }
 
   private async updateRadarrDownloads() {

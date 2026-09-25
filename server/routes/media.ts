@@ -32,6 +32,7 @@ import { sonarrScanner } from '@server/lib/scanners/sonarr';
 import availabilitySync from '@server/lib/availabilitySync';
 import { streamDownloader } from '@server/lib/stream/streamDownloader';
 import { torrentManager } from '@server/lib/torrentManager';
+import stalledDownloadAutomation from '@server/lib/stalledDownloadAutomation';
 
 const mappingCache = new NodeCache({ stdTTL: 300 }); // 5 minutes TTL
 
@@ -311,6 +312,9 @@ mediaRoutes.get('/queue', async (req, res, next) => {
                 protocol: item.protocol || 'torrent',
                 is4k: server.is4k,
                 downloadId: (item as any).downloadId || null,
+                queueId: item.id,
+                serverId: server.id,
+                externalId: item.movieId,
                 seedsConnected: null,
                 seedsTotal: null,
                 peersConnected: null,
@@ -420,6 +424,9 @@ mediaRoutes.get('/queue', async (req, res, next) => {
                 protocol: item.protocol || 'torrent',
                 is4k: server.is4k,
                 downloadId: (item as any).downloadId || null,
+                queueId: item.id,
+                serverId: server.id,
+                externalId: item.seriesId,
                 seedsConnected: null,
                 seedsTotal: null,
                 peersConnected: null,
@@ -817,6 +824,29 @@ mediaRoutes.get('/queue', async (req, res, next) => {
     });
   } catch (e) {
     next({ status: 500, message: e.message });
+  }
+});
+
+mediaRoutes.post('/queue/skip-stalled', isAuthenticated(), async (req, res, next) => {
+  try {
+    const { mediaType, tmdbId, downloadId, queueId, serverId, externalId } = req.body;
+    if (!mediaType) {
+      return next({ status: 400, message: 'mediaType is required.' });
+    }
+
+    const result = await stalledDownloadAutomation.skipStalledTorrent({
+      mediaType,
+      tmdbId: tmdbId ? Number(tmdbId) : undefined,
+      downloadId: downloadId ? String(downloadId) : undefined,
+      queueId: queueId ? Number(queueId) : undefined,
+      serverId: serverId ? Number(serverId) : undefined,
+      externalId: externalId ? Number(externalId) : undefined,
+    });
+
+    return res.status(200).json(result);
+  } catch (e: any) {
+    logger.error(`[Queue API] Failed to skip stalled torrent: ${e.message}`);
+    return next({ status: 500, message: e.message || 'Failed to skip stalled torrent.' });
   }
 });
 
