@@ -28,6 +28,9 @@ import {
 } from '@server/models/Search';
 import { mapNetwork } from '@server/models/Tv';
 import { isCollection, isMovie, isPerson } from '@server/utils/typeHelpers';
+import RottenTomatoes from '@server/api/rating/rottentomatoes';
+import IMDBRadarrProxy from '@server/api/rating/imdbRadarrProxy';
+import type { RatingResponse } from '@server/api/ratings';
 import { Router } from 'express';
 import { sortBy } from 'lodash';
 import { z } from 'zod';
@@ -93,6 +96,8 @@ const QueryFilterOptions = z.object({
   certificationLte: z.coerce.string().optional(),
   certificationCountry: z.coerce.string().optional(),
   certificationMode: z.enum(['exact', 'range']).optional(),
+  rtScoreGte: z.coerce.string().optional(),
+  imdbScoreGte: z.coerce.string().optional(),
 });
 
 export type FilterOptions = z.infer<typeof QueryFilterOptions>;
@@ -107,6 +112,11 @@ discoverRoutes.get('/movies', async (req, res, next) => {
     const query = ApiQuerySchema.parse(req.query);
     const keywords = query.keywords;
     const excludeKeywords = query.excludeKeywords;
+
+    let effectiveVoteCountGte = query.voteCountGte;
+    if (query.sortBy?.includes('vote_average') && !effectiveVoteCountGte) {
+      effectiveVoteCountGte = '100';
+    }
 
     const data = await tmdb.getDiscoverMovies({
       page: Number(query.page),
@@ -127,7 +137,7 @@ discoverRoutes.get('/movies', async (req, res, next) => {
       withRuntimeLte: query.withRuntimeLte,
       voteAverageGte: query.voteAverageGte,
       voteAverageLte: query.voteAverageLte,
-      voteCountGte: query.voteCountGte,
+      voteCountGte: effectiveVoteCountGte,
       voteCountLte: query.voteCountLte,
       watchProviders: query.watchProviders,
       watchRegion: query.watchRegion,
@@ -160,18 +170,82 @@ discoverRoutes.get('/movies', async (req, res, next) => {
       );
     }
 
+    const rtScoreGte = query.rtScoreGte ? Number(query.rtScoreGte) : undefined;
+    const imdbScoreGte = query.imdbScoreGte ? Number(query.imdbScoreGte) : undefined;
+
+    let resultsWithRatings: {
+      result: (typeof data.results)[number];
+      ratings?: RatingResponse;
+    }[] = data.results.map((result) => ({ result }));
+
+    if (rtScoreGte !== undefined || imdbScoreGte !== undefined) {
+      const rtapi = new RottenTomatoes();
+      const imdbApi = new IMDBRadarrProxy();
+
+      const enriched = await Promise.all(
+        data.results.map(async (result) => {
+          const year = result.release_date
+            ? Number(result.release_date.slice(0, 4))
+            : undefined;
+          let rt = null;
+          let imdb = null;
+
+          if (year) {
+            try {
+              rt = await rtapi.getMovieRatings(result.title, year);
+            } catch {
+              // best-effort
+            }
+          }
+
+          if (imdbScoreGte !== undefined) {
+            try {
+              const fullMovie = await tmdb.getMovie({ movieId: result.id });
+              if (fullMovie.imdb_id) {
+                imdb = await imdbApi.getMovieRatings(fullMovie.imdb_id);
+              }
+            } catch {
+              // best-effort
+            }
+          }
+
+          const ratings: RatingResponse = {
+            ...(rt ? { rt } : {}),
+            ...(imdb ? { imdb } : {}),
+          };
+
+          return { result, ratings };
+        })
+      );
+
+      resultsWithRatings = enriched.filter(({ ratings }) => {
+        if (rtScoreGte !== undefined) {
+          if (!ratings?.rt?.criticsScore || ratings.rt.criticsScore < rtScoreGte) {
+            return false;
+          }
+        }
+        if (imdbScoreGte !== undefined) {
+          if (!ratings?.imdb?.criticsScore || ratings.imdb.criticsScore < imdbScoreGte) {
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+
     return res.status(200).json({
       page: data.page,
       totalPages: data.total_pages,
       totalResults: data.total_results,
       keywords: keywordData,
-      results: data.results.map((result) =>
+      results: resultsWithRatings.map(({ result, ratings }) =>
         mapMovieResult(
           result,
           media.find(
             (req) =>
               req.tmdbId === result.id && req.mediaType === MediaType.MOVIE
-          )
+          ),
+          ratings
         )
       ),
     });
@@ -415,6 +489,12 @@ discoverRoutes.get('/tv', async (req, res, next) => {
     const query = ApiQuerySchema.parse(req.query);
     const keywords = query.keywords;
     const excludeKeywords = query.excludeKeywords;
+
+    let effectiveVoteCountGte = query.voteCountGte;
+    if (query.sortBy?.includes('vote_average') && !effectiveVoteCountGte) {
+      effectiveVoteCountGte = '50';
+    }
+
     const data = await tmdb.getDiscoverTv({
       page: Number(query.page),
       sortBy: query.sortBy as SortOptions,
@@ -434,7 +514,7 @@ discoverRoutes.get('/tv', async (req, res, next) => {
       withRuntimeLte: query.withRuntimeLte,
       voteAverageGte: query.voteAverageGte,
       voteAverageLte: query.voteAverageLte,
-      voteCountGte: query.voteCountGte,
+      voteCountGte: effectiveVoteCountGte,
       voteCountLte: query.voteCountLte,
       watchProviders: query.watchProviders,
       watchRegion: query.watchRegion,
@@ -468,17 +548,55 @@ discoverRoutes.get('/tv', async (req, res, next) => {
       );
     }
 
+    const rtScoreGte = query.rtScoreGte ? Number(query.rtScoreGte) : undefined;
+    let resultsWithRatings: {
+      result: (typeof data.results)[number];
+      ratings?: RatingResponse;
+    }[] = data.results.map((result) => ({ result }));
+
+    if (rtScoreGte !== undefined) {
+      const rtapi = new RottenTomatoes();
+      const enriched = await Promise.all(
+        data.results.map(async (result) => {
+          const year = result.first_air_date
+            ? Number(result.first_air_date.slice(0, 4))
+            : undefined;
+          let rt = null;
+          try {
+            rt = await rtapi.getTVRatings(result.name, year);
+          } catch {
+            // best-effort
+          }
+
+          const ratings: RatingResponse = {
+            ...(rt ? { rt } : {}),
+          };
+          return { result, ratings };
+        })
+      );
+
+      resultsWithRatings = enriched.filter(({ ratings }) => {
+        if (rtScoreGte !== undefined) {
+          if (!ratings?.rt?.criticsScore || ratings.rt.criticsScore < rtScoreGte) {
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+
     return res.status(200).json({
       page: data.page,
       totalPages: data.total_pages,
       totalResults: data.total_results,
       keywords: keywordData,
-      results: data.results.map((result) =>
+      results: resultsWithRatings.map(({ result, ratings }) =>
         mapTvResult(
           result,
           media.find(
             (med) => med.tmdbId === result.id && med.mediaType === MediaType.TV
-          )
+          ),
+          ratings
         )
       ),
     });

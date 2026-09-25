@@ -45,6 +45,21 @@ const messages = defineMessages('components.Discover.FilterSlideover', {
   voteCount: 'Number of votes between {minValue} and {maxValue}',
   status: 'Status',
   certification: 'Content Rating',
+  rtScore: 'Rotten Tomatoes Tomatometer',
+  imdbScore: 'IMDb Rating',
+  allScores: 'Any Score',
+  allRatings: 'Any Rating',
+  rtFresh: 'Fresh (60%+)',
+  rtCertifiedFresh: 'Certified Fresh (75%+)',
+  rtTopTier: 'Top Tier (80%+)',
+  rtMasterpiece: 'Masterpiece (90%+)',
+  imdbGood: '6.0+ Good',
+  imdbGreat: '7.0+ Great',
+  imdbHighQuality: '7.5+ High Quality',
+  imdbAcclaimed: '8.0+ Acclaimed',
+  imdbClassic: '8.5+ All-Time Classic',
+  singleVoteNotice:
+    'Single-vote protection is active: sorting by rating automatically filters out obscure titles with fewer than {minVotes} votes.',
 });
 
 type FilterSlideoverProps = {
@@ -332,6 +347,71 @@ const FilterSlideover = ({
               maxValue: currentFilters.voteCountLte ?? 1000,
             })}
           />
+        </div>
+        <span className="text-lg font-semibold">
+          {intl.formatMessage(messages.rtScore)}
+        </span>
+        <select
+          id="rtScoreGte"
+          name="rtScoreGte"
+          value={currentFilters.rtScoreGte ?? ''}
+          onChange={(e) =>
+            updateQueryParams('rtScoreGte', e.target.value || undefined)
+          }
+          className="rounded-md border border-gray-600 bg-gray-800 text-white p-2 text-sm focus:border-indigo-500 focus:outline-none"
+        >
+          <option value="">{intl.formatMessage(messages.allScores)}</option>
+          <option value="60">{intl.formatMessage(messages.rtFresh)}</option>
+          <option value="75">
+            {intl.formatMessage(messages.rtCertifiedFresh)}
+          </option>
+          <option value="80">{intl.formatMessage(messages.rtTopTier)}</option>
+          <option value="90">
+            {intl.formatMessage(messages.rtMasterpiece)}
+          </option>
+        </select>
+        {type === 'movie' && (
+          <>
+            <span className="text-lg font-semibold">
+              {intl.formatMessage(messages.imdbScore)}
+            </span>
+            <select
+              id="imdbScoreGte"
+              name="imdbScoreGte"
+              value={currentFilters.imdbScoreGte ?? ''}
+              onChange={(e) =>
+                updateQueryParams('imdbScoreGte', e.target.value || undefined)
+              }
+              className="rounded-md border border-gray-600 bg-gray-800 text-white p-2 text-sm focus:border-indigo-500 focus:outline-none"
+            >
+              <option value="">
+                {intl.formatMessage(messages.allRatings)}
+              </option>
+              <option value="6.0">
+                {intl.formatMessage(messages.imdbGood)}
+              </option>
+              <option value="7.0">
+                {intl.formatMessage(messages.imdbGreat)}
+              </option>
+              <option value="7.5">
+                {intl.formatMessage(messages.imdbHighQuality)}
+              </option>
+              <option value="8.0">
+                {intl.formatMessage(messages.imdbAcclaimed)}
+              </option>
+              <option value="8.5">
+                {intl.formatMessage(messages.imdbClassic)}
+              </option>
+            </select>
+          </>
+        )}
+        <div className="rounded-md bg-indigo-950/60 border border-indigo-500/30 p-2.5 text-xs text-indigo-200">
+          <span className="font-semibold block mb-0.5">
+            ℹ️ Quality Protection
+          </span>
+          {intl.formatMessage(messages.singleVoteNotice, {
+            minVotes: type === 'movie' ? 100 : 50,
+          })}
         </div>
         <span className="text-lg font-semibold">
           {intl.formatMessage(messages.streamingservices)}

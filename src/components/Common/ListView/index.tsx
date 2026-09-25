@@ -105,6 +105,7 @@ const ListView = ({
                     canExpand
                     basedOnTitle={title.basedOnTitle}
                     recommendationReason={title.recommendationReason}
+                    ratings={title.ratings}
                   />
                 );
                 break;
@@ -134,6 +135,7 @@ const ListView = ({
                     canExpand
                     basedOnTitle={title.basedOnTitle}
                     recommendationReason={title.recommendationReason}
+                    ratings={title.ratings}
                   />
                 );
                 break;

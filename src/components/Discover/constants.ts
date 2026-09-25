@@ -119,6 +119,8 @@ export const QueryFilterOptions = z.object({
   certificationLte: z.string().optional(),
   certificationCountry: z.string().optional(),
   certificationMode: z.enum(['exact', 'range']).optional(),
+  rtScoreGte: z.string().optional(),
+  imdbScoreGte: z.string().optional(),
 });
 
 export type FilterOptions = z.infer<typeof QueryFilterOptions>;
@@ -230,6 +232,14 @@ export const prepareFilterValues = (
     filterValues.certificationMode = 'range';
   }
 
+  if (values.rtScoreGte) {
+    filterValues.rtScoreGte = values.rtScoreGte;
+  }
+
+  if (values.imdbScoreGte) {
+    filterValues.imdbScoreGte = values.imdbScoreGte;
+  }
+
   return filterValues;
 };
 
@@ -272,6 +282,16 @@ export const countActiveFilters = (filterValues: FilterOptions): number => {
     delete clonedFilters.certificationGte;
     delete clonedFilters.certificationLte;
     delete clonedFilters.certificationCountry;
+  }
+
+  if (clonedFilters.rtScoreGte) {
+    totalCount += 1;
+    delete clonedFilters.rtScoreGte;
+  }
+
+  if (clonedFilters.imdbScoreGte) {
+    totalCount += 1;
+    delete clonedFilters.imdbScoreGte;
   }
 
   delete clonedFilters.certificationMode;

@@ -1,3 +1,4 @@
+import type { RatingResponse } from '@server/api/ratings';
 import type {
   TmdbCollectionResult,
   TmdbMovieDetails,
@@ -26,6 +27,7 @@ interface SearchResult {
   mediaInfo?: Media;
   recommendationReason?: string;
   basedOnTitle?: string;
+  ratings?: RatingResponse;
 }
 
 export interface MovieResult extends SearchResult {
@@ -72,7 +74,8 @@ export type Results = MovieResult | TvResult | PersonResult | CollectionResult;
 
 export const mapMovieResult = (
   movieResult: TmdbMovieResult,
-  media?: Media
+  media?: Media,
+  ratings?: RatingResponse
 ): MovieResult => ({
   id: movieResult.id,
   mediaType: 'movie',
@@ -90,11 +93,13 @@ export const mapMovieResult = (
   backdropPath: movieResult.backdrop_path,
   posterPath: movieResult.poster_path,
   mediaInfo: media,
+  ratings,
 });
 
 export const mapTvResult = (
   tvResult: TmdbTvResult,
-  media?: Media
+  media?: Media,
+  ratings?: RatingResponse
 ): TvResult => ({
   id: tvResult.id,
   firstAirDate: tvResult.first_air_date,
@@ -112,6 +117,7 @@ export const mapTvResult = (
   backdropPath: tvResult.backdrop_path,
   posterPath: tvResult.poster_path,
   mediaInfo: media,
+  ratings,
 });
 
 export const mapCollectionResult = (

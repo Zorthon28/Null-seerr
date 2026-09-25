@@ -32,6 +32,7 @@ import useWatched from '@app/hooks/useWatched';
 import { useDismissedRecommendations } from '@app/hooks/useDismissedRecommendations';
 import { MediaStatus } from '@server/constants/media';
 import type { Watchlist } from '@server/entity/Watchlist';
+import type { RatingResponse } from '@server/api/ratings';
 import type { MediaType } from '@server/models/Search';
 import axios from 'axios';
 import Link from 'next/link';
@@ -58,6 +59,7 @@ interface TitleCardProps {
   mutateParent?: () => void;
   recommendationReason?: string;
   basedOnTitle?: string;
+  ratings?: RatingResponse;
 }
 
 const messages = defineMessages('components.TitleCard', {
@@ -129,6 +131,7 @@ const TitleCard = ({
   mutateParent,
   recommendationReason,
   basedOnTitle,
+  ratings,
 }: TitleCardProps) => {
   const isTouch = useIsTouch();
   const intl = useIntl();
@@ -809,9 +812,35 @@ const TitleCard = ({
                         </div>
                       </div>
                     )}
-                    {displayYear && (
-                      <div className="text-sm font-medium">{displayYear}</div>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                      {displayYear && <div>{displayYear}</div>}
+                      {ratings?.rt?.criticsScore !== undefined && (
+                        <div
+                          className="flex items-center gap-0.5 rounded bg-black/40 px-1 py-0.5 text-xs font-bold text-rose-400 border border-rose-500/30"
+                          title="Rotten Tomatoes Tomatometer"
+                        >
+                          🍅 {ratings.rt.criticsScore}%
+                        </div>
+                      )}
+                      {ratings?.imdb?.criticsScore !== undefined && (
+                        <div
+                          className="flex items-center gap-0.5 rounded bg-black/40 px-1 py-0.5 text-xs font-bold text-yellow-400 border border-yellow-500/30"
+                          title="IMDb Rating"
+                        >
+                          ★ {ratings.imdb.criticsScore.toFixed(1)}
+                        </div>
+                      )}
+                      {!ratings?.imdb?.criticsScore &&
+                        userScore !== undefined &&
+                        userScore > 0 && (
+                          <div
+                            className="flex items-center gap-0.5 rounded bg-black/40 px-1 py-0.5 text-xs font-bold text-amber-400 border border-amber-500/30"
+                            title="TMDB Rating"
+                          >
+                            ★ {userScore.toFixed(1)}
+                          </div>
+                        )}
+                    </div>
 
                     <h1
                       className="whitespace-normal text-xl font-bold leading-tight"
