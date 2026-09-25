@@ -560,20 +560,40 @@ export const NetflixPreviewCard: React.FC = () => {
           </div>
 
           {/* Recommendation Reason Pill */}
-          {(item?.basedOnTitle || item?.recommendationReason) && (
-            <div className="flex items-center gap-1.5 rounded-md bg-rose-500/20 border border-rose-500/35 px-2.5 py-1 text-xs font-medium text-rose-200">
-              <span>
-                Because you liked{' '}
-                <strong className="text-white font-semibold">
-                  {item.basedOnTitle ||
-                    item.recommendationReason?.replace(
-                      /^Because you liked\s+/i,
-                      ''
-                    )}
-                </strong>
-              </span>
-            </div>
-          )}
+          {(item?.basedOnTitle || item?.recommendationReason) && (() => {
+            const isAi = Boolean(
+              item.recommendationReason &&
+                !item.recommendationReason.toLowerCase().startsWith('because you liked')
+            );
+            return (
+              <div
+                className={`flex flex-col gap-1 rounded-md px-2.5 py-1.5 text-xs ${
+                  isAi
+                    ? 'bg-purple-950/80 border border-purple-500/40 text-purple-200'
+                    : 'bg-rose-500/20 border border-rose-500/35 text-rose-200'
+                }`}
+              >
+                <div className="flex items-center gap-1 font-semibold">
+                  {isAi && <span>✨</span>}
+                  <span>
+                    Because you liked{' '}
+                    <strong className="text-white">
+                      {item.basedOnTitle ||
+                        item.recommendationReason?.replace(
+                          /^Because you liked\s+/i,
+                          ''
+                        )}
+                    </strong>
+                  </span>
+                </div>
+                {isAi && item.recommendationReason && (
+                  <p className="text-[11px] font-normal leading-relaxed text-gray-300 line-clamp-3">
+                    {item.recommendationReason}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Metadata Row: Match %, Year, Duration/Seasons, Quality Pill */}
           <div className="flex items-center gap-2 text-xs font-medium">

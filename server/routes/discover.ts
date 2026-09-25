@@ -1300,6 +1300,21 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       }
     }
 
+    if (userLikedSeries.length === 0 && userLikedMovies.length === 0) {
+      try {
+        const anyLikedItems = await likedRepository.find({
+          order: { createdAt: 'DESC' },
+          take: 50,
+        });
+        userLikedSeries = anyLikedItems.filter((l) => l.mediaType === 'tv');
+        userLikedMovies = anyLikedItems.filter((l) => l.mediaType === 'movie');
+        likedSeriesIds = userLikedSeries.map((l) => l.tmdbId);
+        likedMovieIds = userLikedMovies.map((l) => l.tmdbId);
+      } catch {
+        // Continue
+      }
+    }
+
     const dismissedRepository = getRepository(DismissedRecommendation);
     let dismissedSeriesIds: number[] = [];
     let dismissedMovieIds: number[] = [];
@@ -1681,9 +1696,9 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
     const filterMediaType = String(req.query.mediaType || 'all').toLowerCase();
     let candidatesToServe = interleaved;
     if (filterMediaType === 'movie') {
-      candidatesToServe = movieCandidates;
+      candidatesToServe = interleaved.filter((c) => c.mediaType === 'movie');
     } else if (filterMediaType === 'tv') {
-      candidatesToServe = tvCandidates;
+      candidatesToServe = interleaved.filter((c) => c.mediaType === 'tv');
     }
 
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);

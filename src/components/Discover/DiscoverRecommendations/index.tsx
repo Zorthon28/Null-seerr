@@ -12,9 +12,9 @@ import { useState } from 'react';
 import { useIntl } from 'react-intl';
 
 const messages = defineMessages('components.Discover.DiscoverRecommendations', {
-  recommendationsLiked: 'Based on what you liked',
+  recommendationsLiked: '✨ AI Smart Recommendations',
   subtext:
-    'Personalized movies and TV shows recommended based on what you have liked.',
+    'Curated thematic recommendations generated with Google Gemini AI based on cinematic tone, mood, and what you have liked.',
 });
 
 type MediaType = 'all' | 'movie' | 'tv';

@@ -141,6 +141,10 @@ const TitleCard = ({
   const { isWatched: checkIsWatched, markWatched, unmarkWatched } = useWatched();
   const isWatched = isWatchedItem ?? checkIsWatched(id, mediaType);
   const isRecommendation = Boolean(basedOnTitle || recommendationReason);
+  const isAiReason = Boolean(
+    recommendationReason &&
+      !recommendationReason.toLowerCase().startsWith('because you liked')
+  );
   const { isDismissed, dismiss } = useDismissedRecommendations();
   const isCardDismissed = isRecommendation && isDismissed(id, mediaType);
 
@@ -787,19 +791,35 @@ const TitleCard = ({
                     }`}
                   >
                     {(basedOnTitle || recommendationReason) && (
-                      <div className="mb-1.5 flex flex-col rounded-md bg-rose-950/80 border border-rose-500/40 px-2 py-1 backdrop-blur-md">
-                        <div className="text-[9px] uppercase tracking-wider font-bold text-rose-300">
+                      <div
+                        className={`mb-1.5 flex flex-col rounded-md px-2 py-1 backdrop-blur-md ${
+                          isAiReason
+                            ? 'bg-purple-950/90 border border-purple-500/50'
+                            : 'bg-rose-950/80 border border-rose-500/40'
+                        }`}
+                      >
+                        <div
+                          className={`text-[9px] uppercase tracking-wider font-bold ${
+                            isAiReason ? 'text-purple-300' : 'text-rose-300'
+                          }`}
+                        >
                           <span>
+                            {isAiReason ? '✨ ' : ''}
                             {intl.formatMessage(messages.becauseYouLikedShort)}
                           </span>
                         </div>
-                        <div className="text-xs font-semibold text-white line-clamp-2 leading-snug">
+                        <div className="text-xs font-semibold text-white line-clamp-1 leading-snug">
                           {basedOnTitle ||
                             recommendationReason?.replace(
                               /^Because you liked\s+/i,
                               ''
                             )}
                         </div>
+                        {isAiReason && recommendationReason && (
+                          <div className="mt-0.5 text-[10px] font-medium text-purple-200/90 line-clamp-2 leading-tight">
+                            {recommendationReason}
+                          </div>
+                        )}
                       </div>
                     )}
                     <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
@@ -929,8 +949,19 @@ const TitleCard = ({
           }
           className="mt-1.5 block px-0.5 text-left transition hover:opacity-90"
         >
-          <div className="flex flex-col rounded-lg bg-gray-900/90 border border-rose-500/40 px-2 py-1 shadow-sm backdrop-blur-sm">
-            <div className="text-[9px] uppercase tracking-wider font-bold text-rose-400">
+          <div
+            className={`flex flex-col rounded-lg px-2 py-1 shadow-sm backdrop-blur-sm ${
+              isAiReason
+                ? 'bg-purple-950/70 border border-purple-500/40'
+                : 'bg-gray-900/90 border border-rose-500/40'
+            }`}
+          >
+            <div
+              className={`flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold ${
+                isAiReason ? 'text-purple-300' : 'text-rose-400'
+              }`}
+            >
+              {isAiReason && <span>✨</span>}
               <span className="truncate">
                 {intl.formatMessage(messages.becauseYouLikedShort)}
               </span>
