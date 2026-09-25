@@ -23,6 +23,8 @@ export interface PreviewMediaItem {
   isAddedToWatchlist?: boolean | number;
   inProgress?: boolean;
   mutateParent?: () => void;
+  basedOnTitle?: string;
+  recommendationReason?: string;
 }
 
 export interface ActivePreviewState {

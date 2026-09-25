@@ -103,6 +103,8 @@ const ListView = ({
                       (title.mediaInfo?.downloadStatus ?? []).length > 0
                     }
                     canExpand
+                    basedOnTitle={title.basedOnTitle}
+                    recommendationReason={title.recommendationReason}
                   />
                 );
                 break;
@@ -130,6 +132,8 @@ const ListView = ({
                       (title.mediaInfo?.downloadStatus ?? []).length > 0
                     }
                     canExpand
+                    basedOnTitle={title.basedOnTitle}
+                    recommendationReason={title.recommendationReason}
                   />
                 );
                 break;

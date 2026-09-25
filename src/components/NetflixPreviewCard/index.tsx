@@ -19,6 +19,7 @@ import {
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
   StarIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/solid';
 import { CheckCircleIcon as CheckCircleOutlineIcon } from '@heroicons/react/24/outline';
 import axios from 'axios';
@@ -524,6 +525,18 @@ export const NetflixPreviewCard: React.FC = () => {
               </button>
             </Tooltip>
           </div>
+
+          {/* Recommendation Reason Pill */}
+          {(item?.basedOnTitle || item?.recommendationReason) && (
+            <div className="flex items-center gap-1.5 rounded-md bg-rose-500/20 border border-rose-500/35 px-2 py-0.5 text-xs font-medium text-rose-200">
+              <SparklesIcon className="h-3.5 w-3.5 text-rose-400 flex-shrink-0" />
+              <span className="truncate">
+                {item.basedOnTitle
+                  ? `Because you liked ${item.basedOnTitle}`
+                  : item.recommendationReason}
+              </span>
+            </div>
+          )}
 
           {/* Metadata Row: Match %, Year, Duration/Seasons, Quality Pill */}
           <div className="flex items-center gap-2 text-xs font-medium">

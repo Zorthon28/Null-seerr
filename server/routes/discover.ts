@@ -1242,6 +1242,15 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       }
     }
 
+    // Build a map of seed tmdbId to liked title
+    const seedTitleMap = new Map<number, string>();
+    for (const item of userLikedSeries) {
+      if (item.title) seedTitleMap.set(item.tmdbId, item.title);
+    }
+    for (const item of userLikedMovies) {
+      if (item.title) seedTitleMap.set(item.tmdbId, item.title);
+    }
+
     // Pre-fetch candidate pools per seed
     const tvPools = new Map<number, any[]>();
     for (const sId of tvSeeds) {
@@ -1280,8 +1289,13 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
     }
 
     // Round-robin selection across seeds for maximum diversity of user's liked titles
-    const tvCandidates: { id: number; mediaType: 'tv'; data: any }[] = [];
-    for (let round = 0; round < 3 && tvCandidates.length < 15; round++) {
+    const tvCandidates: {
+      id: number;
+      mediaType: 'tv';
+      data: any;
+      from?: string;
+    }[] = [];
+    for (let round = 0; round < 4 && tvCandidates.length < 30; round++) {
       for (const sId of tvSeeds) {
         const pool = tvPools.get(sId) || [];
         const item = pool.find(
@@ -1295,13 +1309,19 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
             id: item.id,
             mediaType: 'tv',
             data: { ...item, media_type: 'tv' },
+            from: seedTitleMap.get(sId),
           });
         }
       }
     }
 
-    const movieCandidates: { id: number; mediaType: 'movie'; data: any }[] = [];
-    for (let round = 0; round < 3 && movieCandidates.length < 15; round++) {
+    const movieCandidates: {
+      id: number;
+      mediaType: 'movie';
+      data: any;
+      from?: string;
+    }[] = [];
+    for (let round = 0; round < 4 && movieCandidates.length < 30; round++) {
       for (const mId of movieSeeds) {
         const pool = moviePools.get(mId) || [];
         const item = pool.find(
@@ -1315,51 +1335,65 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
             id: item.id,
             mediaType: 'movie',
             data: { ...item, media_type: 'movie' },
+            from: seedTitleMap.get(mId),
           });
         }
       }
     }
 
     // Interleave movie and tv recommendations for a balanced recent slider
-    const interleaved: { id: number; mediaType: 'movie' | 'tv'; data: any }[] = [];
+    const interleaved: {
+      id: number;
+      mediaType: 'movie' | 'tv';
+      data: any;
+      from?: string;
+    }[] = [];
     const maxLen = Math.max(movieCandidates.length, tvCandidates.length);
 
-    for (let i = 0; i < maxLen && interleaved.length < 24; i++) {
+    for (let i = 0; i < maxLen; i++) {
       if (tvCandidates[i]) interleaved.push(tvCandidates[i]);
       if (movieCandidates[i]) interleaved.push(movieCandidates[i]);
     }
 
     // Backfill with remaining candidates if any slot left
     for (const cand of [...tvCandidates, ...movieCandidates]) {
-      if (interleaved.length >= 24) break;
       if (!interleaved.some((c) => c.id === cand.id)) {
         interleaved.push(cand);
       }
     }
 
     // If profile has little or no liked/watched history, backfill with trending media
-    if (interleaved.length < 15) {
+    if (interleaved.length < 20) {
       try {
         const trending = await tmdb.getAllTrending({
           page: 1,
           timeWindow: 'week',
         });
         for (const item of trending.results || []) {
-          if (interleaved.length >= 24) break;
+          if (interleaved.length >= 40) break;
           const isShow =
             (item as any).media_type === 'tv' || Boolean((item as any).name);
           const mType: 'movie' | 'tv' = isShow ? 'tv' : 'movie';
 
           if (!isExcluded(item.id, mType)) {
             addedIds.add(item.id);
-            interleaved.push({
-              id: item.id,
-              mediaType: mType,
-              data: {
-                ...item,
-                media_type: mType,
-              },
-            });
+            if (mType === 'movie') {
+              const cand = {
+                id: item.id,
+                mediaType: 'movie' as const,
+                data: { ...item, media_type: 'movie' },
+              };
+              interleaved.push(cand);
+              movieCandidates.push(cand);
+            } else {
+              const cand = {
+                id: item.id,
+                mediaType: 'tv' as const,
+                data: { ...item, media_type: 'tv' },
+              };
+              interleaved.push(cand);
+              tvCandidates.push(cand);
+            }
           }
         }
       } catch {
@@ -1367,29 +1401,53 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       }
     }
 
+    // Filter by mediaType if specified (all, movie, tv)
+    const filterMediaType = String(req.query.mediaType || 'all').toLowerCase();
+    let candidatesToServe = interleaved;
+    if (filterMediaType === 'movie') {
+      candidatesToServe = movieCandidates;
+    } else if (filterMediaType === 'tv') {
+      candidatesToServe = tvCandidates;
+    }
+
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const pageSize = 20;
+    const totalResults = candidatesToServe.length;
+    const totalPages = Math.max(1, Math.ceil(totalResults / pageSize));
+    const paginated = candidatesToServe.slice(
+      (page - 1) * pageSize,
+      page * pageSize
+    );
+
     const media = await Media.getRelatedMedia(
       req.user,
-      interleaved.map((r) => ({
+      paginated.map((r) => ({
         tmdbId: r.id,
         mediaType: r.mediaType === 'movie' ? MediaType.MOVIE : MediaType.TV,
       }))
     );
 
-    const formattedResults = interleaved.map((r) => {
+    const formattedResults = paginated.map((r) => {
       const match = media.find(
         (m) =>
           m.tmdbId === r.id &&
           m.mediaType === (r.mediaType === 'movie' ? MediaType.MOVIE : MediaType.TV)
       );
-      return r.mediaType === 'movie'
-        ? mapMovieResult(r.data, match)
-        : mapTvResult(r.data, match);
+      const res =
+        r.mediaType === 'movie'
+          ? mapMovieResult(r.data, match)
+          : mapTvResult(r.data, match);
+      return {
+        ...res,
+        recommendationReason: r.from ? `Because you liked ${r.from}` : undefined,
+        basedOnTitle: r.from || undefined,
+      };
     });
 
     return res.status(200).json({
-      page: 1,
-      totalPages: 1,
-      totalResults: formattedResults.length,
+      page,
+      totalPages,
+      totalResults,
       results: formattedResults,
     });
   } catch (e) {

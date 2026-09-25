@@ -25,7 +25,7 @@ import {
   TicketIcon,
   CheckCircleIcon,
 } from '@heroicons/react/24/outline';
-import { CheckCircleIcon as CheckCircleSolidIcon } from '@heroicons/react/24/solid';
+import { CheckCircleIcon as CheckCircleSolidIcon, SparklesIcon } from '@heroicons/react/24/solid';
 import { useNetflixPreview } from '@app/context/NetflixPreviewContext';
 import useWatched from '@app/hooks/useWatched';
 import { MediaStatus } from '@server/constants/media';
@@ -54,6 +54,8 @@ interface TitleCardProps {
   isAddedToWatchlist?: number | boolean;
   isWatchedItem?: boolean;
   mutateParent?: () => void;
+  recommendationReason?: string;
+  basedOnTitle?: string;
 }
 
 const messages = defineMessages('components.TitleCard', {
@@ -66,6 +68,7 @@ const messages = defineMessages('components.TitleCard', {
   watchlistError: 'Something went wrong. Please try again.',
   upcoming: 'Upcoming',
   inCinemas: 'In Cinemas',
+  becauseYouLiked: 'Because you liked {title}',
 });
 
 const getReleaseStatus = (
@@ -120,6 +123,8 @@ const TitleCard = ({
   inProgress = false,
   canExpand = false,
   mutateParent,
+  recommendationReason,
+  basedOnTitle,
 }: TitleCardProps) => {
   const isTouch = useIsTouch();
   const intl = useIntl();
@@ -526,6 +531,8 @@ const TitleCard = ({
                   isAddedToWatchlist: !toggleWatchlist,
                   inProgress,
                   mutateParent,
+                  basedOnTitle,
+                  recommendationReason,
                 },
                 cardRef.current
               );
@@ -566,6 +573,18 @@ const TitleCard = ({
                 className="h-full bg-indigo-500 transition-all duration-300"
                 style={{ width: `${downloadProgress}%` }}
               />
+            </div>
+          )}
+          {basedOnTitle && !showDetail && (
+            <div className="absolute bottom-1.5 inset-x-1.5 pointer-events-none z-30">
+              <div className="flex items-center gap-1 rounded-md bg-gray-950/90 backdrop-blur-md border border-rose-500/50 px-1.5 py-0.5 text-[10px] sm:text-xs font-semibold text-rose-200 shadow-lg">
+                <SparklesIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-rose-400 flex-shrink-0" />
+                <span className="truncate">
+                  {intl.formatMessage(messages.becauseYouLiked, {
+                    title: basedOnTitle,
+                  })}
+                </span>
+              </div>
             </div>
           )}
           <div className="absolute left-0 right-0 top-0 flex items-start justify-between p-2 pointer-events-none z-40">
@@ -737,6 +756,18 @@ const TitleCard = ({
                       hasBottomButton ? 'pb-12' : 'pb-2'
                     }`}
                   >
+                    {(basedOnTitle || recommendationReason) && (
+                      <div className="mb-1.5 inline-flex items-center gap-1 rounded bg-rose-500/25 border border-rose-500/40 px-1.5 py-0.5 text-[10px] font-semibold text-rose-200 backdrop-blur-sm">
+                        <SparklesIcon className="h-3 w-3 text-rose-300 flex-shrink-0" />
+                        <span className="truncate max-w-[170px]">
+                          {basedOnTitle
+                            ? intl.formatMessage(messages.becauseYouLiked, {
+                                title: basedOnTitle,
+                              })
+                            : recommendationReason}
+                        </span>
+                      </div>
+                    )}
                     {displayYear && (
                       <div className="text-sm font-medium">{displayYear}</div>
                     )}

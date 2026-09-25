@@ -24,6 +24,8 @@ interface SearchResult {
   overview: string;
   originalLanguage: string;
   mediaInfo?: Media;
+  recommendationReason?: string;
+  basedOnTitle?: string;
 }
 
 export interface MovieResult extends SearchResult {
