@@ -114,6 +114,7 @@ class SonarrAPI extends ServarrBase<{
   seriesId: number;
   episodeId: number;
   episode: EpisodeResult;
+  episodeHasFile?: boolean;
 }> {
   constructor({ url, apiKey }: { url: string; apiKey: string }) {
     super({ url, apiKey, apiName: 'Sonarr', cacheName: 'sonarr' });

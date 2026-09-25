@@ -218,6 +218,36 @@ class ServarrBase<QueueItemAppendT> extends ExternalAPI {
     }
   };
 
+  public deleteQueueBulk = async ({
+    ids,
+    removeFromClient = true,
+    blocklist = true,
+  }: {
+    ids: number[];
+    removeFromClient?: boolean;
+    blocklist?: boolean;
+  }): Promise<void> => {
+    if (!ids || ids.length === 0) return;
+    try {
+      await this.axios.delete(`/queue/bulk`, {
+        params: {
+          removeFromClient,
+          blocklist,
+        },
+        data: { ids },
+      });
+    } catch (e: any) {
+      // Fallback: delete one by one if bulk endpoint fails
+      for (const id of ids) {
+        try {
+          await this.deleteQueueItem({ id, removeFromClient, blocklist });
+        } catch {
+          // ignore individual failures in fallback
+        }
+      }
+    }
+  };
+
   public getTags = async (): Promise<Tag[]> => {
     try {
       const response = await this.axios.get<Tag[]>(`/tag`);
