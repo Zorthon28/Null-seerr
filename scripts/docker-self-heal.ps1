@@ -6,10 +6,6 @@
     1. Pruning BuildKit cache (capping under 5 GB)
     2. Pruning dangling/untagged images
     3. (Optional -Compact) Compacting docker_data.vhdx via diskpart to reclaim GBs on Windows C:
-.EXAMPLE
-    .\scripts\docker-self-heal.ps1
-    .\scripts\docker-self-heal.ps1 -Full
-    .\scripts\docker-self-heal.ps1 -Compact
 #>
 
 [CmdletBinding()]
@@ -18,7 +14,7 @@ param(
     [switch]$Compact
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 $vhdxPath = "$env:LOCALAPPDATA\Docker\wsl\disk\docker_data.vhdx"
 
@@ -37,26 +33,21 @@ Write-Host "==========================================" -ForegroundColor Cyan
 $initialSize = Get-VhdxSizeGB
 Write-Host "Current docker_data.vhdx size on C: drive: $initialSize GB" -ForegroundColor Yellow
 
-# 1. Clean BuildKit cache
-if ($Full) {
-    Write-Host "`n[1/3] Full BuildKit prune (-a)..." -ForegroundColor Green
-    docker builder prune -a -f
-} else {
-    Write-Host "`n[1/3] Pruning BuildKit cache (keeping max 5 GB)..." -ForegroundColor Green
-    docker builder prune -f --keep-storage 5GB
-}
-
-# 2. Clean dangling images
-Write-Host "`n[2/3] Pruning dangling images..." -ForegroundColor Green
-docker image prune -f
-
-# 3. Compact VHDX if requested
+# Handle Compaction
 if ($Compact) {
-    Write-Host "`n[3/3] Compacting docker_data.vhdx with diskpart..." -ForegroundColor Green
-    Write-Host "Stopping Docker Desktop and WSL..." -ForegroundColor Yellow
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Host "`n[!] Disk compaction requires Administrator privileges." -ForegroundColor Yellow
+        Write-Host "Requesting elevation (please click 'Yes' on the Windows UAC prompt)..." -ForegroundColor Cyan
+        Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Compact"
+        return
+    }
+
+    Write-Host "`n[1/1] Compacting docker_data.vhdx..." -ForegroundColor Green
+    Write-Host "Stopping Docker Desktop and WSL 2 to release disk lock..." -ForegroundColor Yellow
     
-    # Gracefully stop WSL
-    wsl --shutdown
+    Get-Process "Docker Desktop", "com.docker.backend", "dockerd" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    wsl.exe --shutdown
     Start-Sleep -Seconds 3
 
     $tempScript = [System.IO.Path]::GetTempFileName()
@@ -70,8 +61,12 @@ exit
     Set-Content -Path $tempScript -Value $diskpartCommands -Encoding ASCII
 
     try {
-        Write-Host "Running diskpart compaction (this may take 1-2 minutes)..." -ForegroundColor Cyan
-        Start-Process -FilePath "diskpart.exe" -ArgumentList "/s `"$tempScript`"" -NoNewWindow -Wait
+        Write-Host "Running diskpart compaction on $vhdxPath..." -ForegroundColor Cyan
+        Write-Host "Please wait, compacting ~134 GB of freed space (this takes ~1-2 minutes)..." -ForegroundColor Yellow
+        $proc = Start-Process -FilePath "diskpart.exe" -ArgumentList "/s `"$tempScript`"" -NoNewWindow -Wait -PassThru
+        if ($proc.ExitCode -ne 0) {
+            Write-Host "diskpart returned exit code $($proc.ExitCode)" -ForegroundColor Red
+        }
     } finally {
         if (Test-Path $tempScript) {
             Remove-Item -Path $tempScript -Force -ErrorAction SilentlyContinue
@@ -80,9 +75,28 @@ exit
 
     $finalSize = Get-VhdxSizeGB
     $saved = [math]::Round($initialSize - $finalSize, 2)
-    Write-Host "`nDone! New docker_data.vhdx size: $finalSize GB (Reclaimed: $saved GB)" -ForegroundColor Green
-    Write-Host "You can now reopen Docker Desktop." -ForegroundColor Cyan
-} else {
-    Write-Host "`n[3/3] Compaction skipped (run with -Compact when you want to shrink the physical .vhdx file on C:)." -ForegroundColor Gray
-    Write-Host "Self-heal routine completed successfully." -ForegroundColor Green
+    Write-Host "`n==========================================" -ForegroundColor Green
+    Write-Host " Compaction Completed Successfully!" -ForegroundColor Green
+    Write-Host " Original size: $initialSize GB" -ForegroundColor White
+    Write-Host " New size:      $finalSize GB" -ForegroundColor White
+    Write-Host " Reclaimed:     $saved GB freed on C: drive!" -ForegroundColor Green
+    Write-Host "==========================================" -ForegroundColor Green
+    Write-Host "`nYou can now restart Docker Desktop from your Start menu." -ForegroundColor Cyan
+    return
 }
+
+# 1. Clean BuildKit cache
+if ($Full) {
+    Write-Host "`n[1/2] Full BuildKit prune (-a)..." -ForegroundColor Green
+    docker builder prune -a -f
+} else {
+    Write-Host "`n[1/2] Pruning BuildKit cache (keeping max 5 GB)..." -ForegroundColor Green
+    docker builder prune -f --keep-storage 5GB
+}
+
+# 2. Clean dangling images
+Write-Host "`n[2/2] Pruning dangling images..." -ForegroundColor Green
+docker image prune -f
+
+Write-Host "`nSelf-heal routine completed." -ForegroundColor Green
+Write-Host "To shrink the physical .vhdx file on C: drive, run with -Compact." -ForegroundColor Gray
