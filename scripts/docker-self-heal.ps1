@@ -5,7 +5,7 @@
     Prevents docker_data.vhdx from uncontrolled growth by:
     1. Pruning BuildKit cache (capping under 5 GB)
     2. Pruning dangling/untagged images
-    3. (Optional -Compact) Compacting docker_data.vhdx via diskpart to reclaim GBs on Windows C:
+    3. (Optional -Compact) Compacting docker_data.vhdx via Optimize-VHD / diskpart
 #>
 
 [CmdletBinding()]
@@ -43,33 +43,40 @@ if ($Compact) {
         return
     }
 
-    Write-Host "`n[1/1] Compacting docker_data.vhdx..." -ForegroundColor Green
-    Write-Host "Stopping Docker Desktop and WSL 2 to release disk lock..." -ForegroundColor Yellow
-    
+    Write-Host "`n[1/3] Stopping Docker Desktop and WSL 2 to release disk lock..." -ForegroundColor Green
     Get-Process "Docker Desktop", "com.docker.backend", "dockerd" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     wsl.exe --shutdown
     Start-Sleep -Seconds 3
 
-    $tempScript = [System.IO.Path]::GetTempFileName()
-    $diskpartCommands = @"
+    # Ensure sparse flag is unset (diskpart/Hyper-V require uncompressed, non-sparse VHDX)
+    & fsutil.exe sparse setflag "$vhdxPath" 0 | Out-Null
+
+    Write-Host "`n[2/3] Compacting docker_data.vhdx..." -ForegroundColor Green
+    if (Get-Command Optimize-VHD -ErrorAction SilentlyContinue) {
+        Write-Host "Using Hyper-V Optimize-VHD (Mode: Full) on $vhdxPath..." -ForegroundColor Cyan
+        Write-Host "Scanning block allocation table (this may take ~1-3 minutes)..." -ForegroundColor Yellow
+        Optimize-VHD -Path $vhdxPath -Mode Full
+    } else {
+        Write-Host "Using diskpart compaction on $vhdxPath..." -ForegroundColor Cyan
+        $tempScript = [System.IO.Path]::GetTempFileName()
+        $diskpartCommands = @"
 select vdisk file="$vhdxPath"
 attach vdisk readonly
 compact vdisk
 detach vdisk
 exit
 "@
-    Set-Content -Path $tempScript -Value $diskpartCommands -Encoding ASCII
+        Set-Content -Path $tempScript -Value $diskpartCommands -Encoding ASCII
 
-    try {
-        Write-Host "Running diskpart compaction on $vhdxPath..." -ForegroundColor Cyan
-        Write-Host "Please wait, compacting ~134 GB of freed space (this takes ~1-2 minutes)..." -ForegroundColor Yellow
-        $proc = Start-Process -FilePath "diskpart.exe" -ArgumentList "/s `"$tempScript`"" -NoNewWindow -Wait -PassThru
-        if ($proc.ExitCode -ne 0) {
-            Write-Host "diskpart returned exit code $($proc.ExitCode)" -ForegroundColor Red
-        }
-    } finally {
-        if (Test-Path $tempScript) {
-            Remove-Item -Path $tempScript -Force -ErrorAction SilentlyContinue
+        try {
+            $proc = Start-Process -FilePath "diskpart.exe" -ArgumentList "/s `"$tempScript`"" -NoNewWindow -Wait -PassThru
+            if ($proc.ExitCode -ne 0) {
+                Write-Host "diskpart returned exit code $($proc.ExitCode)" -ForegroundColor Red
+            }
+        } finally {
+            if (Test-Path $tempScript) {
+                Remove-Item -Path $tempScript -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 
