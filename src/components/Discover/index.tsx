@@ -404,7 +404,7 @@ const Discover = () => {
                 sliderKey="recommendations-recent"
                 title={intl.formatMessage(sliderTitles.recommendationsRecent)}
                 url="/api/v1/discover/recommendations/recent"
-                linkUrl="/"
+                linkUrl="/profile/liked"
               />
             );
             break;

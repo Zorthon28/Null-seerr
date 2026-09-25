@@ -9,6 +9,7 @@ import Media from '@server/entity/Media';
 import { User } from '@server/entity/User';
 import { Watched } from '@server/entity/Watched';
 import { Watchlist } from '@server/entity/Watchlist';
+import { Liked } from '@server/entity/Liked';
 import axios from 'axios';
 import type {
   GenreSliderItem,
@@ -1131,7 +1132,7 @@ async function getWatchedMediaHistory(user?: User | null): Promise<{
   return { watchedSeriesIds, watchedMovieIds, allLibraryMovieIds, allLibrarySeriesIds };
 }
 
-// 1. Based on Recent Views (mixed recent movies and series)
+// 1. Based on what you liked (recommendations based on liked and watched titles)
 const handleRecentRecommendations = async (req: any, res: any, next: any) => {
   const tmdb = createTmdbWithRegionLanguage(req.user);
   const suggestarrApi = new SuggestarrAPI();
@@ -1144,8 +1145,39 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       allLibrarySeriesIds,
     } = await getWatchedMediaHistory(req.user);
 
+    // Get user's liked titles
+    const likedRepository = getRepository(Liked);
+    let likedSeriesIds: number[] = [];
+    let likedMovieIds: number[] = [];
+    if (req.user?.id) {
+      try {
+        const likedItems = await likedRepository.find({
+          where: { userId: req.user.id },
+          order: { createdAt: 'DESC' },
+        });
+        likedSeriesIds = likedItems
+          .filter((l) => l.mediaType === 'tv')
+          .map((l) => l.tmdbId);
+        likedMovieIds = likedItems
+          .filter((l) => l.mediaType === 'movie')
+          .map((l) => l.tmdbId);
+      } catch {
+        // Continue
+      }
+    }
+
     const recentCandidates: { id: number; mediaType: 'movie' | 'tv'; data: any }[] = [];
     const addedIds = new Set<number>();
+
+    // Prioritize liked media over watched media
+    const seriesSourceIds = [
+      ...likedSeriesIds,
+      ...watchedSeriesIds.filter((id) => !likedSeriesIds.includes(id)),
+    ];
+    const movieSourceIds = [
+      ...likedMovieIds,
+      ...watchedMovieIds.filter((id) => !likedMovieIds.includes(id)),
+    ];
 
     // Suggestarr AI preview items
     try {
@@ -1155,8 +1187,8 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
         const mType = item.media_type === 'movie' ? 'movie' : 'tv';
         const isExcluded =
           mType === 'movie'
-            ? allLibraryMovieIds.has(tid) || watchedMovieIds.includes(tid)
-            : allLibrarySeriesIds.has(tid) || watchedSeriesIds.includes(tid);
+            ? allLibraryMovieIds.has(tid) || watchedMovieIds.includes(tid) || likedMovieIds.includes(tid)
+            : allLibrarySeriesIds.has(tid) || watchedSeriesIds.includes(tid) || likedSeriesIds.includes(tid);
 
         if (tid && !isExcluded && !addedIds.has(tid)) {
           addedIds.add(tid);
@@ -1189,8 +1221,8 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       // Continue
     }
 
-    // Top recent TV shows recommendations
-    for (const sId of watchedSeriesIds.slice(0, 4)) {
+    // Top TV shows recommendations based on what you liked / watched
+    for (const sId of seriesSourceIds.slice(0, 5)) {
       if (recentCandidates.length >= 30) break;
       try {
         const recs = await tmdb.getTvRecommendations({ tvId: sId, page: 1 });
@@ -1207,6 +1239,7 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
           if (
             !allLibrarySeriesIds.has(show.id) &&
             !watchedSeriesIds.includes(show.id) &&
+            !likedSeriesIds.includes(show.id) &&
             !addedIds.has(show.id)
           ) {
             addedIds.add(show.id);
@@ -1222,8 +1255,8 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       }
     }
 
-    // Top recent Movies recommendations
-    for (const mId of watchedMovieIds.slice(0, 4)) {
+    // Top Movies recommendations based on what you liked / watched
+    for (const mId of movieSourceIds.slice(0, 5)) {
       if (recentCandidates.length >= 35) break;
       try {
         const recs = await tmdb.getMovieRecommendations({ movieId: mId, page: 1 });
@@ -1240,6 +1273,7 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
           if (
             !allLibraryMovieIds.has(movie.id) &&
             !watchedMovieIds.includes(movie.id) &&
+            !likedMovieIds.includes(movie.id) &&
             !addedIds.has(movie.id)
           ) {
             addedIds.add(movie.id);
@@ -1255,7 +1289,7 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       }
     }
 
-    // If profile has little or no watched history (e.g. fresh profile), backfill with trending media
+    // If profile has little or no liked/watched history, backfill with trending media
     if (recentCandidates.length < 15) {
       try {
         const trending = await tmdb.getAllTrending({
@@ -1268,8 +1302,8 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
           const mType = isShow ? 'tv' : 'movie';
           const isExcluded =
             mType === 'movie'
-              ? allLibraryMovieIds.has(item.id) || watchedMovieIds.includes(item.id)
-              : allLibrarySeriesIds.has(item.id) || watchedSeriesIds.includes(item.id);
+              ? allLibraryMovieIds.has(item.id) || watchedMovieIds.includes(item.id) || likedMovieIds.includes(item.id)
+              : allLibrarySeriesIds.has(item.id) || watchedSeriesIds.includes(item.id) || likedSeriesIds.includes(item.id);
 
           if (!isExcluded && !addedIds.has(item.id)) {
             addedIds.add(item.id);

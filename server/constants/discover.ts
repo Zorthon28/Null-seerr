@@ -22,7 +22,7 @@ export enum DiscoverSliderType {
   TMDB_NETWORK,
   TMDB_MOVIE_STREAMING_SERVICES,
   TMDB_TV_STREAMING_SERVICES,
-  SMART_RECOMMENDATIONS, // Type 22: Based on Recent Views
+  SMART_RECOMMENDATIONS, // Type 22: Based on what you liked
   RECOMMENDATIONS_MOVIES, // Type 23: Movies for You
   RECOMMENDATIONS_SERIES, // Type 24: Series for You
 }
