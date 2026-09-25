@@ -620,13 +620,10 @@ mediaRoutes.get('/queue', async (req, res, next) => {
             };
             const h = radarrHealthMap.get(server.id) || [];
             healthWarnings = h
-              .filter(hw => !hw.message?.toLowerCase().includes('new update is available'))
-              .map(hw => {
-                if (hw.message?.includes('Indexers unavailable') || hw.message?.toLowerCase().includes('request limit')) {
-                  return `[Radarr - ${server.name}] Indexer temporarily rate-limited (429) - skipping and using remaining trackers`;
-                }
-                return `[Radarr - ${server.name}] ${hw.message}`;
-              });
+              .filter(hw => !hw.message?.toLowerCase().includes('new update is available') &&
+                            !hw.message?.includes('Indexers unavailable') &&
+                            !hw.message?.toLowerCase().includes('request limit'))
+              .map(hw => `[Radarr - ${server.name}] ${hw.message}`);
             break;
           }
         }
@@ -648,13 +645,10 @@ mediaRoutes.get('/queue', async (req, res, next) => {
             };
             const h = sonarrHealthMap.get(server.id) || [];
             healthWarnings = h
-              .filter(hw => !hw.message?.toLowerCase().includes('new update is available'))
-              .map(hw => {
-                if (hw.message?.includes('Indexers unavailable') || hw.message?.toLowerCase().includes('request limit')) {
-                  return `[Sonarr - ${server.name}] Indexer temporarily rate-limited (429) - skipping and using remaining trackers`;
-                }
-                return `[Sonarr - ${server.name}] ${hw.message}`;
-              });
+              .filter(hw => !hw.message?.toLowerCase().includes('new update is available') &&
+                            !hw.message?.includes('Indexers unavailable') &&
+                            !hw.message?.toLowerCase().includes('request limit'))
+              .map(hw => `[Sonarr - ${server.name}] ${hw.message}`);
             break;
           }
         }
@@ -790,10 +784,36 @@ mediaRoutes.get('/queue', async (req, res, next) => {
       }
     }
 
+    // Aggregate any indexer cooldown/rate-limit notices across all Radarr & Sonarr instances
+    const globalTrackerNotices: string[] = [];
+    for (const [serverId, healthList] of radarrHealthMap.entries()) {
+      const srv = filteredRadarr.find(s => s.id === serverId);
+      const serverName = srv?.name || 'Radarr';
+      for (const hw of healthList) {
+        if (hw.message?.includes('Indexers unavailable') || hw.message?.toLowerCase().includes('request limit')) {
+          const match = hw.message?.match(/Indexers unavailable due to failures:\s*([^.]+)/i);
+          const indexerName = match ? match[1].trim() : 'An indexer';
+          globalTrackerNotices.push(`[Radarr - ${serverName}] ${indexerName} is temporarily rate-limited (5-min cooldown) — searches continue across remaining trackers.`);
+        }
+      }
+    }
+    for (const [serverId, healthList] of sonarrHealthMap.entries()) {
+      const srv = filteredSonarr.find(s => s.id === serverId);
+      const serverName = srv?.name || 'Sonarr';
+      for (const hw of healthList) {
+        if (hw.message?.includes('Indexers unavailable') || hw.message?.toLowerCase().includes('request limit')) {
+          const match = hw.message?.match(/Indexers unavailable due to failures:\s*([^.]+)/i);
+          const indexerName = match ? match[1].trim() : 'An indexer';
+          globalTrackerNotices.push(`[Sonarr - ${serverName}] ${indexerName} is temporarily rate-limited (5-min cooldown) — searches continue across remaining trackers.`);
+        }
+      }
+    }
+
     return res.status(200).json({
       queue: aggregatedQueue,
       items: uniqueItems,
       completedIds,
+      trackerNotices: Array.from(new Set(globalTrackerNotices)),
     });
   } catch (e) {
     next({ status: 500, message: e.message });

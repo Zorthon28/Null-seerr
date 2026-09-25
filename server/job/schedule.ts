@@ -1,6 +1,7 @@
 import { MediaServerType } from '@server/constants/server';
 import blocklistedTagsProcessor from '@server/job/blocklistedTagsProcessor';
 import availabilitySync from '@server/lib/availabilitySync';
+import inCinemasSync from '@server/lib/inCinemasSync';
 import downloadTracker from '@server/lib/downloadtracker';
 import ImageProxy from '@server/lib/imageproxy';
 import refreshToken from '@server/lib/refreshToken';
@@ -278,6 +279,22 @@ export const startJobs = (): void => {
       });
       import('@server/lib/retention').then((r) => r.runRetentionSync());
     }),
+  });
+
+  const inCinemasSchedule = jobs['in-cinemas-sync']?.schedule ?? '0 0 3,15 * * *';
+  scheduledJobs.push({
+    id: 'in-cinemas-sync',
+    name: 'In-Cinemas Movie Sync',
+    type: 'process',
+    interval: 'hours',
+    cronSchedule: inCinemasSchedule,
+    job: schedule.scheduleJob(inCinemasSchedule, () => {
+      logger.info('Starting scheduled job: In-Cinemas Movie Sync', {
+        label: 'Jobs',
+      });
+      inCinemasSync.run();
+    }),
+    running: () => inCinemasSync.running,
   });
 
   logger.info('Scheduled jobs loaded', { label: 'Jobs' });

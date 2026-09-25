@@ -1191,7 +1191,27 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                   )[0];
 
                 if (season.episodeCount === 0) {
-                  return null;
+                  return (
+                    <div
+                      key={`season-placeholder-${season.seasonNumber}`}
+                      className="mt-2 flex w-full items-center justify-between space-x-2 rounded-md border border-dashed border-gray-700/80 bg-gray-800/40 px-4 py-3 text-gray-400"
+                    >
+                      <div className="flex flex-1 items-center space-x-2.5 text-lg">
+                        <span className="font-medium text-gray-200">
+                          {season.name ||
+                            intl.formatMessage(messages.seasonnumber, {
+                              seasonNumber: season.seasonNumber,
+                            })}
+                        </span>
+                        <Badge badgeType="warning">Soon</Badge>
+                      </div>
+                      <div className="text-xs font-medium text-gray-400">
+                        {season.airDate
+                          ? `Air date: ${season.airDate}`
+                          : 'Release date TBA'}
+                      </div>
+                    </div>
+                  );
                 }
 
                 return (

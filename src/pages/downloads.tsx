@@ -15,6 +15,7 @@ import {
   ChevronUpIcon,
   ClockIcon,
   ExclamationCircleIcon,
+  FilmIcon,
   InformationCircleIcon,
   MagnifyingGlassIcon,
   PauseIcon,
@@ -129,12 +130,31 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
        item.details.totalEpisodeCount > 0 &&
        item.details.episodeFileCount === item.details.totalEpisodeCount);
 
+  const isMovieInCinemas = item.mediaType === 'movie' && item.status === 'searching' && !isDownloaded && (
+    item.details?.status === 'inCinemas' || 
+    item.details?.status === 'announced' ||
+    item.details?.minimumAvailability === 'inCinemas' ||
+    Boolean(details && 'releaseDate' in details && details.releaseDate && (() => {
+      const parts = (details.releaseDate as string).split('-');
+      const y = parseInt(parts[0], 10);
+      if (isNaN(y) || y < 1900) return false;
+      const m = parts.length > 1 ? parseInt(parts[1], 10) - 1 : 0;
+      const d = parts.length > 2 ? parseInt(parts[2], 10) : 1;
+      const diffDays = Math.ceil((new Date(y, m, d).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      return diffDays >= -75;
+    })())
+  );
+
   switch (item.status) {
     case 'searching':
       if (isDownloaded) {
         statusColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
         statusText = 'Downloaded (Awaiting Plex)';
         StatusIcon = CheckCircleIcon;
+      } else if (isMovieInCinemas) {
+        statusColor = 'bg-sky-500/10 text-sky-400 border-sky-500/20';
+        statusText = 'In Theaters (Daily Tracker Check)';
+        StatusIcon = FilmIcon;
       } else {
         statusColor = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
         statusText = 'Searching Indexers...';
@@ -409,11 +429,16 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
 
           {item.status === 'searching' && (
             <div className="flex flex-col gap-2 mt-2">
-              <div className={`text-xs font-medium flex items-center gap-1.5 ${isDownloaded ? 'text-emerald-400/95' : 'text-amber-400/95'}`}>
+              <div className={`text-xs font-medium flex items-center gap-1.5 ${isDownloaded ? 'text-emerald-400/95' : isMovieInCinemas ? 'text-sky-400/95' : 'text-amber-400/95'}`}>
                 {isDownloaded ? (
                   <>
                     <CheckCircleIcon className="w-4 h-4 shrink-0 text-emerald-400" />
                     Downloaded on disk! Click "Scan Library" in the top right to import into Jellyfin & Plex.
+                  </>
+                ) : isMovieInCinemas ? (
+                  <>
+                    <FilmIcon className="w-4 h-4 shrink-0 text-sky-400" />
+                    Currently in theatrical window. Monitored in Radarr with scheduled daily tracker checks to avoid rate limits until digital release drops.
                   </>
                 ) : (
                   <>
@@ -449,7 +474,7 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                   ) : (
                     <>
                       <div>
-                        Availability Stage: <strong className="text-white capitalize">{item.details.status}</strong>
+                        Availability Stage: <strong className="text-white capitalize">{isMovieInCinemas ? 'In Theaters (Theatrical Window)' : item.details.status}</strong>
                       </div>
                       <div>
                         File Present: <strong className={item.details.hasFile ? 'text-green-400' : 'text-amber-400'}>{item.details.hasFile ? 'Yes' : 'No'}</strong>
@@ -459,39 +484,21 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                 </div>
               )}
 
-              {/* Health Warnings */}
-              {item.healthWarnings && item.healthWarnings.length > 0 && (() => {
-                const isAllRateLimitNotice = item.healthWarnings.every((w: string) =>
-                  w.toLowerCase().includes('rate-limited') || w.toLowerCase().includes('skipping')
-                );
-                return isAllRateLimitNotice ? (
-                  <div className="text-xs bg-amber-950/20 border border-amber-900/40 rounded-xl p-3 space-y-1 text-amber-300 font-medium">
-                    <div className="font-bold flex items-center gap-1.5 text-amber-200 mb-1">
-                      <InformationCircleIcon className="w-4 h-4 shrink-0" />
-                      Tracker Rate-Limit Notice:
-                    </div>
-                    {item.healthWarnings.map((warn: string, i: number) => (
-                      <div key={i} className="flex gap-1.5 items-start pl-1 text-[11px] leading-relaxed">
-                        <span>•</span>
-                        <span>{warn}</span>
-                      </div>
-                    ))}
+              {/* Server Health Warnings */}
+              {item.healthWarnings && item.healthWarnings.length > 0 && (
+                <div className="text-xs bg-red-950/20 border border-red-900/40 rounded-xl p-3 space-y-1 text-red-400 font-medium">
+                  <div className="font-bold flex items-center gap-1.5 text-red-300 mb-1">
+                    <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
+                    Server Notice:
                   </div>
-                ) : (
-                  <div className="text-xs bg-red-950/20 border border-red-900/40 rounded-xl p-3 space-y-1 text-red-400 font-medium">
-                    <div className="font-bold flex items-center gap-1.5 text-red-300 mb-1">
-                      <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
-                      Active Server Health Warnings:
+                  {item.healthWarnings.map((warn: string, i: number) => (
+                    <div key={i} className="flex gap-1.5 items-start pl-1 text-[11px] leading-relaxed">
+                      <span>•</span>
+                      <span>{warn}</span>
                     </div>
-                    {item.healthWarnings.map((warn: string, i: number) => (
-                      <div key={i} className="flex gap-1.5 items-start pl-1 text-[11px] leading-relaxed">
-                        <span>•</span>
-                        <span>{warn}</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -533,6 +540,7 @@ const DownloadsPage: NextPage = () => {
     queue: Record<number, any>;
     items: QueueItem[];
     completedIds?: number[];
+    trackerNotices?: string[];
   }>('/api/v1/media/queue', {
     refreshInterval: 3000,
     revalidateOnMount: true,
@@ -865,6 +873,29 @@ const DownloadsPage: NextPage = () => {
 
       {activeTab === 'downloads' && (
         <>
+          {/* Tracker Rate-Limit Informational Banner */}
+          {data?.trackerNotices && data.trackerNotices.length > 0 && (
+            <div className="mb-6 bg-amber-950/20 border border-amber-800/40 rounded-xl p-3.5 flex items-start gap-3 text-amber-200">
+              <InformationCircleIcon className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />
+              <div className="text-xs space-y-1">
+                <div className="font-semibold text-amber-100 flex items-center gap-2">
+                  <span>Tracker Cooldown Notice</span>
+                  <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50">
+                    Normal Cooldown
+                  </span>
+                </div>
+                {data.trackerNotices.map((notice, idx) => (
+                  <div key={idx} className="text-amber-300/90 leading-relaxed">
+                    • {notice}
+                  </div>
+                ))}
+                <div className="text-[11px] text-amber-400/70 pt-0.5">
+                  Downloads and tracker searches continue operating normally across remaining healthy indexers.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Controls: Search, Filter */}
           <div className="flex flex-col lg:flex-row gap-4 mb-6">
             {/* Search */}

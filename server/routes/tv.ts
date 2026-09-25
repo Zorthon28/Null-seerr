@@ -52,6 +52,20 @@ tvRoutes.get('/:id', async (req, res, next) => {
 
     const data = mapTvDetails(tv, media, onUserWatchlist, streamInfo);
 
+    // Placeholder for Saga of Tanya the Evil Season 3 (franchise continuation confirmed, release date TBA)
+    if (data.id === 69346 && !data.seasons.some((s) => s.seasonNumber === 3)) {
+      data.seasons.push({
+        id: 69346 * 1000 + 3,
+        airDate: '',
+        episodeCount: 0,
+        name: 'Season 3',
+        overview:
+          'Season 3 has been confirmed for the franchise. Release date is coming soon.',
+        seasonNumber: 3,
+      });
+      data.numberOfSeasons = Math.max(data.numberOfSeasons, 3);
+    }
+
     // TMDB issue where it doesnt fallback to English when no overview is available in requested locale.
     if (!data.overview) {
       const tvEnglish = await metadataProvider.getTvShow({
@@ -108,6 +122,22 @@ tvRoutes.get('/:id', async (req, res, next) => {
 });
 
 tvRoutes.get('/:id/season/:seasonNumber', async (req, res, next) => {
+  if (
+    Number(req.params.id) === 69346 &&
+    Number(req.params.seasonNumber) === 3
+  ) {
+    return res.status(200).json({
+      airDate: null,
+      id: 69346 * 1000 + 3,
+      name: 'Season 3',
+      overview:
+        'Season 3 has been confirmed for the franchise. Release date is coming soon.',
+      seasonNumber: 3,
+      episodes: [],
+      externalIds: {},
+    });
+  }
+
   try {
     const tmdb = new TheMovieDb();
     const tmdbTv = await tmdb.getTvShow({

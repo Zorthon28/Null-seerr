@@ -388,7 +388,8 @@ export type JobId =
   | 'image-cache-cleanup'
   | 'availability-sync'
   | 'process-blocklisted-tags'
-  | 'media-retention-sync';
+  | 'media-retention-sync'
+  | 'in-cinemas-sync';
 
 export interface AllSettings {
   clientId: string;
@@ -636,6 +637,9 @@ class Settings {
         },
         'media-retention-sync': {
           schedule: '0 0 * * * *',
+        },
+        'in-cinemas-sync': {
+          schedule: '0 0 3,15 * * *',
         },
       },
       network: {

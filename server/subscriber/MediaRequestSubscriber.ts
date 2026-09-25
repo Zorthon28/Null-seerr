@@ -360,17 +360,74 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
           return;
         }
 
+        const isInCinemasOrUpcoming = (m: typeof movie): boolean => {
+          if (m.status && ['Planned', 'In Production', 'Post Production'].includes(m.status)) {
+            return true;
+          }
+
+          const now = new Date();
+          let hasDigitalOrPhysicalRelease = false;
+
+          if (m.release_dates?.results) {
+            for (const country of m.release_dates.results) {
+              for (const rel of country.release_dates || []) {
+                if ((rel.type === 4 || rel.type === 5) && rel.release_date) {
+                  const relDate = new Date(rel.release_date);
+                  if (!isNaN(relDate.getTime()) && relDate <= now) {
+                    hasDigitalOrPhysicalRelease = true;
+                    break;
+                  }
+                }
+              }
+              if (hasDigitalOrPhysicalRelease) break;
+            }
+          }
+
+          if (hasDigitalOrPhysicalRelease) {
+            return false;
+          }
+
+          if (m.release_date) {
+            const parts = m.release_date.split('-');
+            const y = parseInt(parts[0], 10);
+            if (!isNaN(y) && y >= 1900) {
+              const month = parts.length > 1 ? parseInt(parts[1], 10) - 1 : 0;
+              const day = parts.length > 2 ? parseInt(parts[2], 10) : 1;
+              const relDate = new Date(y, month, day);
+              const diffMs = relDate.getTime() - now.getTime();
+              const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+              if (diffDays > 0 || diffDays >= -75) {
+                return true;
+              }
+            }
+          }
+
+          return false;
+        };
+
+        const inCinemasOrUpcoming = isInCinemasOrUpcoming(movie);
+        const shouldSearchNow = inCinemasOrUpcoming ? false : !radarrSettings.preventSearch;
+        const effectiveMinimumAvailability = inCinemasOrUpcoming ? 'released' : radarrSettings.minimumAvailability;
+
+        if (inCinemasOrUpcoming) {
+          logger.info(
+            `[Media Request] Movie "${movie.title}" (${movie.id}) is in theaters/unreleased. Adding to Radarr as monitored without immediate search to protect tracker rate limits.`,
+            { label: 'Media Request', movieId: movie.id, title: movie.title }
+          );
+        }
+
         const radarrMovieOptions: RadarrMovieOptions = {
           profileId: qualityProfile,
           qualityProfileId: qualityProfile,
           rootFolderPath: rootFolder,
-          minimumAvailability: radarrSettings.minimumAvailability,
+          minimumAvailability: effectiveMinimumAvailability,
           title: movie.title,
           tmdbId: movie.id,
-          year: Number(movie.release_date.slice(0, 4)),
+          year: Number(movie.release_date ? movie.release_date.slice(0, 4) : new Date().getFullYear()),
           monitored: true,
           tags,
-          searchNow: !radarrSettings.preventSearch,
+          searchNow: shouldSearchNow,
         };
 
         // Run entity asynchronously so we don't wait for it on the UI side
@@ -708,6 +765,20 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
           }
         });
 
+        const isSeriesUpcoming = Boolean(
+          (!series.first_air_date || new Date(series.first_air_date) > new Date()) &&
+          series.status !== 'Returning Series' &&
+          series.status !== 'Ended'
+        );
+        const shouldSonarrSearchNow = isSeriesUpcoming ? false : !sonarrSettings.preventSearch;
+
+        if (isSeriesUpcoming) {
+          logger.info(
+            `[Media Request] Series "${series.name}" (${series.id}) is upcoming/unreleased. Adding to Sonarr as monitored without immediate search to protect tracker rate limits.`,
+            { label: 'Media Request', seriesId: series.id, title: series.name }
+          );
+        }
+
         const sonarrSeriesOptions: AddSeriesOptions = {
           profileId: qualityProfile,
           languageProfileId: languageProfile,
@@ -720,7 +791,7 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
           tags,
           monitored: true,
           monitorNewItems: sonarrSettings.monitorNewItems,
-          searchNow: !sonarrSettings.preventSearch,
+          searchNow: shouldSonarrSearchNow,
           seasonEpisodes:
             Object.keys(targetEpisodesBySeason).length > 0
               ? targetEpisodesBySeason
