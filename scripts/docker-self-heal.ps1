@@ -5,7 +5,10 @@
     Prevents docker_data.vhdx from uncontrolled growth by:
     1. Pruning BuildKit cache (capping under 5 GB)
     2. Pruning dangling/untagged images
-    3. (Optional -Compact) Compacting docker_data.vhdx via Optimize-VHD / diskpart
+    3. (Optional -Compact) Deep block compaction via Hyper-V Optimize-VHD + auto-restart Docker Desktop
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File scripts\docker-self-heal.ps1
+    powershell -ExecutionPolicy Bypass -File scripts\docker-self-heal.ps1 -Compact
 #>
 
 [CmdletBinding()]
@@ -17,6 +20,7 @@ param(
 $ErrorActionPreference = "Continue"
 
 $vhdxPath = "$env:LOCALAPPDATA\Docker\wsl\disk\docker_data.vhdx"
+$dockerExe = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
 function Get-VhdxSizeGB {
     if (Test-Path $vhdxPath) {
@@ -48,16 +52,16 @@ if ($Compact) {
     wsl.exe --shutdown
     Start-Sleep -Seconds 3
 
-    # Ensure sparse flag is unset (diskpart/Hyper-V require uncompressed, non-sparse VHDX)
-    & fsutil.exe sparse setflag "$vhdxPath" 0 | Out-Null
+    # Ensure sparse flag is unset (Hyper-V Optimize-VHD requires standard non-sparse VHDX)
+    & fsutil.exe sparse setflag "$vhdxPath" 0 2>$null | Out-Null
 
     Write-Host "`n[2/3] Compacting docker_data.vhdx..." -ForegroundColor Green
     if (Get-Command Optimize-VHD -ErrorAction SilentlyContinue) {
         Write-Host "Using Hyper-V Optimize-VHD (Mode: Full) on $vhdxPath..." -ForegroundColor Cyan
-        Write-Host "Scanning block allocation table (this may take ~1-3 minutes)..." -ForegroundColor Yellow
+        Write-Host "Scanning block allocation table and truncating empty space..." -ForegroundColor Yellow
         Optimize-VHD -Path $vhdxPath -Mode Full
     } else {
-        Write-Host "Using diskpart compaction on $vhdxPath..." -ForegroundColor Cyan
+        Write-Host "Hyper-V module not found; falling back to diskpart..." -ForegroundColor Cyan
         $tempScript = [System.IO.Path]::GetTempFileName()
         $diskpartCommands = @"
 select vdisk file="$vhdxPath"
@@ -88,7 +92,14 @@ exit
     Write-Host " New size:      $finalSize GB" -ForegroundColor White
     Write-Host " Reclaimed:     $saved GB freed on C: drive!" -ForegroundColor Green
     Write-Host "==========================================" -ForegroundColor Green
-    Write-Host "`nYou can now restart Docker Desktop from your Start menu." -ForegroundColor Cyan
+
+    # Automatically restart Docker Desktop
+    if (Test-Path $dockerExe) {
+        Write-Host "`n[3/3] Automatically restarting Docker Desktop..." -ForegroundColor Cyan
+        Start-Process $dockerExe
+    } else {
+        Write-Host "`nYou can now restart Docker Desktop from your Start menu." -ForegroundColor Cyan
+    }
     return
 }
 
@@ -106,4 +117,5 @@ Write-Host "`n[2/2] Pruning dangling images..." -ForegroundColor Green
 docker image prune -f
 
 Write-Host "`nSelf-heal routine completed." -ForegroundColor Green
-Write-Host "To shrink the physical .vhdx file on C: drive, run with -Compact." -ForegroundColor Gray
+Write-Host "Current virtual disk size on C: is $initialSize GB." -ForegroundColor Gray
+Write-Host "To compact the virtual disk using Optimize-VHD, run with -Compact (or 'pnpm docker:compact')." -ForegroundColor Gray
