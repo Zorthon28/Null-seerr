@@ -178,7 +178,9 @@ class ServarrBase<QueueItemAppendT> extends ExternalAPI {
         `/queue`,
         {
           params: {
+            pageSize: 1000,
             includeEpisode: true,
+            includeSeries: true,
           },
         }
       );
