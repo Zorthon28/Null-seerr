@@ -10,6 +10,8 @@
     "build:server": "tsc --project server/tsconfig.json && copyfiles -u 2 server/templates/**/*.{html,pug} dist/templates && copyfiles -u 2 \"server/i18n/locale/*.json\" dist/i18n && tsc-alias -p server/tsconfig.json",
     "build:next": "next build",
     "build": "pnpm build:next && pnpm build:server",
+    "docker:self-heal": "powershell -ExecutionPolicy Bypass -File scripts/docker-self-heal.ps1",
+    "docker:compact": "powershell -ExecutionPolicy Bypass -File scripts/docker-self-heal.ps1 -Compact",
     "lint": "eslint \"./server/**/*.{ts,tsx}\" \"./src/**/*.{ts,tsx}\" --cache",
     "lintfix": "eslint \"./server/**/*.{ts,tsx}\" \"./src/**/*.{ts,tsx}\" --fix",
     "test": "node server/test/index.mts",
