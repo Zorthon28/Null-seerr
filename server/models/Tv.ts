@@ -114,6 +114,7 @@ export interface TvDetails {
   watchProviders?: WatchProviders[];
   onUserWatchlist?: boolean;
   streamInfo?: StreamInfo;
+  recommendedBecauseLiked?: string;
 }
 
 const mapEpisodeResult = (episode: TmdbTvEpisodeResult): Episode => ({

@@ -579,8 +579,7 @@ const TitleCard = ({
           {basedOnTitle && !showDetail && (
             <div className="absolute bottom-1.5 inset-x-1.5 pointer-events-none z-30">
               <div className="flex flex-col rounded-lg bg-gray-950/95 backdrop-blur-md border border-rose-500/50 px-2 py-1 shadow-xl">
-                <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold text-rose-400">
-                  <SparklesIcon className="h-2.5 w-2.5 flex-shrink-0 text-rose-400" />
+                <div className="text-[9px] uppercase tracking-wider font-bold text-rose-400">
                   <span className="truncate">
                     {intl.formatMessage(messages.becauseYouLikedShort)}
                   </span>
@@ -746,10 +745,10 @@ const TitleCard = ({
               <Link
                 href={
                   mediaType === 'movie'
-                    ? `/movie/${id}`
+                    ? `/movie/${id}${basedOnTitle ? `?basedOn=${encodeURIComponent(basedOnTitle)}` : ''}`
                     : mediaType === 'collection'
                       ? `/collection/${id}`
-                      : `/tv/${id}`
+                      : `/tv/${id}${basedOnTitle ? `?basedOn=${encodeURIComponent(basedOnTitle)}` : ''}`
                 }
                 className="absolute inset-0 h-full w-full cursor-pointer overflow-hidden text-left"
                 style={{
@@ -765,8 +764,7 @@ const TitleCard = ({
                   >
                     {(basedOnTitle || recommendationReason) && (
                       <div className="mb-1.5 flex flex-col rounded-md bg-rose-950/80 border border-rose-500/40 px-2 py-1 backdrop-blur-md">
-                        <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold text-rose-300">
-                          <SparklesIcon className="h-2.5 w-2.5 text-rose-400 flex-shrink-0" />
+                        <div className="text-[9px] uppercase tracking-wider font-bold text-rose-300">
                           <span>
                             {intl.formatMessage(messages.becauseYouLikedShort)}
                           </span>

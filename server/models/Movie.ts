@@ -88,6 +88,7 @@ export interface MovieDetails {
   keywords: Keyword[];
   onUserWatchlist?: boolean;
   streamInfo?: StreamInfo;
+  recommendedBecauseLiked?: string;
 }
 
 export const mapProductionCompany = (

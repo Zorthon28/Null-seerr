@@ -128,6 +128,7 @@ const messages = defineMessages('components.MovieDetails', {
   streamQuality: 'Stream Quality',
   streamAudio: 'Stream Audio',
   streamDownloadProgress: 'Stream Download',
+  recommendedBecauseLiked: 'Recommended because you liked {title}',
 });
 
 interface MovieDetailsProps {
@@ -185,6 +186,9 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
   const { data: ratingData } = useSWR<RatingResponse>(
     `/api/v1/movie/${router.query.movieId}/ratingscombined`
   );
+
+  const recommendedBecauseLiked =
+    (router.query.basedOn as string) || data?.recommendedBecauseLiked;
 
   const sortedCrew = useMemo(
     () => sortCrewPriority(data?.credits.crew ?? []),
@@ -777,6 +781,19 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                   Web Stream ({data.streamInfo.source?.includes('OK.ru') ? 'OK.ru' : data.streamInfo.source?.includes('Hackstore') ? 'Hackstore' : 'Latino'})
                 </span>
               )
+            )}
+            {recommendedBecauseLiked && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-950/70 px-3.5 py-1 text-xs font-semibold text-rose-200 ring-1 ring-inset ring-rose-500/50 shadow-md backdrop-blur-md">
+                <span>
+                  {intl.formatMessage(messages.recommendedBecauseLiked, {
+                    title: (
+                      <strong key="title" className="text-white font-bold">
+                        {recommendedBecauseLiked}
+                      </strong>
+                    ),
+                  })}
+                </span>
+              </span>
             )}
           </div>
           {((data.mediaInfo?.downloadStatus ?? []).length > 0 ||

@@ -6,6 +6,7 @@ import type { TmdbKeyword } from '@server/api/themoviedb/interfaces';
 import { MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import { Liked } from '@server/entity/Liked';
 import { Watchlist } from '@server/entity/Watchlist';
 import logger from '@server/logger';
 import { mapTvResult } from '@server/models/Search';
@@ -57,6 +58,39 @@ tvRoutes.get('/:id', async (req, res, next) => {
         tvId: Number(req.params.id),
       });
       data.overview = tvEnglish.overview;
+    }
+
+    if (req.user?.id) {
+      if (req.query.basedOn) {
+        data.recommendedBecauseLiked = String(req.query.basedOn);
+      } else {
+        try {
+          const likedItems = await getRepository(Liked).find({
+            where: { userId: req.user.id },
+          });
+          if (likedItems.length > 0) {
+            const recs = await tmdb
+              .getTvRecommendations({
+                tvId: Number(req.params.id),
+              })
+              .catch(() => ({ results: [] }));
+            const match = recs.results?.find((r) =>
+              likedItems.some(
+                (l) => l.mediaType === MediaType.TV && l.tmdbId === r.id
+              )
+            );
+            if (match) {
+              const liked = likedItems.find(
+                (l) => l.mediaType === MediaType.TV && l.tmdbId === match.id
+              );
+              data.recommendedBecauseLiked =
+                liked?.title || (match as any).name || (match as any).title;
+            }
+          }
+        } catch {
+          // Continue
+        }
+      }
     }
 
     return res.status(200).json(data);

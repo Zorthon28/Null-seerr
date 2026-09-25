@@ -265,8 +265,13 @@ export const NetflixPreviewCard: React.FC = () => {
   const handleDetailsClick = useCallback(() => {
     if (!item) return;
     closePreviewNow();
+    const query = item.basedOnTitle
+      ? `?basedOn=${encodeURIComponent(item.basedOnTitle)}`
+      : '';
     router.push(
-      item.mediaType === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`
+      item.mediaType === 'movie'
+        ? `/movie/${item.id}${query}`
+        : `/tv/${item.id}${query}`
     );
   }, [item, closePreviewNow, router]);
 
