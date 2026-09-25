@@ -298,10 +298,50 @@ export interface TmdbTvDetails {
     results: TmdbKeyword[];
   };
   videos: TmdbVideoResult;
+  episode_groups?: TmdbEpisodeGroupsResponse;
+  appliedEpisodeGroupId?: string;
   'watch/providers'?: {
     id: number;
     results?: { [iso_3166_1: string]: TmdbWatchProviders };
   };
+}
+
+export interface TmdbEpisodeGroupOverview {
+  id: string;
+  name: string;
+  description: string;
+  episode_count: number;
+  group_count: number;
+  type: number;
+  network?: any;
+}
+
+export interface TmdbEpisodeGroupsResponse {
+  results: TmdbEpisodeGroupOverview[];
+}
+
+export interface TmdbEpisodeGroupEpisode extends TmdbTvEpisodeResult {
+  order?: number;
+}
+
+export interface TmdbEpisodeGroupItem {
+  id: string;
+  name: string;
+  order: number;
+  description?: string;
+  episodes: TmdbEpisodeGroupEpisode[];
+  locked?: boolean;
+}
+
+export interface TmdbEpisodeGroupDetails {
+  id: string;
+  name: string;
+  description: string;
+  episode_count: number;
+  group_count: number;
+  type: number;
+  network?: any;
+  groups: TmdbEpisodeGroupItem[];
 }
 
 export interface TmdbVideoResult {

@@ -1,11 +1,15 @@
 import ExternalAPI from '@server/api/externalapi';
 import type { TvShowProvider } from '@server/api/provider';
 import cacheManager from '@server/lib/cache';
+import logger from '@server/logger';
 import { getSettings } from '@server/lib/settings';
 import { sortBy } from 'lodash';
 import type {
   TmdbCollection,
   TmdbCompanySearchResponse,
+  TmdbEpisodeGroupDetails,
+  TmdbEpisodeGroupOverview,
+  TmdbEpisodeGroupsResponse,
   TmdbExternalIdResponse,
   TmdbGenre,
   TmdbGenresResult,
@@ -23,6 +27,8 @@ import type {
   TmdbSearchTvResponse,
   TmdbSeasonWithEpisodes,
   TmdbTvDetails,
+  TmdbTvEpisodeResult,
+  TmdbTvSeasonResult,
   TmdbUpcomingMoviesResponse,
   TmdbWatchProviderDetails,
   TmdbWatchProviderRegion,
@@ -355,7 +361,7 @@ class TheMovieDb extends ExternalAPI implements TvShowProvider {
           params: {
             language,
             append_to_response:
-              'aggregate_credits,credits,external_ids,keywords,videos,content_ratings,watch/providers',
+              'aggregate_credits,credits,external_ids,keywords,videos,content_ratings,watch/providers,episode_groups',
             include_video_language: language,
           },
         },
@@ -400,6 +406,77 @@ class TheMovieDb extends ExternalAPI implements TvShowProvider {
         }
       }
 
+      // Check if show qualifies for TMDB Episode Group override (e.g. anime where canonical TMDB merged all into Season 1)
+      const regularSeasons = (data.seasons || []).filter(
+        (s) => s.season_number > 0
+      );
+      const isCandidateForGroupOverride =
+        regularSeasons.length <= 1 ||
+        (regularSeasons.length > 0 && regularSeasons[0].episode_count >= 30);
+
+      if (isCandidateForGroupOverride && data.episode_groups?.results?.length) {
+        const seasonGroup = this.findBestSeasonEpisodeGroup(
+          data.episode_groups.results
+        );
+        if (seasonGroup) {
+          try {
+            const groupDetails = await this.getTvEpisodeGroup({
+              groupId: seasonGroup.id,
+              language,
+            });
+
+            if (groupDetails?.groups?.length > 1) {
+              const mappedSeasons: TmdbTvSeasonResult[] = [];
+              for (const [idx, g] of groupDetails.groups.entries()) {
+                let seasonNumber = g.order;
+                if (g.name.toLowerCase().includes('special')) {
+                  seasonNumber = 0;
+                } else {
+                  const match = g.name.match(/season\s*(\d+)/i);
+                  if (match) {
+                    seasonNumber = parseInt(match[1], 10);
+                  } else if (
+                    seasonNumber === 0 &&
+                    !g.name.toLowerCase().includes('special')
+                  ) {
+                    seasonNumber = idx + 1;
+                  }
+                }
+
+                const earliestAirDate =
+                  g.episodes.find((e) => Boolean(e.air_date))?.air_date ??
+                  data.first_air_date ??
+                  '';
+
+                mappedSeasons.push({
+                  id: data.id * 1000 + seasonNumber,
+                  air_date: earliestAirDate,
+                  episode_count: g.episodes.length,
+                  name: g.name,
+                  overview: g.description || '',
+                  poster_path: data.poster_path,
+                  season_number: seasonNumber,
+                });
+              }
+
+              if (mappedSeasons.length > 0) {
+                data.seasons = mappedSeasons.sort(
+                  (a, b) => a.season_number - b.season_number
+                );
+                data.number_of_seasons = data.seasons.filter(
+                  (s) => s.season_number > 0
+                ).length;
+                data.appliedEpisodeGroupId = seasonGroup.id;
+              }
+            }
+          } catch (groupErr: any) {
+            logger.debug(
+              `[TMDB] Failed to apply episode group override for ${tvId}: ${groupErr.message}`
+            );
+          }
+        }
+      }
+
       return data;
     } catch (e) {
       throw new Error(`[TMDB] Failed to fetch TV show details: ${e.message}`, {
@@ -407,6 +484,59 @@ class TheMovieDb extends ExternalAPI implements TvShowProvider {
       });
     }
   };
+
+  public getTvEpisodeGroup = async ({
+    groupId,
+    language = this.locale,
+  }: {
+    groupId: string;
+    language?: string;
+  }): Promise<TmdbEpisodeGroupDetails> => {
+    try {
+      const data = await this.get<TmdbEpisodeGroupDetails>(
+        `/tv/episode_group/${groupId}`,
+        {
+          params: {
+            language,
+          },
+        },
+        43200
+      );
+
+      return data;
+    } catch (e) {
+      throw new Error(`[TMDB] Failed to fetch TV episode group: ${e.message}`, {
+        cause: e,
+      });
+    }
+  };
+
+  private findBestSeasonEpisodeGroup(
+    groups: TmdbEpisodeGroupOverview[]
+  ): TmdbEpisodeGroupOverview | undefined {
+    if (!groups || groups.length === 0) return undefined;
+
+    const candidates = groups.filter((g) => {
+      if (g.group_count <= 1) return false;
+      const lower = g.name.trim().toLowerCase();
+      return (
+        lower === 'seasons' ||
+        lower.startsWith('season') ||
+        ((g.type === 6 || g.type === 7 || g.type === 1) &&
+          /season|temporada|saison|staffel/i.test(lower))
+      );
+    });
+
+    if (candidates.length === 0) return undefined;
+
+    return candidates.sort((a, b) => {
+      const aExact = a.name.trim().toLowerCase() === 'seasons';
+      const bExact = b.name.trim().toLowerCase() === 'seasons';
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      return (b.episode_count ?? 0) - (a.episode_count ?? 0);
+    })[0];
+  }
 
   public getTvSeason = async ({
     tvId,
@@ -417,6 +547,92 @@ class TheMovieDb extends ExternalAPI implements TvShowProvider {
     seasonNumber: number;
     language?: string;
   }): Promise<TmdbSeasonWithEpisodes> => {
+    // First, check if this show uses an episode group override
+    try {
+      const tvShow = await this.getTvShow({ tvId, language });
+      const episodeGroupId =
+        tvShow.appliedEpisodeGroupId ||
+        (seasonNumber > 1 && (tvShow.seasons || []).filter((s) => s.season_number > 0).length <= 1
+          ? this.findBestSeasonEpisodeGroup(tvShow.episode_groups?.results || [])?.id
+          : undefined);
+
+      if (episodeGroupId) {
+        const groupDetails = await this.getTvEpisodeGroup({
+          groupId: episodeGroupId,
+          language,
+        });
+
+        if (groupDetails?.groups?.length > 1) {
+          const targetGroup = groupDetails.groups.find((g, idx) => {
+            if (seasonNumber === 0 && g.name.toLowerCase().includes('special')) {
+              return true;
+            }
+            const match = g.name.match(/season\s*(\d+)/i);
+            if (match && parseInt(match[1], 10) === seasonNumber) {
+              return true;
+            }
+            if (g.order === seasonNumber) {
+              return true;
+            }
+            if (
+              g.order === 0 &&
+              !g.name.toLowerCase().includes('special') &&
+              idx + 1 === seasonNumber
+            ) {
+              return true;
+            }
+            return false;
+          });
+
+          if (targetGroup) {
+            const episodes: TmdbTvEpisodeResult[] = targetGroup.episodes.map(
+              (ep, idx) => ({
+                id: ep.id,
+                air_date: ep.air_date || null,
+                episode_number:
+                  ep.order !== undefined &&
+                  !targetGroup.episodes.some(
+                    (e, i) => e.order === ep.order && i !== idx
+                  )
+                    ? ep.order + 1
+                    : idx + 1,
+                name: ep.name,
+                overview: ep.overview,
+                production_code: ep.production_code || '',
+                season_number: seasonNumber,
+                show_id: tvId,
+                still_path: ep.still_path
+                  ? ep.still_path.startsWith('http')
+                    ? ep.still_path
+                    : `https://image.tmdb.org/t/p/original/${ep.still_path}`
+                  : '',
+                vote_average: ep.vote_average ?? 0,
+                vote_count: ep.vote_count ?? 0,
+              })
+            );
+
+            return {
+              id: tvId * 1000 + seasonNumber,
+              air_date:
+                episodes.find((e) => Boolean(e.air_date))?.air_date ??
+                tvShow.first_air_date ??
+                '',
+              name: targetGroup.name,
+              overview: targetGroup.description || '',
+              poster_path: tvShow.poster_path,
+              season_number: seasonNumber,
+              episodes,
+              external_ids: tvShow.external_ids ?? {},
+            };
+          }
+        }
+      }
+    } catch (groupErr: any) {
+      logger.debug(
+        `[TMDB] Episode group season fetch skipped/failed for tv/${tvId}/season/${seasonNumber}: ${groupErr.message}`
+      );
+    }
+
     try {
       const data = await this.get<TmdbSeasonWithEpisodes>(
         `/tv/${tvId}/season/${seasonNumber}`,
@@ -430,7 +646,9 @@ class TheMovieDb extends ExternalAPI implements TvShowProvider {
 
       data.episodes = data.episodes.map((episode) => {
         if (episode.still_path) {
-          episode.still_path = `https://image.tmdb.org/t/p/original/${episode.still_path}`;
+          episode.still_path = episode.still_path.startsWith('http')
+            ? episode.still_path
+            : `https://image.tmdb.org/t/p/original/${episode.still_path}`;
         }
         return episode;
       });
