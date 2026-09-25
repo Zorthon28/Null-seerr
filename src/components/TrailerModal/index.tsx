@@ -351,41 +351,7 @@ const TrailerModal: React.FC<TrailerModalProps> = ({
             />
           )}
 
-          {/* Always-visible video selector pills at the bottom */}
-          {youtubeVideos.length > 1 && (
-            <div className="absolute bottom-3 inset-x-3 z-30 flex items-center justify-center gap-1.5 overflow-x-auto py-1.5 px-3 rounded-xl bg-gray-950/80 backdrop-blur-md border border-gray-800/80 shadow-lg scrollbar-none">
-              <span className="text-[11px] font-medium text-gray-400 mr-1 flex-shrink-0 hidden sm:inline">
-                Videos ({youtubeVideos.length}):
-              </span>
-              {youtubeVideos.map((v) => {
-                const isSelected = v.key === selectedKey;
-                const isFailed = failedKeysRef.current.has(v.key);
-                return (
-                  <button
-                    key={v.key}
-                    type="button"
-                    onClick={() => {
-                      if (v.key === selectedKey) return;
-                      setSelectedKey(v.key);
-                      setStreamUrl(null);
-                      setModalError(false);
-                      hasConfirmedPlaybackRef.current = false;
-                    }}
-                    title={v.name}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition flex-shrink-0 truncate max-w-[180px] sm:max-w-[220px] ${
-                      isSelected
-                        ? 'border-rose-500 bg-rose-600/30 text-rose-200 shadow-sm'
-                        : isFailed
-                        ? 'border-gray-800 bg-gray-900/60 text-gray-500 line-through opacity-60 hover:opacity-80'
-                        : 'border-gray-700/80 bg-gray-800/80 text-gray-300 hover:bg-gray-700 hover:text-white'
-                    }`}
-                  >
-                    {v.name || v.type}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+
         </div>
       </div>
     </Transition>,
