@@ -79,6 +79,12 @@ app
       }
     }
 
+    if (!isPgsql) {
+      await dbConnection.query('PRAGMA synchronous = NORMAL;');
+      await dbConnection.query('PRAGMA cache_size = -64000;');
+      await dbConnection.query('PRAGMA temp_store = MEMORY;');
+    }
+
     try {
       await dbConnection.query(
         'ALTER TABLE season_request ADD COLUMN episodes TEXT'

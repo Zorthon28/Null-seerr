@@ -91,10 +91,21 @@ interface QueueItem {
 
 const DownloadCard = ({ item }: { item: QueueItem }) => {
   const url = item.mediaType === 'movie' ? `/api/v1/movie/${item.tmdbId}` : `/api/v1/tv/${item.tmdbId}`;
-  const { data: details } = useSWR<MovieDetails | TvDetails>(url);
+  const { data: details } = useSWR<MovieDetails | TvDetails>(url, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    dedupingInterval: 60000,
+    refreshInterval: 0,
+  });
 
   const { data: retentionData, mutate: mutateRetention } = useSWR<{ policy: string }>(
-    `/api/v1/media/${item.mediaType}/${item.tmdbId}/retention`
+    `/api/v1/media/${item.mediaType}/${item.tmdbId}/retention`,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 60000,
+      refreshInterval: 0,
+    }
   );
   const policy = retentionData?.policy || 'dont_delete';
 
