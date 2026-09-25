@@ -230,6 +230,7 @@ class ServarrBase<QueueItemAppendT> extends ExternalAPI {
     if (!ids || ids.length === 0) return;
     try {
       await this.axios.delete(`/queue/bulk`, {
+        headers: { 'Content-Type': 'application/json' },
         params: {
           removeFromClient,
           blocklist,
