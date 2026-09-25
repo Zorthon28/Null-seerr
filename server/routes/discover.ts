@@ -1349,6 +1349,14 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
     };
 
     // 0. AI-Powered Smart Recommendations using Google Gemini
+    const aiCandidates: {
+      id: number;
+      mediaType: 'movie' | 'tv';
+      data: any;
+      from?: string;
+      reason?: string;
+    }[] = [];
+
     if (geminiApi.isConfigured()) {
       try {
         const likedTitles = [
@@ -1383,18 +1391,11 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
           const aiRecs = await geminiApi.getRecommendations({
             likedTitles,
             watchedTitles,
-            limit: 20,
+            limit: 15,
             cacheKey,
           });
 
           if (aiRecs.length > 0) {
-            const resolvedCandidates: {
-              result: any;
-              mediaType: 'movie' | 'tv';
-              basedOn?: string;
-              reason?: string;
-            }[] = [];
-
             await Promise.all(
               aiRecs.map(async (item) => {
                 try {
@@ -1438,10 +1439,11 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
                     )
                   ) {
                     addedIds.add(searchResult.id);
-                    resolvedCandidates.push({
-                      result: { ...searchResult, media_type: item.mediaType },
+                    aiCandidates.push({
+                      id: searchResult.id,
                       mediaType: item.mediaType,
-                      basedOn: item.basedOn,
+                      data: { ...searchResult, media_type: item.mediaType },
+                      from: item.basedOn,
                       reason: item.reason,
                     });
                   }
@@ -1450,51 +1452,6 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
                 }
               })
             );
-
-            if (resolvedCandidates.length >= 8) {
-              const media = await Media.getRelatedMedia(
-                req.user,
-                resolvedCandidates.map((c) => ({
-                  tmdbId: c.result.id,
-                  mediaType:
-                    c.mediaType === 'movie' ? MediaType.MOVIE : MediaType.TV,
-                }))
-              );
-
-              const results = resolvedCandidates.map((c) => {
-                const res =
-                  c.mediaType === 'movie'
-                    ? mapMovieResult(
-                        c.result,
-                        media.find(
-                          (m) =>
-                            m.tmdbId === c.result.id &&
-                            m.mediaType === MediaType.MOVIE
-                        )
-                      )
-                    : mapTvResult(
-                        c.result,
-                        media.find(
-                          (m) =>
-                            m.tmdbId === c.result.id &&
-                            m.mediaType === MediaType.TV
-                        )
-                      );
-
-                return {
-                  ...res,
-                  recommendationReason: c.reason,
-                  basedOnTitle: c.basedOn || undefined,
-                };
-              });
-
-              return res.status(200).json({
-                page: 1,
-                totalPages: 1,
-                totalResults: results.length,
-                results,
-              });
-            }
           }
         }
       } catch (geminiErr: any) {
@@ -1665,7 +1622,8 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       mediaType: 'movie' | 'tv';
       data: any;
       from?: string;
-    }[] = [];
+      reason?: string;
+    }[] = [...aiCandidates];
     const maxLen = Math.max(movieCandidates.length, tvCandidates.length);
 
     for (let i = 0; i < maxLen; i++) {
@@ -1757,7 +1715,8 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
           : mapTvResult(r.data, match);
       return {
         ...res,
-        recommendationReason: r.from ? `Because you liked ${r.from}` : undefined,
+        recommendationReason:
+          r.reason || (r.from ? `Because you liked ${r.from}` : undefined),
         basedOnTitle: r.from || undefined,
       };
     });
