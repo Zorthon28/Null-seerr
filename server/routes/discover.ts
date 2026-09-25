@@ -1135,7 +1135,6 @@ async function getWatchedMediaHistory(user?: User | null): Promise<{
 // 1. Based on what you liked (recommendations based on liked and watched titles)
 const handleRecentRecommendations = async (req: any, res: any, next: any) => {
   const tmdb = createTmdbWithRegionLanguage(req.user);
-  const suggestarrApi = new SuggestarrAPI();
 
   try {
     const {
@@ -1147,83 +1146,105 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
 
     // Get user's liked titles
     const likedRepository = getRepository(Liked);
+    let userLikedSeries: Liked[] = [];
+    let userLikedMovies: Liked[] = [];
     let likedSeriesIds: number[] = [];
     let likedMovieIds: number[] = [];
+
     if (req.user?.id) {
       try {
         const likedItems = await likedRepository.find({
           where: { userId: req.user.id },
           order: { createdAt: 'DESC' },
         });
-        likedSeriesIds = likedItems
-          .filter((l) => l.mediaType === 'tv')
-          .map((l) => l.tmdbId);
-        likedMovieIds = likedItems
-          .filter((l) => l.mediaType === 'movie')
-          .map((l) => l.tmdbId);
+        userLikedSeries = likedItems.filter((l) => l.mediaType === 'tv');
+        userLikedMovies = likedItems.filter((l) => l.mediaType === 'movie');
+        likedSeriesIds = userLikedSeries.map((l) => l.tmdbId);
+        likedMovieIds = userLikedMovies.map((l) => l.tmdbId);
       } catch {
         // Continue
       }
     }
 
-    const recentCandidates: { id: number; mediaType: 'movie' | 'tv'; data: any }[] = [];
     const addedIds = new Set<number>();
 
-    // Prioritize liked media over watched media
-    const seriesSourceIds = [
-      ...likedSeriesIds,
-      ...watchedSeriesIds.filter((id) => !likedSeriesIds.includes(id)),
-    ];
-    const movieSourceIds = [
-      ...likedMovieIds,
-      ...watchedMovieIds.filter((id) => !likedMovieIds.includes(id)),
-    ];
+    const isExcluded = (id: number, mediaType: 'movie' | 'tv') => {
+      if (addedIds.has(id)) return true;
+      if (mediaType === 'movie') {
+        return (
+          allLibraryMovieIds.has(id) ||
+          watchedMovieIds.includes(id) ||
+          likedMovieIds.includes(id)
+        );
+      } else {
+        return (
+          allLibrarySeriesIds.has(id) ||
+          watchedSeriesIds.includes(id) ||
+          likedSeriesIds.includes(id)
+        );
+      }
+    };
 
-    // Suggestarr AI preview items
-    try {
-      const suggestarrItems = await suggestarrApi.getJobPreview(1);
-      for (const item of suggestarrItems) {
-        const tid = Number(item.tmdb_id);
-        const mType = item.media_type === 'movie' ? 'movie' : 'tv';
-        const isExcluded =
-          mType === 'movie'
-            ? allLibraryMovieIds.has(tid) || watchedMovieIds.includes(tid) || likedMovieIds.includes(tid)
-            : allLibrarySeriesIds.has(tid) || watchedSeriesIds.includes(tid) || likedSeriesIds.includes(tid);
+    const isPreschoolOrToddler = (title?: string, overview?: string) => {
+      const text = `${title || ''} ${overview || ''}`.toLowerCase();
+      return /\b(paw patrol|peppa pig|barbie|snoopy|cocomelon|baby shark|dora the explorer|teletubbies|winnie the pooh|sesame street|thomas & friends|bob the builder|caillou|bluey)\b/i.test(
+        text
+      );
+    };
 
-        if (tid && !isExcluded && !addedIds.has(tid)) {
-          addedIds.add(tid);
-          recentCandidates.push({
-            id: tid,
-            mediaType: mType,
-            data: {
-              id: tid,
-              name: item.name || item.title || '',
-              title: item.title || item.name || '',
-              original_name: item.name || item.title || '',
-              original_title: item.title || item.name || '',
-              overview: item.overview || '',
-              poster_path: item.poster_path || '',
-              backdrop_path: item.backdrop_path || '',
-              vote_average: item.rating || 0,
-              vote_count: 0,
-              genre_ids: [],
-              first_air_date: item.release_date || '',
-              release_date: item.release_date || '',
-              media_type: mType,
-              popularity: 10,
-              origin_country: [],
-              original_language: 'en',
-            },
-          });
+    const getTitleRoot = (title?: string) => {
+      if (!title) return '';
+      const base = title.split(/[:\-\–\|]/)[0].trim().toLowerCase();
+      return base.replace(/^(the|a|an)\s+/i, '').replace(/[^a-z0-9]/g, '');
+    };
+
+    // Helper to sample diverse seeds from liked items, avoiding sequel/franchise clustering
+    const sampleDiverseSeeds = (items: Liked[], maxSeeds = 8): number[] => {
+      const seenRoots = new Set<string>();
+      const seeds: number[] = [];
+      for (const item of items) {
+        const root = getTitleRoot(item.title);
+        if (root && !seenRoots.has(root)) {
+          seenRoots.add(root);
+          seeds.push(item.tmdbId);
+        }
+        if (seeds.length >= maxSeeds) break;
+      }
+      if (seeds.length < maxSeeds) {
+        for (const item of items) {
+          if (!seeds.includes(item.tmdbId)) {
+            seeds.push(item.tmdbId);
+            if (seeds.length >= maxSeeds) break;
+          }
         }
       }
-    } catch {
-      // Continue
+      return seeds;
+    };
+
+    const tvSeeds = sampleDiverseSeeds(userLikedSeries, 8);
+    const movieSeeds = sampleDiverseSeeds(userLikedMovies, 8);
+
+    // If user has few liked titles, backfill seeds from watched history
+    if (tvSeeds.length < 5) {
+      for (const id of watchedSeriesIds) {
+        if (!tvSeeds.includes(id) && !likedSeriesIds.includes(id)) {
+          tvSeeds.push(id);
+          if (tvSeeds.length >= 5) break;
+        }
+      }
+    }
+    if (movieSeeds.length < 5) {
+      for (const id of watchedMovieIds) {
+        if (!movieSeeds.includes(id) && !likedMovieIds.includes(id)) {
+          movieSeeds.push(id);
+          if (movieSeeds.length >= 5) break;
+        }
+      }
     }
 
-    // Top TV shows recommendations based on what you liked / watched
-    for (const sId of seriesSourceIds.slice(0, 5)) {
-      if (recentCandidates.length >= 30) break;
+    // Pre-fetch candidate pools per seed
+    const tvPools = new Map<number, any[]>();
+    for (const sId of tvSeeds) {
       try {
         const recs = await tmdb.getTvRecommendations({ tvId: sId, page: 1 });
         const list =
@@ -1234,30 +1255,14 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
                   .getTvSimilar({ tvId: sId, page: 1 })
                   .catch(() => ({ results: [] }))
               ).results;
-
-        for (const show of (list || []).slice(0, 6)) {
-          if (
-            !allLibrarySeriesIds.has(show.id) &&
-            !watchedSeriesIds.includes(show.id) &&
-            !likedSeriesIds.includes(show.id) &&
-            !addedIds.has(show.id)
-          ) {
-            addedIds.add(show.id);
-            recentCandidates.push({
-              id: show.id,
-              mediaType: 'tv',
-              data: { ...show, media_type: 'tv' },
-            });
-          }
-        }
+        tvPools.set(sId, list || []);
       } catch {
-        // Continue
+        tvPools.set(sId, []);
       }
     }
 
-    // Top Movies recommendations based on what you liked / watched
-    for (const mId of movieSourceIds.slice(0, 5)) {
-      if (recentCandidates.length >= 35) break;
+    const moviePools = new Map<number, any[]>();
+    for (const mId of movieSeeds) {
       try {
         const recs = await tmdb.getMovieRecommendations({ movieId: mId, page: 1 });
         const list =
@@ -1268,46 +1273,86 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
                   .getMovieSimilar({ movieId: mId, page: 1 })
                   .catch(() => ({ results: [] }))
               ).results;
-
-        for (const movie of (list || []).slice(0, 6)) {
-          if (
-            !allLibraryMovieIds.has(movie.id) &&
-            !watchedMovieIds.includes(movie.id) &&
-            !likedMovieIds.includes(movie.id) &&
-            !addedIds.has(movie.id)
-          ) {
-            addedIds.add(movie.id);
-            recentCandidates.push({
-              id: movie.id,
-              mediaType: 'movie',
-              data: { ...movie, media_type: 'movie' },
-            });
-          }
-        }
+        moviePools.set(mId, list || []);
       } catch {
-        // Continue
+        moviePools.set(mId, []);
+      }
+    }
+
+    // Round-robin selection across seeds for maximum diversity of user's liked titles
+    const tvCandidates: { id: number; mediaType: 'tv'; data: any }[] = [];
+    for (let round = 0; round < 3 && tvCandidates.length < 15; round++) {
+      for (const sId of tvSeeds) {
+        const pool = tvPools.get(sId) || [];
+        const item = pool.find(
+          (show) =>
+            !isExcluded(show.id, 'tv') &&
+            !isPreschoolOrToddler(show.name, show.overview)
+        );
+        if (item) {
+          addedIds.add(item.id);
+          tvCandidates.push({
+            id: item.id,
+            mediaType: 'tv',
+            data: { ...item, media_type: 'tv' },
+          });
+        }
+      }
+    }
+
+    const movieCandidates: { id: number; mediaType: 'movie'; data: any }[] = [];
+    for (let round = 0; round < 3 && movieCandidates.length < 15; round++) {
+      for (const mId of movieSeeds) {
+        const pool = moviePools.get(mId) || [];
+        const item = pool.find(
+          (movie) =>
+            !isExcluded(movie.id, 'movie') &&
+            !isPreschoolOrToddler(movie.title, movie.overview)
+        );
+        if (item) {
+          addedIds.add(item.id);
+          movieCandidates.push({
+            id: item.id,
+            mediaType: 'movie',
+            data: { ...item, media_type: 'movie' },
+          });
+        }
+      }
+    }
+
+    // Interleave movie and tv recommendations for a balanced recent slider
+    const interleaved: { id: number; mediaType: 'movie' | 'tv'; data: any }[] = [];
+    const maxLen = Math.max(movieCandidates.length, tvCandidates.length);
+
+    for (let i = 0; i < maxLen && interleaved.length < 24; i++) {
+      if (tvCandidates[i]) interleaved.push(tvCandidates[i]);
+      if (movieCandidates[i]) interleaved.push(movieCandidates[i]);
+    }
+
+    // Backfill with remaining candidates if any slot left
+    for (const cand of [...tvCandidates, ...movieCandidates]) {
+      if (interleaved.length >= 24) break;
+      if (!interleaved.some((c) => c.id === cand.id)) {
+        interleaved.push(cand);
       }
     }
 
     // If profile has little or no liked/watched history, backfill with trending media
-    if (recentCandidates.length < 15) {
+    if (interleaved.length < 15) {
       try {
         const trending = await tmdb.getAllTrending({
           page: 1,
           timeWindow: 'week',
         });
         for (const item of trending.results || []) {
-          if (recentCandidates.length >= 25) break;
-          const isShow = (item as any).media_type === 'tv' || Boolean((item as any).name);
-          const mType = isShow ? 'tv' : 'movie';
-          const isExcluded =
-            mType === 'movie'
-              ? allLibraryMovieIds.has(item.id) || watchedMovieIds.includes(item.id) || likedMovieIds.includes(item.id)
-              : allLibrarySeriesIds.has(item.id) || watchedSeriesIds.includes(item.id) || likedSeriesIds.includes(item.id);
+          if (interleaved.length >= 24) break;
+          const isShow =
+            (item as any).media_type === 'tv' || Boolean((item as any).name);
+          const mType: 'movie' | 'tv' = isShow ? 'tv' : 'movie';
 
-          if (!isExcluded && !addedIds.has(item.id)) {
+          if (!isExcluded(item.id, mType)) {
             addedIds.add(item.id);
-            recentCandidates.push({
+            interleaved.push({
               id: item.id,
               mediaType: mType,
               data: {
@@ -1319,24 +1364,6 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
         }
       } catch {
         // Continue
-      }
-    }
-
-    // Interleave movie and tv recommendations for a balanced recent slider
-    const movieCandidates = recentCandidates.filter((c) => c.mediaType === 'movie');
-    const tvCandidates = recentCandidates.filter((c) => c.mediaType === 'tv');
-    const interleaved: typeof recentCandidates = [];
-    const maxLen = Math.max(movieCandidates.length, tvCandidates.length);
-
-    for (let i = 0; i < maxLen && interleaved.length < 20; i++) {
-      if (tvCandidates[i]) interleaved.push(tvCandidates[i]);
-      if (movieCandidates[i]) interleaved.push(movieCandidates[i]);
-    }
-
-    for (const cand of recentCandidates) {
-      if (interleaved.length >= 20) break;
-      if (!interleaved.some((c) => c.id === cand.id)) {
-        interleaved.push(cand);
       }
     }
 
