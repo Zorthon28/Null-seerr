@@ -325,6 +325,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
           appearance: 'success',
           autoDismiss: true,
         });
+        revalidate();
       }
     }
   };

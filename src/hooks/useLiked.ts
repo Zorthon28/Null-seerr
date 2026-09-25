@@ -58,6 +58,9 @@ export const useLiked = () => {
         true
       );
       mutate('/api/v1/user/me/liked');
+      mutate(
+        (key: any) => typeof key === 'string' && key.includes('recommendation')
+      );
     },
     [revalidateLikedIds, mutate]
   );
@@ -75,6 +78,9 @@ export const useLiked = () => {
         true
       );
       mutate('/api/v1/user/me/liked');
+      mutate(
+        (key: any) => typeof key === 'string' && key.includes('recommendation')
+      );
     },
     [revalidateLikedIds, mutate]
   );

@@ -34,7 +34,6 @@ export const useDismissedRecommendations = () => {
     if (data?.results) {
       for (const item of data.results) {
         set.add(`${item.mediaType}-${item.tmdbId}`);
-        set.add(String(item.tmdbId));
       }
     }
     return set;
@@ -43,8 +42,12 @@ export const useDismissedRecommendations = () => {
   const isDismissed = useCallback(
     (tmdbId: number | undefined, mediaType?: string): boolean => {
       if (!tmdbId) return false;
-      if (mediaType && dismissedSet.has(`${mediaType}-${tmdbId}`)) return true;
-      return dismissedSet.has(String(tmdbId));
+      if (mediaType) {
+        return dismissedSet.has(`${mediaType}-${tmdbId}`);
+      }
+      return (
+        dismissedSet.has(`movie-${tmdbId}`) || dismissedSet.has(`tv-${tmdbId}`)
+      );
     },
     [dismissedSet]
   );

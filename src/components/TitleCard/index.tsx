@@ -137,8 +137,9 @@ const TitleCard = ({
   const { requestPreview, cancelPreview, isPreviewEnabled } = useNetflixPreview();
   const { isWatched: checkIsWatched, markWatched, unmarkWatched } = useWatched();
   const isWatched = isWatchedItem ?? checkIsWatched(id, mediaType);
+  const isRecommendation = Boolean(basedOnTitle || recommendationReason);
   const { isDismissed, dismiss } = useDismissedRecommendations();
-  const isCardDismissed = isDismissed(id, mediaType);
+  const isCardDismissed = isRecommendation && isDismissed(id, mediaType);
 
   const onClickDismissBtn = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -712,7 +713,7 @@ const TitleCard = ({
                         <EyeSlashIcon className={'h-3.5 w-3.5'} />
                       </Button>
                     )}
-                  {user && (
+                  {user && isRecommendation && (
                     <Tooltip content={intl.formatMessage(messages.notInterested)}>
                       <Button
                         buttonType={'ghost'}
@@ -800,7 +801,11 @@ const TitleCard = ({
                           </span>
                         </div>
                         <div className="text-xs font-semibold text-white line-clamp-2 leading-snug">
-                          {basedOnTitle || recommendationReason}
+                          {basedOnTitle ||
+                            recommendationReason?.replace(
+                              /^Because you liked\s+/i,
+                              ''
+                            )}
                         </div>
                       </div>
                     )}

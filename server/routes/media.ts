@@ -1413,6 +1413,52 @@ async function deleteWatchedMediaFile({
     logger.info(
       `[Media Cleanup] Deleted ${episodeIdsToUnmonitor.length} episode files for series ${tmdbId} (freed ${(freedBytes / (1024 * 1024)).toFixed(1)} MB). ${remainingMonitoredCount} remaining episodes stay monitored for auto-download.`
     );
+
+    const deletedFileIds = new Set(targetEpisodes.map((ep) => ep.episodeFileId));
+    const remainingFiles = episodeFiles.filter((ef) => !deletedFileIds.has(ef.id));
+
+    if (remainingFiles.length === 0) {
+      media[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
+      if (
+        (!is4k && media.status4k !== MediaStatus.AVAILABLE) ||
+        (is4k && media.status !== MediaStatus.AVAILABLE)
+      ) {
+        media.mediaAddedAt = null;
+      }
+      media.resetServiceData(is4k);
+      if (is4k) {
+        media.ratingKey4k = null;
+        media.jellyfinMediaId4k = null;
+      } else {
+        media.ratingKey = null;
+        media.jellyfinMediaId = null;
+      }
+      for (const season of media.seasons) {
+        season[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
+      }
+    } else {
+      media[is4k ? 'status4k' : 'status'] = MediaStatus.PARTIALLY_AVAILABLE;
+      for (const season of media.seasons) {
+        const seasonEpisodes = episodes.filter(
+          (ep) => ep.seasonNumber === season.seasonNumber
+        );
+        const remainingSeasonEpisodesWithFiles = seasonEpisodes.filter((ep) =>
+          remainingFiles.some((rf) => rf.id === ep.episodeFileId)
+        );
+        if (remainingSeasonEpisodesWithFiles.length === 0) {
+          season[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
+        } else if (
+          seasonEpisodes.length > 0 &&
+          remainingSeasonEpisodesWithFiles.length === seasonEpisodes.length
+        ) {
+          season[is4k ? 'status4k' : 'status'] = MediaStatus.AVAILABLE;
+        } else {
+          season[is4k ? 'status4k' : 'status'] = MediaStatus.PARTIALLY_AVAILABLE;
+        }
+      }
+    }
+    media.lastSeasonChange = new Date();
+    await getRepository(Media).save(media);
   } else if (mediaType === MediaType.MOVIE) {
     const radarrSettings =
       settings.radarr.find((r) => r.id === (is4k ? media.serviceId4k : media.serviceId)) ??
@@ -1457,6 +1503,23 @@ async function deleteWatchedMediaFile({
       await radarr.deleteMovieFile(movieFile.id);
     }
     await radarr.unmonitorMovie(radarrMovieId);
+
+    media[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
+    if (
+      (!is4k && media.status4k !== MediaStatus.AVAILABLE) ||
+      (is4k && media.status !== MediaStatus.AVAILABLE)
+    ) {
+      media.mediaAddedAt = null;
+    }
+    media.resetServiceData(is4k);
+    if (is4k) {
+      media.ratingKey4k = null;
+      media.jellyfinMediaId4k = null;
+    } else {
+      media.ratingKey = null;
+      media.jellyfinMediaId = null;
+    }
+    await getRepository(Media).save(media);
 
     logger.info(
       `[Media Cleanup] Deleted movie file and purged torrent for movie ${tmdbId} (freed ${(freedBytes / (1024 * 1024)).toFixed(1)} MB) and unmonitored.`
@@ -2308,7 +2371,20 @@ mediaRoutes.delete(
       }
 
       media[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
+      if (
+        (!is4k && media.status4k !== MediaStatus.AVAILABLE) ||
+        (is4k && media.status !== MediaStatus.AVAILABLE)
+      ) {
+        media.mediaAddedAt = null;
+      }
       media.resetServiceData(is4k);
+      if (is4k) {
+        media.ratingKey4k = null;
+        media.jellyfinMediaId4k = null;
+      } else {
+        media.ratingKey = null;
+        media.jellyfinMediaId = null;
+      }
       await mediaRepository.save(media);
 
       return res.status(204).send();

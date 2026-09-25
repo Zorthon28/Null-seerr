@@ -163,7 +163,7 @@ class Media {
     default: () => 'CURRENT_TIMESTAMP',
     nullable: true,
   })
-  public mediaAddedAt: Date;
+  public mediaAddedAt?: Date | null;
 
   @Column({ nullable: true, type: 'int' })
   public serviceId?: number | null;

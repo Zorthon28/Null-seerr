@@ -19,7 +19,6 @@ import {
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
   StarIcon,
-  SparklesIcon,
 } from '@heroicons/react/24/solid';
 import {
   CheckCircleIcon as CheckCircleOutlineIcon,
@@ -537,7 +536,7 @@ export const NetflixPreviewCard: React.FC = () => {
               )}
 
               {/* Dismiss / Not Interested */}
-              {user && (
+              {user && (item?.basedOnTitle || item?.recommendationReason) && (
                 <Tooltip content="Not interested">
                   <button
                     onClick={handleDismissClick}
@@ -563,11 +562,14 @@ export const NetflixPreviewCard: React.FC = () => {
           {/* Recommendation Reason Pill */}
           {(item?.basedOnTitle || item?.recommendationReason) && (
             <div className="flex items-center gap-1.5 rounded-md bg-rose-500/20 border border-rose-500/35 px-2.5 py-1 text-xs font-medium text-rose-200">
-              <SparklesIcon className="h-3.5 w-3.5 text-rose-400 flex-shrink-0" />
               <span>
                 Because you liked{' '}
                 <strong className="text-white font-semibold">
-                  {item.basedOnTitle || item.recommendationReason}
+                  {item.basedOnTitle ||
+                    item.recommendationReason?.replace(
+                      /^Because you liked\s+/i,
+                      ''
+                    )}
                 </strong>
               </span>
             </div>

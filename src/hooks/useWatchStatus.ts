@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { useCallback, useState } from 'react';
-import useSWR from 'swr';
+import useSWR, { mutate as globalMutate } from 'swr';
 
 export interface EpisodeWatchData {
   seasonNumber: number;
@@ -103,6 +103,10 @@ export const useWatchStatus = (
         }>(`/api/v1/media/${mediaType}/${tmdbId}/watched?${queryParams.toString()}`);
 
         await mutate();
+        globalMutate(`/api/v1/${mediaType}/${tmdbId}`);
+        globalMutate(
+          (key) => typeof key === 'string' && key.startsWith('/api/v1/media')
+        );
         return res.data;
       } finally {
         setIsUpdating(false);

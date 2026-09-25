@@ -121,10 +121,24 @@ class BaseScanner<T> {
       if (existing) {
         let changedExisting = false;
 
-        if (existing[is4k ? 'status4k' : 'status'] !== MediaStatus.AVAILABLE) {
-          const statusField = is4k ? 'status4k' : 'status';
-          const previousStatus = existing[statusField];
+        const statusField = is4k ? 'status4k' : 'status';
+        const previousStatus = existing[statusField];
 
+        if (
+          previousStatus === MediaStatus.AVAILABLE &&
+          !processing &&
+          !hasFile &&
+          this.scannerName === 'radarr'
+        ) {
+          existing[statusField] = MediaStatus.DELETED;
+          if (
+            (!is4k && existing.status4k !== MediaStatus.AVAILABLE) ||
+            (is4k && existing.status !== MediaStatus.AVAILABLE)
+          ) {
+            existing.mediaAddedAt = null;
+          }
+          changedExisting = true;
+        } else if (previousStatus !== MediaStatus.AVAILABLE) {
           existing[statusField] =
             !processing && hasFile
               ? MediaStatus.AVAILABLE

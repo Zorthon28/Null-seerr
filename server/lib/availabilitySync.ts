@@ -536,6 +536,12 @@ class AvailabilitySync {
       // and change related columns to null if media
       // is not processing
       media[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
+      if (
+        (!is4k && media.status4k !== MediaStatus.AVAILABLE) ||
+        (is4k && media.status !== MediaStatus.AVAILABLE)
+      ) {
+        media.mediaAddedAt = null;
+      }
       media[is4k ? 'serviceId4k' : 'serviceId'] = isMediaProcessing
         ? media[is4k ? 'serviceId4k' : 'serviceId']
         : null;

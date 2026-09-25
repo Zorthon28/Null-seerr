@@ -1244,26 +1244,18 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       return seeds;
     };
 
-    const tvSeeds = sampleDiverseSeeds(userLikedSeries, 8);
-    const movieSeeds = sampleDiverseSeeds(userLikedMovies, 8);
+    // Seeds:
+    // If the user has liked items, use ONLY their liked items as seeds (do not dilute with random watch history).
+    // Only fall back to watched history if the user has 0 liked titles.
+    const tvSeeds =
+      userLikedSeries.length > 0
+        ? sampleDiverseSeeds(userLikedSeries, 8)
+        : watchedSeriesIds.slice(0, 8);
 
-    // If user has few liked titles, backfill seeds from watched history
-    if (tvSeeds.length < 5) {
-      for (const id of watchedSeriesIds) {
-        if (!tvSeeds.includes(id) && !likedSeriesIds.includes(id)) {
-          tvSeeds.push(id);
-          if (tvSeeds.length >= 5) break;
-        }
-      }
-    }
-    if (movieSeeds.length < 5) {
-      for (const id of watchedMovieIds) {
-        if (!movieSeeds.includes(id) && !likedMovieIds.includes(id)) {
-          movieSeeds.push(id);
-          if (movieSeeds.length >= 5) break;
-        }
-      }
-    }
+    const movieSeeds =
+      userLikedMovies.length > 0
+        ? sampleDiverseSeeds(userLikedMovies, 8)
+        : watchedMovieIds.slice(0, 8);
 
     // Build a map of seed tmdbId to liked title
     const seedTitleMap = new Map<number, string>();
@@ -1274,42 +1266,52 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       if (item.title) seedTitleMap.set(item.tmdbId, item.title);
     }
 
-    // Pre-fetch candidate pools per seed
+    // Pre-fetch candidate pools per seed concurrently via Promise.all
     const tvPools = new Map<number, any[]>();
-    for (const sId of tvSeeds) {
-      try {
-        const recs = await tmdb.getTvRecommendations({ tvId: sId, page: 1 });
-        const list =
-          recs.results && recs.results.length > 0
-            ? recs.results
-            : (
-                await tmdb
-                  .getTvSimilar({ tvId: sId, page: 1 })
-                  .catch(() => ({ results: [] }))
-              ).results;
-        tvPools.set(sId, list || []);
-      } catch {
-        tvPools.set(sId, []);
-      }
-    }
-
     const moviePools = new Map<number, any[]>();
-    for (const mId of movieSeeds) {
-      try {
-        const recs = await tmdb.getMovieRecommendations({ movieId: mId, page: 1 });
-        const list =
-          recs.results && recs.results.length > 0
-            ? recs.results
-            : (
-                await tmdb
-                  .getMovieSimilar({ movieId: mId, page: 1 })
-                  .catch(() => ({ results: [] }))
-              ).results;
-        moviePools.set(mId, list || []);
-      } catch {
-        moviePools.set(mId, []);
-      }
-    }
+
+    await Promise.all([
+      ...tvSeeds.map(async (sId) => {
+        try {
+          const [recs, sim] = await Promise.all([
+            tmdb.getTvRecommendations({ tvId: sId, page: 1 }).catch(() => ({ results: [] })),
+            tvSeeds.length <= 3
+              ? tmdb.getTvSimilar({ tvId: sId, page: 1 }).catch(() => ({ results: [] }))
+              : Promise.resolve({ results: [] }),
+          ]);
+          const combined = [...(recs.results || []), ...(sim.results || [])];
+          const seen = new Set<number>();
+          const list = combined.filter((i) => {
+            if (!i?.id || seen.has(i.id)) return false;
+            seen.add(i.id);
+            return true;
+          });
+          tvPools.set(sId, list);
+        } catch {
+          tvPools.set(sId, []);
+        }
+      }),
+      ...movieSeeds.map(async (mId) => {
+        try {
+          const [recs, sim] = await Promise.all([
+            tmdb.getMovieRecommendations({ movieId: mId, page: 1 }).catch(() => ({ results: [] })),
+            movieSeeds.length <= 3
+              ? tmdb.getMovieSimilar({ movieId: mId, page: 1 }).catch(() => ({ results: [] }))
+              : Promise.resolve({ results: [] }),
+          ]);
+          const combined = [...(recs.results || []), ...(sim.results || [])];
+          const seen = new Set<number>();
+          const list = combined.filter((i) => {
+            if (!i?.id || seen.has(i.id)) return false;
+            seen.add(i.id);
+            return true;
+          });
+          moviePools.set(mId, list);
+        } catch {
+          moviePools.set(mId, []);
+        }
+      }),
+    ]);
 
     // Round-robin selection across seeds for maximum diversity of user's liked titles
     const tvCandidates: {
@@ -1504,54 +1506,78 @@ discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
     const candidateScores = new Map<number, number>();
     const candidateMovieMap = new Map<number, any>();
 
-    // If user watched movies, take a broad sample across the ENTIRE watched movie history
-    if (watchedMovieIds.length > 0) {
-      // Pick up to 10 diverse watched movies across the watched list (recent, middle, earlier)
+    const likedRepo = getRepository(Liked);
+    const likedMovies = req.user?.id
+      ? await likedRepo.find({
+          where: { userId: req.user.id, mediaType: MediaType.MOVIE },
+        })
+      : [];
+    const likedMovieIds = likedMovies.map((l) => l.tmdbId);
+
+    // Build sample pool prioritizing liked movies, followed by diverse watched movies
+    const combinedSeeds = [
+      ...likedMovieIds,
+      ...watchedMovieIds.filter((id) => !likedMovieIds.includes(id)),
+    ];
+
+    if (combinedSeeds.length > 0) {
       const samplePool =
-        watchedMovieIds.length <= 10
-          ? watchedMovieIds
+        combinedSeeds.length <= 12
+          ? combinedSeeds
           : [
-              ...watchedMovieIds.slice(0, 5),
-              ...watchedMovieIds
-                .slice(5)
+              ...combinedSeeds.slice(0, 6),
+              ...combinedSeeds
+                .slice(6)
                 .filter(
                   (_, idx) =>
-                    idx % Math.ceil((watchedMovieIds.length - 5) / 5) === 0
+                    idx % Math.ceil((combinedSeeds.length - 6) / 6) === 0
                 ),
-            ].slice(0, 10);
+            ].slice(0, 12);
 
-      for (const mId of samplePool) {
-        try {
-          const recs = await tmdb.getMovieRecommendations({ movieId: mId, page: 1 });
-          const list =
-            recs.results && recs.results.length > 0
-              ? recs.results
-              : (
-                  await tmdb
-                    .getMovieSimilar({ movieId: mId, page: 1 })
-                    .catch(() => ({ results: [] }))
-                ).results;
+      await Promise.all(
+        samplePool.map(async (mId) => {
+          const isLikedSeed = likedMovieIds.includes(mId);
+          try {
+            const [recs, sim] = await Promise.all([
+              tmdb.getMovieRecommendations({ movieId: mId, page: 1 }).catch(() => ({ results: [] })),
+              samplePool.length <= 4
+                ? tmdb.getMovieSimilar({ movieId: mId, page: 1 }).catch(() => ({ results: [] }))
+                : Promise.resolve({ results: [] }),
+            ]);
+            const combined = [...(recs.results || []), ...(sim.results || [])];
+            const seen = new Set<number>();
+            const list = combined.filter((i) => {
+              if (!i?.id || seen.has(i.id)) return false;
+              seen.add(i.id);
+              return true;
+            });
 
-          for (let rank = 0; rank < Math.min((list || []).length, 10); rank++) {
-            const movie = list[rank];
-            if (
-              allLibraryMovieIds.has(movie.id) ||
-              watchedMovieIds.includes(movie.id) ||
-              dismissedMovieIds.has(movie.id)
-            ) {
-              continue;
+            for (let rank = 0; rank < Math.min(list.length, 12); rank++) {
+              const movie = list[rank];
+              if (
+                allLibraryMovieIds.has(movie.id) ||
+                watchedMovieIds.includes(movie.id) ||
+                likedMovieIds.includes(movie.id) ||
+                dismissedMovieIds.has(movie.id)
+              ) {
+                continue;
+              }
+              const currentScore = candidateScores.get(movie.id) || 0;
+              // Liked seeds provide 1.5x boost over regular watched seeds
+              const weight = isLikedSeed ? 1.5 : 1.0;
+              candidateScores.set(
+                movie.id,
+                currentScore + Math.round((12 - rank) * weight)
+              );
+              if (!candidateMovieMap.has(movie.id)) {
+                candidateMovieMap.set(movie.id, { ...movie, media_type: 'movie' });
+              }
             }
-            const currentScore = candidateScores.get(movie.id) || 0;
-            // Cross-recommendation boost: movies recommended by multiple watched films score higher
-            candidateScores.set(movie.id, currentScore + (10 - rank));
-            if (!candidateMovieMap.has(movie.id)) {
-              candidateMovieMap.set(movie.id, { ...movie, media_type: 'movie' });
-            }
+          } catch {
+            // Continue
           }
-        } catch {
-          // Continue
-        }
-      }
+        })
+      );
     }
 
     // If no candidate scores (fresh profile), provide popular / trending movies
@@ -1632,6 +1658,15 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
         })
       : [];
     const dismissedSeriesIds = new Set(dismissedSeries.map((d) => d.tmdbId));
+
+    const likedRepo = getRepository(Liked);
+    const likedSeries = req.user?.id
+      ? await likedRepo.find({
+          where: { userId: req.user.id, mediaType: MediaType.TV },
+        })
+      : [];
+    const likedSeriesIds = likedSeries.map((l) => l.tmdbId);
+
     const candidateScores = new Map<number, number>();
     const candidateSeriesMap = new Map<number, any>();
 
@@ -1646,6 +1681,7 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
             tid &&
             !allLibrarySeriesIds.has(tid) &&
             !watchedSeriesIds.includes(tid) &&
+            !likedSeriesIds.includes(tid) &&
             !dismissedSeriesIds.has(tid)
           ) {
             candidateScores.set(
@@ -1675,40 +1711,72 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
       // Continue
     }
 
-    // 2. Recommendations based on ALL watched series across history
-    for (const sId of watchedSeriesIds) {
-      try {
-        const recs = await tmdb.getTvRecommendations({ tvId: sId, page: 1 });
-        const list =
-          recs.results && recs.results.length > 0
-            ? recs.results
-            : (
-                await tmdb
-                  .getTvSimilar({ tvId: sId, page: 1 })
-                  .catch(() => ({ results: [] }))
-              ).results;
+    // 2. Recommendations based on liked series and diverse watched series across history
+    const combinedSeriesSeeds = [
+      ...likedSeriesIds,
+      ...watchedSeriesIds.filter((id) => !likedSeriesIds.includes(id)),
+    ];
 
-        for (let rank = 0; rank < Math.min((list || []).length, 12); rank++) {
-          const show = list[rank];
-          if (
-            allLibrarySeriesIds.has(show.id) ||
-            watchedSeriesIds.includes(show.id) ||
-            dismissedSeriesIds.has(show.id)
-          ) {
-            continue;
+    if (combinedSeriesSeeds.length > 0) {
+      const sampleSeriesPool =
+        combinedSeriesSeeds.length <= 12
+          ? combinedSeriesSeeds
+          : [
+              ...combinedSeriesSeeds.slice(0, 6),
+              ...combinedSeriesSeeds
+                .slice(6)
+                .filter(
+                  (_, idx) =>
+                    idx % Math.ceil((combinedSeriesSeeds.length - 6) / 6) === 0
+                ),
+            ].slice(0, 12);
+
+      await Promise.all(
+        sampleSeriesPool.map(async (sId) => {
+          const isLikedSeed = likedSeriesIds.includes(sId);
+          try {
+            const [recs, sim] = await Promise.all([
+              tmdb.getTvRecommendations({ tvId: sId, page: 1 }).catch(() => ({ results: [] })),
+              sampleSeriesPool.length <= 4
+                ? tmdb.getTvSimilar({ tvId: sId, page: 1 }).catch(() => ({ results: [] }))
+                : Promise.resolve({ results: [] }),
+            ]);
+            const combined = [...(recs.results || []), ...(sim.results || [])];
+            const seen = new Set<number>();
+            const list = combined.filter((i) => {
+              if (!i?.id || seen.has(i.id)) return false;
+              seen.add(i.id);
+              return true;
+            });
+
+            for (let rank = 0; rank < Math.min(list.length, 12); rank++) {
+              const show = list[rank];
+              if (
+                allLibrarySeriesIds.has(show.id) ||
+                watchedSeriesIds.includes(show.id) ||
+                likedSeriesIds.includes(show.id) ||
+                dismissedSeriesIds.has(show.id)
+              ) {
+                continue;
+              }
+              const currentScore = candidateScores.get(show.id) || 0;
+              const weight = isLikedSeed ? 1.5 : 1.0;
+              candidateScores.set(
+                show.id,
+                currentScore + Math.round((12 - rank) * weight)
+              );
+              if (
+                !candidateSeriesMap.has(show.id) ||
+                !candidateSeriesMap.get(show.id).overview
+              ) {
+                candidateSeriesMap.set(show.id, { ...show, media_type: 'tv' });
+              }
+            }
+          } catch {
+            // Continue
           }
-          const currentScore = candidateScores.get(show.id) || 0;
-          candidateScores.set(show.id, currentScore + (10 - rank));
-          if (
-            !candidateSeriesMap.has(show.id) ||
-            !candidateSeriesMap.get(show.id).overview
-          ) {
-            candidateSeriesMap.set(show.id, { ...show, media_type: 'tv' });
-          }
-        }
-      } catch {
-        // Continue
-      }
+        })
+      );
     }
 
     // If no candidate scores (fresh profile), provide popular / trending series

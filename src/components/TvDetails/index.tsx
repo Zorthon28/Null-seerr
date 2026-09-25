@@ -321,6 +321,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
           `Deleted watched episode files (${mb} MB freed). ${res.remainingMonitoredCount} remaining episodes are monitored for auto-download.`,
           { appearance: 'success', autoDismiss: true }
         );
+        revalidate();
       }
     }
   };

@@ -4,7 +4,7 @@ import Header from '@app/components/Common/Header';
 import PageTitle from '@app/components/Common/PageTitle';
 import useToasts from '@app/hooks/useToasts';
 import axios from 'axios';
-import useSWR from 'swr';
+import useSWR, { mutate as globalMutate } from 'swr';
 import type { NextPage } from 'next';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -698,6 +698,9 @@ const DownloadsPage: NextPage = () => {
         { appearance: 'success', autoDismiss: true }
       );
       await mutateReclaim();
+      globalMutate(
+        (key) => typeof key === 'string' && key.startsWith('/api/v1/media')
+      );
     } catch {
       addToast('Failed to delete watched media', {
         appearance: 'error',
@@ -746,6 +749,9 @@ const DownloadsPage: NextPage = () => {
         }
       );
       await mutateReclaim();
+      globalMutate(
+        (key) => typeof key === 'string' && key.startsWith('/api/v1/media')
+      );
     } catch {
       addToast('Failed to batch delete watched media', {
         appearance: 'error',

@@ -33,7 +33,7 @@ import type { TvDetails } from '@server/models/Tv';
 import axios from 'axios';
 import Link from 'next/link';
 import { useIntl } from 'react-intl';
-import useSWR from 'swr';
+import useSWR, { mutate as globalMutate } from 'swr';
 
 import type { JSX } from 'react';
 
@@ -133,6 +133,9 @@ const ManageSlideOver = ({
       try {
         await axios.delete(`/api/v1/media/${data.mediaInfo.id}`);
         revalidate();
+        globalMutate(
+          (key) => typeof key === 'string' && key.startsWith('/api/v1/media')
+        );
         onClose();
       } catch {
         addToast(intl.formatMessage(messages.clearmediadataerror), {
@@ -160,6 +163,9 @@ const ManageSlideOver = ({
         }
       }
       revalidate();
+      globalMutate(
+        (key) => typeof key === 'string' && key.startsWith('/api/v1/media')
+      );
       onClose();
     }
   };
