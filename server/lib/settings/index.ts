@@ -164,6 +164,7 @@ export interface MainSettings {
   lowStorageAlertEnabled?: boolean;
   lowStorageThresholdGb?: number;
   lowStorageThresholdPercent?: number;
+  geminiApiKey?: string;
 }
 
 export interface ProxySettings {
@@ -458,6 +459,7 @@ class Settings {
         lowStorageAlertEnabled: true,
         lowStorageThresholdGb: 80,
         lowStorageThresholdPercent: 10,
+        geminiApiKey: process.env.GEMINI_API_KEY || '',
       },
       plex: {
         name: '',

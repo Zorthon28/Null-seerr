@@ -31,6 +31,7 @@ import { isCollection, isMovie, isPerson } from '@server/utils/typeHelpers';
 import RottenTomatoes from '@server/api/rating/rottentomatoes';
 import IMDBRadarrProxy from '@server/api/rating/imdbRadarrProxy';
 import type { RatingResponse } from '@server/api/ratings';
+import geminiApi from '@server/api/gemini';
 import { Router } from 'express';
 import { sortBy } from 'lodash';
 import { z } from 'zod';
@@ -1346,6 +1347,166 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
         text
       );
     };
+
+    // 0. AI-Powered Smart Recommendations using Google Gemini
+    if (geminiApi.isConfigured()) {
+      try {
+        const likedTitles = [
+          ...userLikedMovies.map((m) => ({
+            title: m.title,
+            mediaType: 'movie' as const,
+          })),
+          ...userLikedSeries.map((s) => ({
+            title: s.title,
+            mediaType: 'tv' as const,
+          })),
+        ];
+
+        const watchedRepo = getRepository(Watched);
+        const userWatched = req.user?.id
+          ? await watchedRepo.find({
+              where: { userId: req.user.id },
+              order: { updatedAt: 'DESC' },
+              take: 10,
+            })
+          : [];
+
+        const watchedTitles = userWatched.map((w) => ({
+          title: w.title,
+          mediaType: w.mediaType as 'movie' | 'tv',
+        }));
+
+        if (likedTitles.length > 0 || watchedTitles.length > 0) {
+          const cacheKey = `gemini-user-${req.user?.id || 1}-${likedTitles
+            .map((t) => t.title)
+            .join(',')}`;
+          const aiRecs = await geminiApi.getRecommendations({
+            likedTitles,
+            watchedTitles,
+            limit: 20,
+            cacheKey,
+          });
+
+          if (aiRecs.length > 0) {
+            const resolvedCandidates: {
+              result: any;
+              mediaType: 'movie' | 'tv';
+              basedOn?: string;
+              reason?: string;
+            }[] = [];
+
+            await Promise.all(
+              aiRecs.map(async (item) => {
+                try {
+                  let searchResult = null;
+                  if (item.mediaType === 'movie') {
+                    const searchRes = await tmdb.searchMovies({
+                      query: item.title,
+                      year: item.year,
+                      language: req.locale,
+                    });
+                    searchResult = searchRes.results?.[0];
+                    if (!searchResult) {
+                      const retryRes = await tmdb.searchMovies({
+                        query: item.title,
+                        language: req.locale,
+                      });
+                      searchResult = retryRes.results?.[0];
+                    }
+                  } else {
+                    const searchRes = await tmdb.searchTvShows({
+                      query: item.title,
+                      year: item.year,
+                      language: req.locale,
+                    });
+                    searchResult = searchRes.results?.[0];
+                    if (!searchResult) {
+                      const retryRes = await tmdb.searchTvShows({
+                        query: item.title,
+                        language: req.locale,
+                      });
+                      searchResult = retryRes.results?.[0];
+                    }
+                  }
+
+                  if (
+                    searchResult &&
+                    !isExcluded(searchResult.id, item.mediaType) &&
+                    !isPreschoolOrToddler(
+                      (searchResult as any).title || (searchResult as any).name,
+                      searchResult.overview
+                    )
+                  ) {
+                    addedIds.add(searchResult.id);
+                    resolvedCandidates.push({
+                      result: { ...searchResult, media_type: item.mediaType },
+                      mediaType: item.mediaType,
+                      basedOn: item.basedOn,
+                      reason: item.reason,
+                    });
+                  }
+                } catch {
+                  // Ignore search failure
+                }
+              })
+            );
+
+            if (resolvedCandidates.length >= 8) {
+              const media = await Media.getRelatedMedia(
+                req.user,
+                resolvedCandidates.map((c) => ({
+                  tmdbId: c.result.id,
+                  mediaType:
+                    c.mediaType === 'movie' ? MediaType.MOVIE : MediaType.TV,
+                }))
+              );
+
+              const results = resolvedCandidates.map((c) => {
+                const res =
+                  c.mediaType === 'movie'
+                    ? mapMovieResult(
+                        c.result,
+                        media.find(
+                          (m) =>
+                            m.tmdbId === c.result.id &&
+                            m.mediaType === MediaType.MOVIE
+                        )
+                      )
+                    : mapTvResult(
+                        c.result,
+                        media.find(
+                          (m) =>
+                            m.tmdbId === c.result.id &&
+                            m.mediaType === MediaType.TV
+                        )
+                      );
+
+                return {
+                  ...res,
+                  recommendationReason: c.reason,
+                  basedOnTitle: c.basedOn || undefined,
+                };
+              });
+
+              return res.status(200).json({
+                page: 1,
+                totalPages: 1,
+                totalResults: results.length,
+                results,
+              });
+            }
+          }
+        }
+      } catch (geminiErr: any) {
+        logger.warn(
+          'Failed to load Gemini AI recommendations, falling back to TMDB',
+          {
+            label: 'Discover',
+            error: geminiErr.message,
+          }
+        );
+      }
+    }
 
     const getTitleRoot = (title?: string) => {
       if (!title) return '';
