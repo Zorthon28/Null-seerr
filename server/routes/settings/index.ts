@@ -59,10 +59,10 @@ const filteredMainSettings = (
   main: MainSettings
 ): Partial<MainSettings> => {
   if (!user?.hasPermission(Permission.ADMIN)) {
-    return omit(main, 'apiKey');
+    return omit(main, ['apiKey', 'geminiApiKey']);
   }
 
-  return main;
+  return omit(main, 'geminiApiKey');
 };
 
 settingsRoutes.get('/main', (req, res, next) => {
@@ -81,7 +81,7 @@ settingsRoutes.post('/main', async (req, res) => {
   settings.main = merge(settings.main, req.body);
   await settings.save();
 
-  return res.status(200).json(settings.main);
+  return res.status(200).json(filteredMainSettings(req.user as User, settings.main));
 });
 
 settingsRoutes.get('/network', (req, res) => {

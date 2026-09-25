@@ -4,7 +4,7 @@ import { runMigrations } from '@server/lib/settings/migrator';
 import type { AvailableLocale } from '@server/types/languages';
 import { randomBytes, randomUUID } from 'crypto';
 import fs from 'fs/promises';
-import { mergeWith } from 'lodash';
+import { cloneDeep, mergeWith } from 'lodash';
 import path from 'path';
 import webpush from 'web-push';
 
@@ -920,7 +920,11 @@ class Settings {
   public async save(): Promise<void> {
     const savePromise = this.saveLock.then(async () => {
       const tmp = SETTINGS_PATH + '.tmp';
-      await fs.writeFile(tmp, JSON.stringify(this.data, undefined, ' '));
+      const toSave = cloneDeep(this.data);
+      if (toSave.main) {
+        delete toSave.main.geminiApiKey;
+      }
+      await fs.writeFile(tmp, JSON.stringify(toSave, undefined, ' '));
       await fs.rename(tmp, SETTINGS_PATH);
     });
 
