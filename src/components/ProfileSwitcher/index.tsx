@@ -67,6 +67,9 @@ const ProfileSwitcher = () => {
           userId: targetProfile.id,
         });
 
+        // Set persistent active profile cookie directly in the browser
+        document.cookie = `nullseerr_active_profile=${targetProfile.id}; path=/; max-age=31536000; SameSite=Lax`;
+
         toasts.addToast(`Perfil cambiado a ${targetProfile.displayName}`, {
           appearance: 'success',
           autoDismiss: true,
@@ -74,20 +77,8 @@ const ProfileSwitcher = () => {
 
         setIsOpen(false);
 
-        // Revalidate user and profiles
-        await revalidate();
-        await mutateProfiles();
-
-        // Mutate recommendations and watched endpoints so UI immediately refreshes
-        mutate('/api/v1/auth/me');
-        mutate('/api/v1/discover/recommendations/recent');
-        mutate('/api/v1/discover/recommendations/movies');
-        mutate('/api/v1/discover/recommendations/series');
-        mutate('/api/v1/discover/smart-recommendations');
-        mutate('/api/v1/user/me/watched');
-
-        // Reload current route data
-        router.replace(router.asPath);
+        // Force a full reload to completely flush in-memory SWR caches and sliders for the new profile
+        window.location.reload();
       } catch (e: any) {
         toasts.addToast('Error al cambiar de perfil. Inténtalo de nuevo.', {
           appearance: 'error',

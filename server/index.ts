@@ -211,7 +211,7 @@ app
     await DiscoverSlider.bootstrapSliders();
 
     const server = express();
-    if (settings.network.trustProxy) {
+    if (settings.network.trustProxy || settings.network.cloudflare?.enabled) {
       server.enable('trust proxy');
     }
     server.use(cookieParser());

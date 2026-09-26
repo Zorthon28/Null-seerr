@@ -883,6 +883,7 @@ authRoutes.post('/logout', async (req, res, next) => {
     }
 
     req.session?.destroy((err: Error | null) => {
+      res.clearCookie('nullseerr_active_profile', { path: '/' });
       if (err) {
         logger.error('Failed to destroy session', {
           label: 'Auth',
@@ -1072,6 +1073,13 @@ authRoutes.post('/switch-profile', async (req, res, next) => {
         });
       });
     }
+
+    res.cookie('nullseerr_active_profile', String(targetUser.id), {
+      path: '/',
+      maxAge: 1000 * 60 * 60 * 24 * 365,
+      httpOnly: false,
+      sameSite: 'lax',
+    });
 
     logger.info(
       `Switched active profile to ${targetUser.displayName} (ID: ${targetUser.id})`,

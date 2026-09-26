@@ -23,7 +23,28 @@ export const checkUser: Middleware = async (req, _res, next) => {
     }
 
     user = await userRepository.findOne({ where: { id: userId } });
-  } else if (req.session?.userId) {
+  }
+
+  // Active household profile selection (from ProfileSwitcher cookie or header)
+  if (!user) {
+    const activeProfileId = Number(
+      req.cookies?.nullseerr_active_profile || req.header('x-active-profile')
+    );
+    if (activeProfileId) {
+      const userRepository = getRepository(User);
+      const profileUser = await userRepository.findOne({
+        where: { id: activeProfileId },
+      });
+      if (profileUser) {
+        user = profileUser;
+        if (req.session) {
+          req.session.userId = profileUser.id;
+        }
+      }
+    }
+  }
+
+  if (!user && req.session?.userId) {
     const userRepository = getRepository(User);
 
     user = await userRepository.findOne({
