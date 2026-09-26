@@ -20,7 +20,7 @@ export const useWatched = () => {
   const { mutate } = useSWRConfig();
 
   const { data, error, mutate: revalidateWatchedIds } = useSWR<WatchedIdsResponse>(
-    user ? '/api/v1/watched/ids' : null,
+    user ? `/api/v1/watched/ids?userId=${user.id}` : null,
     {
       revalidateOnFocus: true,
       dedupingInterval: 10000,
@@ -60,9 +60,12 @@ export const useWatched = () => {
         }),
         true
       );
+      if (user) {
+        mutate(`/api/v1/watched/ids?userId=${user.id}`);
+      }
       mutate('/api/v1/user/me/watched');
     },
-    [revalidateWatchedIds, mutate]
+    [revalidateWatchedIds, mutate, user]
   );
 
   const unmarkWatched = useCallback(
@@ -77,9 +80,12 @@ export const useWatched = () => {
         }),
         true
       );
+      if (user) {
+        mutate(`/api/v1/watched/ids?userId=${user.id}`);
+      }
       mutate('/api/v1/user/me/watched');
     },
-    [revalidateWatchedIds, mutate]
+    [revalidateWatchedIds, mutate, user]
   );
 
   // Synchronized persistent hideWatched state

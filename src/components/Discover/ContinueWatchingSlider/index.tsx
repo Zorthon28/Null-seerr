@@ -5,6 +5,7 @@ import {
   ArrowTopRightOnSquareIcon,
   ClockIcon,
 } from '@heroicons/react/24/solid';
+import { useUser } from '@app/hooks/useUser';
 import { useRef, useState } from 'react';
 import useSWR from 'swr';
 
@@ -33,14 +34,18 @@ interface ResumeResponse {
 }
 
 const ContinueWatchingSlider = () => {
+  const { user } = useUser();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(true);
 
-  const { data, error } = useSWR<ResumeResponse>('/api/v1/discover/resume', {
-    revalidateOnFocus: true,
-    refreshInterval: 20000,
-  });
+  const { data, error } = useSWR<ResumeResponse>(
+    user ? `/api/v1/discover/resume?userId=${user.id}` : null,
+    {
+      revalidateOnFocus: true,
+      refreshInterval: 20000,
+    }
+  );
 
   const items = data?.results || [];
 
