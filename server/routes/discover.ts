@@ -72,8 +72,17 @@ const discoverRoutes = Router();
 
 discoverRoutes.use((req, res, next) => {
   if (req.method === 'GET' && !res.getHeader('Cache-Control')) {
-    if (req.path.includes('/watchlist')) {
-      res.setHeader('Cache-Control', 'private, no-cache');
+    if (
+      req.path.includes('/watchlist') ||
+      req.path.includes('/recommendations') ||
+      req.path.includes('/smart-recommendations') ||
+      req.path.includes('/resume')
+    ) {
+      res.setHeader(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, max-age=0'
+      );
+      res.setHeader('Pragma', 'no-cache');
     } else {
       res.setHeader(
         'Cache-Control',
@@ -81,6 +90,7 @@ discoverRoutes.use((req, res, next) => {
       );
     }
   }
+  res.setHeader('Vary', 'Cookie, x-active-profile, X-API-User');
   next();
 });
 
@@ -1262,9 +1272,29 @@ async function getWatchedMediaHistory(user?: User | null): Promise<{
   return { watchedSeriesIds, watchedMovieIds, allLibraryMovieIds, allLibrarySeriesIds };
 }
 
+const resolveEffectiveUser = async (
+  req: any
+): Promise<User | undefined> => {
+  if (req.query?.userId) {
+    const qUserId = Number(req.query.userId);
+    if (
+      qUserId &&
+      (req.user?.id === qUserId || req.user?.hasPermission(Permission.ADMIN))
+    ) {
+      const userRepo = getRepository(User);
+      const found = await userRepo.findOne({ where: { id: qUserId } });
+      if (found) {
+        return found;
+      }
+    }
+  }
+  return req.user ?? undefined;
+};
+
 // 1. Based on what you liked (recommendations based on liked and watched titles)
 const handleRecentRecommendations = async (req: any, res: any, next: any) => {
-  const tmdb = createTmdbWithRegionLanguage(req.user);
+  const effectiveUser = await resolveEffectiveUser(req);
+  const tmdb = createTmdbWithRegionLanguage(effectiveUser);
 
   try {
     const {
@@ -1272,7 +1302,7 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       watchedMovieIds,
       allLibraryMovieIds,
       allLibrarySeriesIds,
-    } = await getWatchedMediaHistory(req.user);
+    } = await getWatchedMediaHistory(effectiveUser);
 
     // Get user's liked titles - strictly scoped to active user
     const likedRepository = getRepository(Liked);
@@ -1281,10 +1311,10 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
     let likedSeriesIds: number[] = [];
     let likedMovieIds: number[] = [];
 
-    if (req.user?.id) {
+    if (effectiveUser?.id) {
       try {
         const likedItems = await likedRepository.find({
-          where: { userId: req.user.id },
+          where: { userId: effectiveUser.id },
           order: { createdAt: 'DESC' },
         });
         userLikedSeries = likedItems.filter((l) => l.mediaType === 'tv');
@@ -1300,10 +1330,10 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
     let dismissedSeriesIds: number[] = [];
     let dismissedMovieIds: number[] = [];
 
-    if (req.user?.id) {
+    if (effectiveUser?.id) {
       try {
         const dismissedItems = await dismissedRepository.find({
-          where: { userId: req.user.id },
+          where: { userId: effectiveUser.id },
         });
         dismissedSeriesIds = dismissedItems
           .filter((d) => d.mediaType === 'tv')
@@ -1367,9 +1397,9 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
         ];
 
         const watchedRepo = getRepository(Watched);
-        const userWatched = req.user?.id
+        const userWatched = effectiveUser?.id
           ? await watchedRepo.find({
-              where: { userId: req.user.id },
+              where: { userId: effectiveUser.id },
               order: { updatedAt: 'DESC' },
               take: 10,
             })
@@ -1381,7 +1411,7 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
         }));
 
         if (likedTitles.length > 0 || watchedTitles.length > 0) {
-          const cacheKey = `gemini-user-${req.user?.id || 'anon'}-${likedTitles
+          const cacheKey = `gemini-user-${effectiveUser?.id || 'anon'}-${likedTitles
             .map((t) => t.title)
             .join(',')}`;
           const aiRecs = await geminiApi.getRecommendations({
@@ -1692,7 +1722,7 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
     );
 
     const media = await Media.getRelatedMedia(
-      req.user,
+      effectiveUser,
       paginated.map((r) => ({
         tmdbId: r.id,
         mediaType: r.mediaType === 'movie' ? MediaType.MOVIE : MediaType.TV,
@@ -1740,14 +1770,15 @@ discoverRoutes.get('/smart-recommendations', handleRecentRecommendations);
 
 // 2. Movies for You (based on ALL watched movies across user's history)
 discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
-  const tmdb = createTmdbWithRegionLanguage(req.user);
+  const effectiveUser = await resolveEffectiveUser(req);
+  const tmdb = createTmdbWithRegionLanguage(effectiveUser);
 
   try {
-    const { watchedMovieIds, allLibraryMovieIds } = await getWatchedMediaHistory(req.user);
+    const { watchedMovieIds, allLibraryMovieIds } = await getWatchedMediaHistory(effectiveUser);
     const dismissedRepo = getRepository(DismissedRecommendation);
-    const dismissedMovies = req.user?.id
+    const dismissedMovies = effectiveUser?.id
       ? await dismissedRepo.find({
-          where: { userId: req.user.id, mediaType: MediaType.MOVIE },
+          where: { userId: effectiveUser.id, mediaType: MediaType.MOVIE },
         })
       : [];
     const dismissedMovieIds = new Set(dismissedMovies.map((d) => d.tmdbId));
@@ -1755,9 +1786,9 @@ discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
     const candidateMovieMap = new Map<number, any>();
 
     const likedRepo = getRepository(Liked);
-    const likedMovies = req.user?.id
+    const likedMovies = effectiveUser?.id
       ? await likedRepo.find({
-          where: { userId: req.user.id, mediaType: MediaType.MOVIE },
+          where: { userId: effectiveUser.id, mediaType: MediaType.MOVIE },
         })
       : [];
     const likedMovieIds = likedMovies.map((l) => l.tmdbId);
@@ -1860,7 +1891,7 @@ discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
       .map((id) => candidateMovieMap.get(id));
 
     const media = await Media.getRelatedMedia(
-      req.user,
+      effectiveUser,
       topCandidateMovies.map((r) => ({
         tmdbId: r.id,
         mediaType: MediaType.MOVIE,
@@ -1894,23 +1925,24 @@ discoverRoutes.get('/recommendations/movies', async (req, res, next) => {
 
 // 3. Series for You (based on ALL watched series across user's history + Suggestarr)
 discoverRoutes.get('/recommendations/series', async (req, res, next) => {
-  const tmdb = createTmdbWithRegionLanguage(req.user);
+  const effectiveUser = await resolveEffectiveUser(req);
+  const tmdb = createTmdbWithRegionLanguage(effectiveUser);
   const suggestarrApi = new SuggestarrAPI();
 
   try {
-    const { watchedSeriesIds, allLibrarySeriesIds } = await getWatchedMediaHistory(req.user);
+    const { watchedSeriesIds, allLibrarySeriesIds } = await getWatchedMediaHistory(effectiveUser);
     const dismissedRepo = getRepository(DismissedRecommendation);
-    const dismissedSeries = req.user?.id
+    const dismissedSeries = effectiveUser?.id
       ? await dismissedRepo.find({
-          where: { userId: req.user.id, mediaType: MediaType.TV },
+          where: { userId: effectiveUser.id, mediaType: MediaType.TV },
         })
       : [];
     const dismissedSeriesIds = new Set(dismissedSeries.map((d) => d.tmdbId));
 
     const likedRepo = getRepository(Liked);
-    const likedSeries = req.user?.id
+    const likedSeries = effectiveUser?.id
       ? await likedRepo.find({
-          where: { userId: req.user.id, mediaType: MediaType.TV },
+          where: { userId: effectiveUser.id, mediaType: MediaType.TV },
         })
       : [];
     const likedSeriesIds = likedSeries.map((l) => l.tmdbId);
@@ -2058,7 +2090,7 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
       .map((id) => candidateSeriesMap.get(id));
 
     const media = await Media.getRelatedMedia(
-      req.user,
+      effectiveUser,
       topCandidateSeries.map((r) => ({
         tmdbId: r.id,
         mediaType: MediaType.TV,

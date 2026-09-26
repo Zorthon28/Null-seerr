@@ -2,6 +2,7 @@ import Header from '@app/components/Common/Header';
 import ListView from '@app/components/Common/ListView';
 import PageTitle from '@app/components/Common/PageTitle';
 import useDiscover from '@app/hooks/useDiscover';
+import { useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import ErrorPage from '@app/pages/_error';
 import defineMessages from '@app/utils/defineMessages';
@@ -22,6 +23,7 @@ type MediaType = 'all' | 'movie' | 'tv';
 const DiscoverRecommendations = () => {
   const intl = useIntl();
   const router = useRouter();
+  const { user } = useUser();
   const initialMediaType = (router.query.mediaType as MediaType) || 'all';
   const [currentMediaType, setCurrentMediaType] =
     useState<MediaType>(initialMediaType);
@@ -37,7 +39,7 @@ const DiscoverRecommendations = () => {
     mutate,
   } = useDiscover<MovieResult | TvResult>(
     '/api/v1/discover/recommendations/recent',
-    { mediaType: currentMediaType }
+    { mediaType: currentMediaType, userId: user?.id }
   );
 
   if (error) {

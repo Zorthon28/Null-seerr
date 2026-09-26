@@ -63,20 +63,29 @@ const useDiscover = <
   { hideAvailable = true, hideBlocklisted = true } = {}
 ): DiscoverResult<T, S> => {
   const settings = useSettings();
-  const { hasPermission } = useUser();
+  const { user, hasPermission } = useUser();
   const { hideWatched, isWatched } = useWatched();
   const { addToast } = useToasts();
   const intl = useIntl();
+  const isPersonalized =
+    endpoint.includes('/recommendations') ||
+    endpoint.includes('/smart-recommendations');
+
   const { data, error, size, setSize, isValidating, mutate } = useSWRInfinite<
     BaseSearchResult<T> & S
   >(
     (pageIndex: number, previousPageData) => {
+      if (isPersonalized && !user) {
+        return null;
+      }
+
       if (previousPageData && pageIndex + 1 > previousPageData.totalPages) {
         return null;
       }
 
       const params: Record<string, unknown> = {
         page: pageIndex + 1,
+        ...(isPersonalized && user ? { userId: user.id } : {}),
         ...options,
       };
 

@@ -55,7 +55,7 @@ const messages = defineMessages('components.Discover', {
 
 const Discover = () => {
   const intl = useIntl();
-  const { hasPermission } = useUser();
+  const { user, hasPermission } = useUser();
   const { addToast } = useToasts();
   const {
     data: discoverData,
@@ -401,9 +401,10 @@ const Discover = () => {
           case DiscoverSliderType.SMART_RECOMMENDATIONS:
             sliderComponent = (
               <MediaSlider
-                sliderKey="recommendations-recent"
+                sliderKey={`recommendations-recent-${user?.id ?? 'anon'}`}
                 title={intl.formatMessage(sliderTitles.recommendationsRecent)}
                 url="/api/v1/discover/recommendations/recent"
+                extraParams={user ? `userId=${user.id}` : ''}
                 linkUrl="/discover/recommendations"
               />
             );
@@ -411,9 +412,10 @@ const Discover = () => {
           case DiscoverSliderType.RECOMMENDATIONS_MOVIES:
             sliderComponent = (
               <MediaSlider
-                sliderKey="recommendations-movies"
+                sliderKey={`recommendations-movies-${user?.id ?? 'anon'}`}
                 title={intl.formatMessage(sliderTitles.recommendationsMovies)}
                 url="/api/v1/discover/recommendations/movies"
+                extraParams={user ? `userId=${user.id}` : ''}
                 linkUrl="/discover/movies"
               />
             );
@@ -421,9 +423,10 @@ const Discover = () => {
           case DiscoverSliderType.RECOMMENDATIONS_SERIES:
             sliderComponent = (
               <MediaSlider
-                sliderKey="recommendations-series"
+                sliderKey={`recommendations-series-${user?.id ?? 'anon'}`}
                 title={intl.formatMessage(sliderTitles.recommendationsSeries)}
                 url="/api/v1/discover/recommendations/series"
+                extraParams={user ? `userId=${user.id}` : ''}
                 linkUrl="/discover/tv"
               />
             );

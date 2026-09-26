@@ -77,7 +77,12 @@ const ProfileSwitcher = () => {
 
         setIsOpen(false);
 
-        // Force a full reload to completely flush in-memory SWR caches and sliders for the new profile
+        // Clear in-memory SWR caches and reload for the new profile
+        try {
+          await mutate(() => true, undefined, { revalidate: false });
+        } catch {
+          // ignore
+        }
         window.location.reload();
       } catch (e: any) {
         toasts.addToast('Error al cambiar de perfil. Inténtalo de nuevo.', {

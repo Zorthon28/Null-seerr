@@ -44,16 +44,31 @@ const MediaSlider = ({
   onNewTitles,
 }: MediaSliderProps) => {
   const settings = useSettings();
-  const { hasPermission } = useUser();
+  const { user, hasPermission } = useUser();
   const { hideWatched, isWatched } = useWatched();
+
+  const isPersonalized =
+    url.includes('/recommendations') || url.includes('/smart-recommendations');
+  const userParam = isPersonalized && user ? `userId=${user.id}` : '';
+  const combinedParams = [
+    extraParams,
+    userParam && !extraParams?.includes('userId=') ? userParam : '',
+  ]
+    .filter(Boolean)
+    .join('&');
+
   const { data, error, setSize, size } = useSWRInfinite<MixedResult>(
     (pageIndex: number, previousPageData: MixedResult | null) => {
+      if (isPersonalized && !user) {
+        return null;
+      }
+
       if (previousPageData && pageIndex + 1 > previousPageData.totalPages) {
         return null;
       }
 
       return `${url}?page=${pageIndex + 1}${
-        extraParams ? `&${extraParams}` : ''
+        combinedParams ? `&${combinedParams}` : ''
       }`;
     },
     {
