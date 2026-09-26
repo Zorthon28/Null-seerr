@@ -1133,31 +1133,27 @@ async function getWatchedMediaHistory(user?: User | null): Promise<{
   const allLibraryMovieIds = new Set<number>();
   const allLibrarySeriesIds = new Set<number>();
 
-  const isGusOrAdmin = !user || user.id === 2 || user.hasPermission(Permission.ADMIN);
+  const isGus = Boolean(user && user.id === 2);
 
   // 1. Explicitly marked watched items from Watched table for active user
-  try {
-    const watchedRepo = getRepository(Watched);
-    const dbWatched = user
-      ? await watchedRepo.find({
-          where: { userId: user.id },
-          order: { createdAt: 'DESC' },
-        })
-      : await watchedRepo.find({
-          order: { createdAt: 'DESC' },
-        });
+  if (user?.id) {
+    try {
+      const watchedRepo = getRepository(Watched);
+      const dbWatched = await watchedRepo.find({
+        where: { userId: user.id },
+        order: { createdAt: 'DESC' },
+      });
 
-    for (const w of dbWatched) {
-      if (w.mediaType === MediaType.TV) {
-        if (!watchedSeriesIds.includes(w.tmdbId)) watchedSeriesIds.push(w.tmdbId);
-        allLibrarySeriesIds.add(w.tmdbId);
-      } else if (w.mediaType === MediaType.MOVIE) {
-        if (!watchedMovieIds.includes(w.tmdbId)) watchedMovieIds.push(w.tmdbId);
-        allLibraryMovieIds.add(w.tmdbId);
+      for (const w of dbWatched) {
+        if (w.mediaType === MediaType.TV) {
+          if (!watchedSeriesIds.includes(w.tmdbId)) watchedSeriesIds.push(w.tmdbId);
+        } else if (w.mediaType === MediaType.MOVIE) {
+          if (!watchedMovieIds.includes(w.tmdbId)) watchedMovieIds.push(w.tmdbId);
+        }
       }
+    } catch (e: any) {
+      logger.debug('Error reading Watched table', { label: 'Discover', error: e.message });
     }
-  } catch (e: any) {
-    logger.debug('Error reading Watched table', { label: 'Discover', error: e.message });
   }
 
   // 2. All media in library (for exclusion so we don't recommend already downloaded media)
@@ -1171,7 +1167,7 @@ async function getWatchedMediaHistory(user?: User | null): Promise<{
       if (m.mediaType === MediaType.MOVIE) {
         allLibraryMovieIds.add(m.tmdbId);
         if (
-          isGusOrAdmin &&
+          isGus &&
           (m.status === MediaStatus.AVAILABLE ||
             m.status === MediaStatus.PARTIALLY_AVAILABLE ||
             m.status === 7) &&
@@ -1182,7 +1178,7 @@ async function getWatchedMediaHistory(user?: User | null): Promise<{
       } else if (m.mediaType === MediaType.TV) {
         allLibrarySeriesIds.add(m.tmdbId);
         if (
-          isGusOrAdmin &&
+          isGus &&
           (m.status === MediaStatus.AVAILABLE ||
             m.status === MediaStatus.PARTIALLY_AVAILABLE ||
             m.status === 7) &&
@@ -1199,7 +1195,7 @@ async function getWatchedMediaHistory(user?: User | null): Promise<{
   // 3. Query Jellyfin for played/watched items for the specific profile
   const settings = getSettings();
   const targetJellyfinUserId =
-    user?.jellyfinUserId || (isGusOrAdmin ? settings.jellyfin.userId : undefined);
+    user?.jellyfinUserId || (isGus ? settings.jellyfin.userId : undefined);
 
   if (settings.jellyfin.ip && settings.jellyfin.apiKey && targetJellyfinUserId) {
     try {
@@ -1251,8 +1247,8 @@ async function getWatchedMediaHistory(user?: User | null): Promise<{
     }
   }
 
-  // For Gus/Admin, preserve specific historical series seeds
-  if (isGusOrAdmin) {
+  // For Gus specifically, preserve specific historical series seeds
+  if (isGus) {
     if (!watchedSeriesIds.includes(296286)) {
       watchedSeriesIds.push(296286); // Smoking Behind the Supermarket with You
       allLibrarySeriesIds.add(296286);
@@ -1278,7 +1274,7 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
       allLibrarySeriesIds,
     } = await getWatchedMediaHistory(req.user);
 
-    // Get user's liked titles
+    // Get user's liked titles - strictly scoped to active user
     const likedRepository = getRepository(Liked);
     let userLikedSeries: Liked[] = [];
     let userLikedMovies: Liked[] = [];
@@ -1293,21 +1289,6 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
         });
         userLikedSeries = likedItems.filter((l) => l.mediaType === 'tv');
         userLikedMovies = likedItems.filter((l) => l.mediaType === 'movie');
-        likedSeriesIds = userLikedSeries.map((l) => l.tmdbId);
-        likedMovieIds = userLikedMovies.map((l) => l.tmdbId);
-      } catch {
-        // Continue
-      }
-    }
-
-    if (userLikedSeries.length === 0 && userLikedMovies.length === 0) {
-      try {
-        const anyLikedItems = await likedRepository.find({
-          order: { createdAt: 'DESC' },
-          take: 50,
-        });
-        userLikedSeries = anyLikedItems.filter((l) => l.mediaType === 'tv');
-        userLikedMovies = anyLikedItems.filter((l) => l.mediaType === 'movie');
         likedSeriesIds = userLikedSeries.map((l) => l.tmdbId);
         likedMovieIds = userLikedMovies.map((l) => l.tmdbId);
       } catch {
@@ -1400,7 +1381,7 @@ const handleRecentRecommendations = async (req: any, res: any, next: any) => {
         }));
 
         if (likedTitles.length > 0 || watchedTitles.length > 0) {
-          const cacheKey = `gemini-user-${req.user?.id || 1}-${likedTitles
+          const cacheKey = `gemini-user-${req.user?.id || 'anon'}-${likedTitles
             .map((t) => t.title)
             .join(',')}`;
           const aiRecs = await geminiApi.getRecommendations({
@@ -2116,8 +2097,8 @@ discoverRoutes.get('/recommendations/series', async (req, res, next) => {
 discoverRoutes.get('/resume', async (req, res, next) => {
   try {
     const settings = getSettings();
-    const isGusOrAdmin = !req.user || req.user.id === 2 || req.user.hasPermission(Permission.ADMIN);
-    const targetJellyfinUserId = req.user?.jellyfinUserId || (isGusOrAdmin ? settings.jellyfin.userId : undefined);
+    const isGus = Boolean(req.user && req.user.id === 2);
+    const targetJellyfinUserId = req.user?.jellyfinUserId || (isGus ? settings.jellyfin.userId : undefined);
 
     if (!settings.jellyfin.ip || !settings.jellyfin.apiKey || !targetJellyfinUserId) {
       return res.status(200).json({ results: [] });
