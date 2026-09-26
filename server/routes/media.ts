@@ -1639,6 +1639,7 @@ mediaRoutes.delete(
 // GET /api/v1/media/storage-reclaim — scan all watched media taking up disk space
 mediaRoutes.get(
   '/storage-reclaim',
+  isAuthenticated(Permission.ADMIN),
   async (req, res, next) => {
     try {
       const settings = getSettings();
@@ -1846,6 +1847,7 @@ mediaRoutes.get(
 // POST /api/v1/media/storage-reclaim/batch-delete — batch delete watched media
 mediaRoutes.post(
   '/storage-reclaim/batch-delete',
+  isAuthenticated(Permission.ADMIN),
   async (req, res, next) => {
     try {
       const items: Array<{

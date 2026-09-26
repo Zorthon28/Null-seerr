@@ -1072,6 +1072,15 @@ router.get<{ id: string }>(
       }
     }
 
+    const isAdminOrManager = req.user.hasPermission(
+      [Permission.MANAGE_USERS, Permission.ADMIN],
+      { type: 'or' }
+    );
+
+    if (!isAdminOrManager && (targetUserId === 'all' || targetUserId !== req.user.id)) {
+      targetUserId = req.user.id;
+    }
+
     const itemsPerPage = 20;
     const page = req.query.page ? Number(req.query.page) : 1;
     const offset = (page - 1) * itemsPerPage;
@@ -1131,6 +1140,15 @@ router.get<{ id: string }>(
       } else {
         targetUserId = Number(req.query.userId);
       }
+    }
+
+    const isAdminOrManager = req.user.hasPermission(
+      [Permission.MANAGE_USERS, Permission.ADMIN],
+      { type: 'or' }
+    );
+
+    if (!isAdminOrManager && (targetUserId === 'all' || targetUserId !== req.user.id)) {
+      targetUserId = req.user.id;
     }
 
     const itemsPerPage = 20;

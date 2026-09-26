@@ -59,8 +59,7 @@ export const checkUser: Middleware = async (req, _res, next) => {
         if (
           targetPrimary &&
           (ssoEmail === 'dev.gustavo.tello@gmail.com' ||
-            ssoEmail.includes('gustavo') ||
-            targetPrimary.email.toLowerCase() === 'admin@nullseerr.local')
+            ssoEmail.includes('gustavo'))
         ) {
           user = targetPrimary;
           if (targetPrimary.email.toLowerCase() !== ssoEmail) {

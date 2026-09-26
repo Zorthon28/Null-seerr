@@ -3,7 +3,7 @@ import ListView from '@app/components/Common/ListView';
 import PageTitle from '@app/components/Common/PageTitle';
 import type { ProfileItem } from '@app/components/ProfileSwitcher';
 import useDiscover from '@app/hooks/useDiscover';
-import { useUser } from '@app/hooks/useUser';
+import { useUser, Permission } from '@app/hooks/useUser';
 import ErrorPage from '@app/pages/_error';
 import { HeartIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 import type { LikedItem } from '@server/interfaces/api/discoverInterfaces';
@@ -13,7 +13,7 @@ import useSWR from 'swr';
 
 const DiscoverLiked = () => {
   const router = useRouter();
-  const { user: currentUser } = useUser();
+  const { user: currentUser, hasPermission } = useUser();
   const { data: profiles } = useSWR<ProfileItem[]>('/api/v1/auth/profiles');
 
   const [selectedUserId, setSelectedUserId] = useState<number | 'all' | null>(() => {
@@ -33,11 +33,10 @@ const DiscoverLiked = () => {
     }
   }, [router.query.userId, currentUser?.id, selectedUserId]);
 
-  const isProfileRoute = router.pathname.startsWith('/profile');
   const targetId =
     selectedUserId === 'all'
       ? 'all'
-      : selectedUserId ?? (isProfileRoute ? 'me' : 'all');
+      : (selectedUserId ?? 'me');
 
   const {
     isLoadingInitialData,
@@ -124,17 +123,19 @@ const DiscoverLiked = () => {
               </button>
             );
           })}
-          <button
-            onClick={() => setSelectedUserId('all')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-              effectiveUserId === 'all'
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
-                : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 hover:text-white'
-            }`}
-          >
-            <UserGroupIcon className="h-4 w-4" />
-            <span>Todos los perfiles</span>
-          </button>
+          {hasPermission(Permission.ADMIN) && (
+            <button
+              onClick={() => setSelectedUserId('all')}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                effectiveUserId === 'all'
+                  ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
+                  : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              <UserGroupIcon className="h-4 w-4" />
+              <span>Todos los perfiles</span>
+            </button>
+          )}
         </div>
       )}
 
