@@ -88,7 +88,7 @@ try {
                         Write-Host "[OK] Updated hostWakeOnLanMac in $loc" -ForegroundColor Green
                     }
                 } catch {
-                    Write-Host "[!] Could not update $loc: $_" -ForegroundColor Yellow
+                    Write-Host "[!] Could not update $($loc): $_" -ForegroundColor Yellow
                 }
             }
         }
