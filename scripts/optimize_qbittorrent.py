@@ -6,15 +6,14 @@ and automatically pulls the latest top public trackers from ngosang/trackerslist
 injecting them into slow or all active torrents to maximize peer discovery.
 """
 
+import os
 import sys
 import json
 import urllib.request
 import urllib.parse
+import urllib.error
+import http.cookiejar
 from typing import List, Optional
-
-QB_URL = "http://localhost:8089"
-QB_USER = "admin"
-QB_PASS = "PAssw0rd2026!"
 
 FALLBACK_TRACKERS = [
     "udp://tracker.opentrackr.org:1337/announce",
@@ -33,22 +32,86 @@ FALLBACK_TRACKERS = [
 
 
 class QbClient:
-    def __init__(self, base_url: str = QB_URL, username: str = QB_USER, password: str = QB_PASS):
-        self.base_url = base_url.rstrip("/")
-        passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        passman.add_password(None, self.base_url, username, password)
-        self.opener = urllib.request.build_opener(urllib.request.HTTPBasicAuthHandler(passman))
+    def __init__(self, base_url: Optional[str] = None, username: Optional[str] = None, password: Optional[str] = None):
+        self.cookie_jar = http.cookiejar.CookieJar()
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookie_jar))
+        self.username = username or os.environ.get("QBITTORRENT_USER", "admin")
+        self.password = password or os.environ.get("QBITTORRENT_PASSWORD") or os.environ.get("MASTER_PASSWORD", "")
+        self.base_url = self._resolve_base_url(base_url)
+        self._authenticate()
+
+    def _resolve_base_url(self, explicit_url: Optional[str]) -> str:
+        if explicit_url:
+            return explicit_url.rstrip("/")
+
+        env_url = os.environ.get("QBITTORRENT_URL")
+        if env_url:
+            return env_url.rstrip("/")
+
+        host = os.environ.get("QBITTORRENT_HOST", "localhost")
+        port_env = os.environ.get("QBITTORRENT_PORT") or os.environ.get("QBIT_WEBUI_PORT")
+
+        ports_to_try = [int(port_env)] if port_env else [8089, 8080]
+
+        for port in ports_to_try:
+            cand = f"http://{host}:{port}"
+            try:
+                req = urllib.request.Request(f"{cand}/api/v2/app/version")
+                with self.opener.open(req, timeout=1.5) as resp:
+                    if resp.status == 200:
+                        return cand
+            except urllib.error.HTTPError as e:
+                # 403 / 401 means server is alive and requires auth
+                if e.code in (401, 403):
+                    return cand
+            except Exception:
+                continue
+
+        # Default fallback
+        chosen_port = ports_to_try[0]
+        return f"http://{host}:{chosen_port}"
+
+    def _authenticate(self):
+        # Test if unauthenticated access is permitted (localhost bypass)
+        try:
+            req = urllib.request.Request(f"{self.base_url}/api/v2/app/version")
+            with self.opener.open(req, timeout=2.0) as resp:
+                if resp.status == 200:
+                    return
+        except urllib.error.HTTPError as e:
+            if e.code not in (401, 403):
+                return
+        except Exception:
+            return
+
+        # Attempt login via WebUI cookie session
+        if self.password:
+            try:
+                login_data = urllib.parse.urlencode({
+                    "username": self.username,
+                    "password": self.password
+                }).encode("utf-8")
+                req = urllib.request.Request(f"{self.base_url}/api/v2/auth/login", data=login_data)
+                req.add_header("Referer", self.base_url)
+                with self.opener.open(req, timeout=3.0) as resp:
+                    body = resp.read().decode("utf-8", errors="ignore")
+                    if "Ok." in body:
+                        print(f"[+] Authenticated successfully with qBittorrent at {self.base_url}")
+                    else:
+                        print(f"[!] Warning: qBittorrent login returned: {body}")
+            except Exception as e:
+                print(f"[!] Warning: Could not authenticate with qBittorrent: {e}")
 
     def get(self, endpoint: str):
         req = urllib.request.Request(f"{self.base_url}{endpoint}")
-        with self.opener.open(req) as resp:
+        with self.opener.open(req, timeout=8) as resp:
             data = resp.read().decode("utf-8")
             return json.loads(data) if data else None
 
     def post(self, endpoint: str, data: Optional[dict] = None):
         encoded = urllib.parse.urlencode(data).encode("utf-8") if data else None
         req = urllib.request.Request(f"{self.base_url}{endpoint}", data=encoded)
-        with self.opener.open(req) as resp:
+        with self.opener.open(req, timeout=8) as resp:
             return resp.read().decode("utf-8")
 
 
@@ -67,7 +130,7 @@ def fetch_live_trackers() -> List[str]:
 
 
 def optimize_qbittorrent(client: QbClient, target_filter: Optional[str] = None):
-    print("=== Optimizing qBittorrent Configuration ===")
+    print(f"=== Optimizing qBittorrent Configuration ({client.base_url}) ===")
     trackers = fetch_live_trackers()
     trackers_str = "\n".join(trackers)
 
@@ -85,8 +148,11 @@ def optimize_qbittorrent(client: QbClient, target_filter: Optional[str] = None):
         "bittorrent_protocol": 1,
     }
 
-    client.post("/api/v2/app/setPreferences", {"json": json.dumps(preferences)})
-    print("[+] Updated preferences: TCP protocol prioritized, UPnP enabled, max connections increased.")
+    try:
+        client.post("/api/v2/app/setPreferences", {"json": json.dumps(preferences)})
+        print("[+] Updated preferences: TCP protocol prioritized, UPnP enabled, max connections increased.")
+    except Exception as e:
+        print(f"[!] Warning: Failed to set preferences: {e}")
 
     torrents = client.get("/api/v2/torrents/info") or []
     print(f"[+] Inspecting {len(torrents)} torrent(s)...")
@@ -100,12 +166,15 @@ def optimize_qbittorrent(client: QbClient, target_filter: Optional[str] = None):
         print(f"\n---> Optimizing: {name}")
         print(f"     Speed: {torrent.get('dlspeed', 0) / 1024:.1f} KiB/s | Seeds: {torrent.get('num_seeds')} ({torrent.get('num_complete')})")
 
-        client.post("/api/v2/torrents/addTrackers", {
-            "hash": t_hash,
-            "urls": trackers_str
-        })
-        client.post("/api/v2/torrents/reannounce", {"hashes": t_hash})
-        print("     [+] Injected live trackers and reannounced to swarm.")
+        try:
+            client.post("/api/v2/torrents/addTrackers", {
+                "hash": t_hash,
+                "urls": trackers_str
+            })
+            client.post("/api/v2/torrents/reannounce", {"hashes": t_hash})
+            print("     [+] Injected live trackers and reannounced to swarm.")
+        except Exception as e:
+            print(f"     [!] Tracker injection warning: {e}")
 
 
 if __name__ == "__main__":
