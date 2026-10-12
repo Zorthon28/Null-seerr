@@ -414,6 +414,7 @@ class StorageTracker {
     }>
   ): Promise<{ freedBytes: number; deletedCount: number }> {
     const settings = getSettings();
+    const tmdb = new TheMovieDb();
     let freedBytes = 0;
     let deletedCount = 0;
 
@@ -439,6 +440,12 @@ class StorageTracker {
             if (radarrMovieId) {
               const movie: any = await radarr.getMovie({ id: radarrMovieId });
               const mSize = movie?.sizeOnDisk || movie?.movieFile?.size || 0;
+              if (!item.title && movie?.title) {
+                item.title = movie.title;
+              }
+              if (!item.year && movie?.year) {
+                item.year = movie.year;
+              }
               await radarr.deleteMovie(radarrMovieId, true);
               freedBytes += mSize;
               deletedCount += 1;
@@ -472,13 +479,55 @@ class StorageTracker {
 
             let sonarrSeriesId = item.sonarrId;
             if (!sonarrSeriesId && item.tmdbId) {
-              const series = await sonarr.getSeriesByTvdbId(item.tmdbId);
-              sonarrSeriesId = series?.id;
+              // 1. Check local Media table for tvdbId
+              let tvdbId: number | undefined;
+              try {
+                const dbMedia = await mediaRepository.findOne({
+                  where: { tmdbId: item.tmdbId, mediaType: MediaType.TV },
+                });
+                tvdbId = dbMedia?.tvdbId;
+              } catch {}
+
+              // 2. If not found in DB, resolve tvdbId from TMDb external_ids
+              if (!tvdbId) {
+                try {
+                  const tmdbShow = await tmdb.getTvShow({ tvId: item.tmdbId });
+                  tvdbId = tmdbShow.external_ids?.tvdb_id;
+                } catch {}
+              }
+
+              // 3. Query Sonarr by resolved tvdbId
+              if (tvdbId) {
+                try {
+                  const series = await sonarr.getSeriesByTvdbId(tvdbId);
+                  sonarrSeriesId = series?.id;
+                } catch {}
+              }
+
+              // 4. Fallback: match by title against Sonarr series list
+              if (!sonarrSeriesId) {
+                try {
+                  const allSeries = await sonarr.getAllSeries();
+                  const targetTitle = (item.title || '').trim().toLowerCase();
+                  const matched = allSeries.find(
+                    (s) =>
+                      (tvdbId && s.tvdbId === tvdbId) ||
+                      (targetTitle && s.title.trim().toLowerCase() === targetTitle)
+                  );
+                  sonarrSeriesId = matched?.id;
+                } catch {}
+              }
             }
 
             if (sonarrSeriesId) {
               const s = await sonarr.getSeriesById(sonarrSeriesId);
               const sSize = s?.statistics?.sizeOnDisk || 0;
+              if (!item.title && s?.title) {
+                item.title = s.title;
+              }
+              if (!item.year && s?.year) {
+                item.year = s.year;
+              }
               await sonarr.deleteSeries(sonarrSeriesId, true);
               freedBytes += sSize;
               deletedCount += 1;
