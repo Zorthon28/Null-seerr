@@ -315,6 +315,10 @@ if (Test-Path -Path "$customRoot\wire_stack.py") {
     python "$customRoot\wire_stack.py"
 }
 
+# Reload Null-seerr to pick up freshly wired settings and admin credentials
+Write-Host " [+] Reloading Null-seerr portal configuration..." -ForegroundColor Green
+docker restart null-seerr 2>$null | Out-Null
+
 # 6. Run Boxarr Sync
 Write-Host "`n[6/6] Syncing Initial Box Office & Popular Movies..." -ForegroundColor White
 if (Test-Path -Path "$customRoot\boxarr.py") {

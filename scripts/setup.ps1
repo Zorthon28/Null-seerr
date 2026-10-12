@@ -269,8 +269,25 @@ Write-Host "`n[*] Starting Null-seerr Media Stack..." -ForegroundColor Cyan
 Set-Location $repoDir
 docker compose up -d
 
-Write-Host "`n[*] Waiting for Null-seerr Portal and media engine to be ready..." -ForegroundColor Cyan
-$readyTimeout = 45
+Write-Host "`n[*] Waiting for automated stack wiring engine (nullseerr-init)..." -ForegroundColor Cyan
+$initTimeout = 60
+while ($initTimeout -gt 0) {
+    $initRunning = docker ps --filter "name=nullseerr-init" --filter "status=running" -q 2>$null
+    if (-not $initRunning) {
+        break
+    }
+    Write-Host -NoNewline "."
+    Start-Sleep -Seconds 2
+    $initTimeout -= 2
+}
+Write-Host ""
+
+# Gracefully restart Null-seerr to reload freshly wired settings and admin credentials into memory
+Write-Host "[*] Reloading Null-seerr portal configuration..." -ForegroundColor Cyan
+docker restart null-seerr 2>$null | Out-Null
+
+Write-Host "`n[*] Waiting for Null-seerr Portal to be live..." -ForegroundColor Cyan
+$readyTimeout = 30
 $isReady = $false
 while ($readyTimeout -gt 0) {
     Write-Host -NoNewline "."

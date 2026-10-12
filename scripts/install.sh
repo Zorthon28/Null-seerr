@@ -263,6 +263,10 @@ else
     $DOCKER_COMPOSE run --rm nullseerr-init || true
 fi
 
+# Reload Null-seerr to pick up freshly wired settings and admin credentials
+echo -e "${CYAN} [+] Reloading Null-seerr portal configuration...${NC}"
+docker restart null-seerr >/dev/null 2>&1 || true
+
 # 6. Run Boxarr Sync
 echo -e "\n${WHITE}[6/6] Syncing Initial Box Office & Popular Movies...${NC}"
 if [ -n "$PYTHON_CMD" ] && [ -f "${CUSTOM_ROOT}/boxarr.py" ]; then
