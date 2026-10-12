@@ -17,21 +17,54 @@ export interface QbittorrentItem {
 }
 
 export class TorrentManager {
-  private qbitHosts = ['qbittorrent', 'localhost', 'host.docker.internal'];
-  private qbitPort = 8080;
+  private workingBaseUrl: string | null = null;
+  private lastUrlCheck = 0;
+
+  private getQbitBaseUrls(): string[] {
+    const customHost = process.env.QBITTORRENT_HOST;
+    const customPort = process.env.QBITTORRENT_PORT || '8080';
+    const hosts = [
+      customHost ? `${customHost}:${customPort}` : null,
+      'qbittorrent:8080',
+      'localhost:8089',
+      'localhost:8080',
+      '127.0.0.1:8089',
+      '127.0.0.1:8080',
+      'host.docker.internal:8089',
+      'host.docker.internal:8080',
+      'qbit:8080',
+    ].filter(Boolean) as string[];
+
+    return hosts.map((h) => `http://${h}`);
+  }
 
   private async getWorkingBaseUrl(): Promise<string | null> {
-    for (const host of this.qbitHosts) {
+    const now = Date.now();
+    if (this.workingBaseUrl && now - this.lastUrlCheck < 60000) {
+      return this.workingBaseUrl;
+    }
+
+    const candidateUrls = this.getQbitBaseUrls();
+    const urlsToTest = this.workingBaseUrl
+      ? [
+          this.workingBaseUrl,
+          ...candidateUrls.filter((u) => u !== this.workingBaseUrl),
+        ]
+      : candidateUrls;
+
+    for (const url of urlsToTest) {
       try {
-        const url = `http://${host}:${this.qbitPort}/api/v2/app/version`;
-        const res = await axios.get(url, { timeout: 1500 });
+        const res = await axios.get(`${url}/api/v2/app/version`, { timeout: 1500 });
         if (res.status === 200) {
-          return `http://${host}:${this.qbitPort}`;
+          this.workingBaseUrl = url;
+          this.lastUrlCheck = now;
+          return url;
         }
       } catch {
         // try next host
       }
     }
+    this.workingBaseUrl = null;
     return null;
   }
 
@@ -57,6 +90,7 @@ export class TorrentManager {
 
       return res.data || [];
     } catch (e: any) {
+      this.workingBaseUrl = null;
       logger.warn(`[TorrentManager] Error fetching torrents: ${e.message}`);
       return [];
     }
@@ -75,15 +109,18 @@ export class TorrentManager {
     }
 
     try {
-      const hashesParam = hashes.join('|');
       logger.info(
         `[TorrentManager] Deleting ${hashes.length} torrent(s) from qBittorrent (deleteFiles=${deleteFiles})`,
         { hashes }
       );
 
+      const params = new URLSearchParams();
+      params.append('hashes', hashes.join('|'));
+      params.append('deleteFiles', String(deleteFiles));
+
       await axios.post(
         `${baseUrl}/api/v2/torrents/delete`,
-        `hashes=${encodeURIComponent(hashesParam)}&deleteFiles=${deleteFiles}`,
+        params.toString(),
         {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           timeout: 5000,
@@ -93,6 +130,7 @@ export class TorrentManager {
       logger.info(`[TorrentManager] Successfully deleted torrent(s) and data from disk`);
       return true;
     } catch (e: any) {
+      this.workingBaseUrl = null;
       logger.error(`[TorrentManager] Failed to delete torrents: ${e.message}`);
       return false;
     }
