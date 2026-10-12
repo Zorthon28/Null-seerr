@@ -2,19 +2,21 @@
 Null-seerr Host Power Guard Daemon (Windows)
 --------------------------------------------
 Monitors:
-1. ARK Dedicated Server (ShooterGameServer.exe / UDP 27015)
-2. Minecraft Fabric Server (Java fabric-server-launch.jar / TCP 25565)
-3. qBittorrent active downloads & high-speed transfer
-4. Jellyfin media playback sessions (/Sessions with API key)
-5. Null-seerr's `sleepOnIdleEnabled` switch in settings.json
+1. Physical user input (Keyboard & Mouse activity via GetLastInputInfo)
+2. Google Antigravity & Language Server active tasks, commands, or transcript updates
+3. ARK Dedicated Server (ShooterGameServer.exe / UDP 27015)
+4. Minecraft Fabric Server (Java fabric-server-launch.jar / TCP 25565)
+5. qBittorrent active downloads & high-speed transfer
+6. Jellyfin media playback sessions (/Sessions with API key)
+7. Null-seerr's `sleepOnIdleEnabled` switch in settings.json
 
 Policy:
 - When sleepOnIdleEnabled is OFF (Default):
-    Holds the PC awake 24/7 so gaming servers, downloads, and streams are never interrupted.
+    Holds the PC awake 24/7 so gaming servers, downloads, streams, and agent tasks are never interrupted.
 - When sleepOnIdleEnabled is ON:
-    Keeps the PC awake continuously whenever ARK, Minecraft, qBittorrent downloads,
-    or Jellyfin streams are ACTIVE.
-    Once ALL services have been idle for 15 minutes, releases the execution lock
+    Keeps the PC awake continuously whenever the user is active, Antigravity is working,
+    ARK/Minecraft servers are running, qBittorrent is downloading, or Jellyfin is streaming.
+    Once ALL services and tasks have been continuously idle for 15 minutes, releases the execution lock
     and triggers low-power Sleep (S3 Standby).
     The Intel Wi-Fi card remains armed in WoWLAN to wake on demand via Magic Packet
     (Null-seerr UI or Jellyfin client).
@@ -28,6 +30,7 @@ import socket
 import urllib.request
 import urllib.error
 import ctypes
+import glob
 
 try:
     import psutil
@@ -293,6 +296,68 @@ def check_jellyfin_active():
 
     return False, "Jellyfin idle"
 
+# --- ANTIGRAVITY AGENT ACTIVITY DETECTION ---
+def check_antigravity_active(threshold_seconds=IDLE_TIMEOUT_SECONDS):
+    """
+    Checks if Google Antigravity / Language Server is actively working on a task,
+    running worker commands/tools, or has updated conversation logs recently.
+    Guarantees the PC NEVER sleeps when the user leaves Antigravity working on tasks.
+    """
+    if os.environ.get("DISABLE_ANTIGRAVITY_CHECK", "0") == "1":
+        return False, "Antigravity check disabled"
+
+    reasons = []
+
+    # 1. Active Worker / Command Processes spawned by language_server.exe
+    if psutil:
+        try:
+            for proc in psutil.process_iter(['name', 'pid']):
+                if (proc.info.get('name') or '').lower() == 'language_server.exe':
+                    children = proc.children(recursive=True)
+                    active_workers = [
+                        c for c in children
+                        if c.name().lower() not in ('conhost.exe',)
+                    ]
+                    if active_workers:
+                        worker_names = ', '.join(sorted(set(c.name() for c in active_workers)))
+                        reasons.append(f"Antigravity executing worker tasks ({len(active_workers)} active processes: {worker_names})")
+        except Exception:
+            pass
+
+    # 2. Real-time Transcript & Task Activity in Antigravity Brain
+    try:
+        brain_dir = os.path.expanduser(r"~/.gemini/antigravity/brain")
+        if os.path.exists(brain_dir):
+            now = time.time()
+            log_pattern = os.path.join(brain_dir, "*", ".system_generated", "logs", "transcript.jsonl")
+            for fpath in glob.glob(log_pattern):
+                try:
+                    mtime = os.path.getmtime(fpath)
+                    age = now - mtime
+                    if age < threshold_seconds:
+                        conv_id = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(fpath))))
+                        reasons.append(f"Antigravity agent active ({int(age)}s ago, session {conv_id[:8]})")
+                        break
+                except Exception:
+                    pass
+
+            task_pattern = os.path.join(brain_dir, "*", ".system_generated", "tasks", "*.log")
+            for fpath in glob.glob(task_pattern):
+                try:
+                    mtime = os.path.getmtime(fpath)
+                    age = now - mtime
+                    if age < threshold_seconds:
+                        reasons.append(f"Antigravity background task active ({int(age)}s ago)")
+                        break
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    if reasons:
+        return True, "; ".join(reasons)
+    return False, "Antigravity idle (no active tasks or workers)"
+
 def write_status(data):
     """Writes status heartbeat for Null-seerr / diagnostics."""
     status_file = os.path.join(os.environ.get("STACK_ROOT", "C:/arr-stack"), "config", "power_guard_status.json")
@@ -313,6 +378,14 @@ def main():
 
     while True:
         try:
+            # On-demand OpenSubtitles API key rotation for Jellyfin SubBuzz
+            try:
+                import rotate_subtitles_key
+                rotate_subtitles_key.check_and_rotate_on_demand()
+                subtitles_status = rotate_subtitles_key.get_current_status()
+            except Exception:
+                subtitles_status = None
+
             sleep_enabled = is_sleep_on_idle_enabled()
 
             if not sleep_enabled:
@@ -327,12 +400,14 @@ def main():
                     "sleepOnIdleEnabled": False,
                     "state": "AWAKE_ALWAYS",
                     "reason": "Host Power Management switch is OFF (24/7 awake mode)",
-                    "idle_seconds": 0
+                    "idle_seconds": 0,
+                    "subtitles_key_pool": subtitles_status
                 })
 
             else:
                 # Power Management is ON: Evaluate all safety conditions
                 user_up, user_reason = check_user_active(IDLE_TIMEOUT_SECONDS)
+                antigravity_up, antigravity_reason = check_antigravity_active(IDLE_TIMEOUT_SECONDS)
                 ark_up, ark_reason = check_ark_active()
                 mc_up, mc_reason = check_mc_active()
                 qbit_up, qbit_reason = check_qbittorrent_active()
@@ -341,6 +416,8 @@ def main():
                 active_reasons = []
                 if user_up:
                     active_reasons.append(user_reason)
+                if antigravity_up:
+                    active_reasons.append(antigravity_reason)
                 if ark_up:
                     active_reasons.append(ark_reason)
                 if mc_up:
@@ -366,10 +443,12 @@ def main():
                         "active_services": active_reasons,
                         "user": user_reason,
                         "user_idle_seconds": int(get_user_idle_seconds()),
+                        "antigravity": antigravity_reason,
                         "ark": ark_reason,
                         "minecraft": mc_reason,
                         "qbittorrent": qbit_reason,
                         "jellyfin": jelly_reason,
+                        "subtitles_key_pool": subtitles_status,
                         "idle_seconds": 0
                     })
 
@@ -391,10 +470,12 @@ def main():
                         "remaining_seconds": int(remaining_idle),
                         "user": user_reason,
                         "user_idle_seconds": int(get_user_idle_seconds()),
+                        "antigravity": antigravity_reason,
                         "ark": ark_reason,
                         "minecraft": mc_reason,
                         "qbittorrent": qbit_reason,
-                        "jellyfin": jelly_reason
+                        "jellyfin": jelly_reason,
+                        "subtitles_key_pool": subtitles_status
                     })
 
                     if elapsed_idle >= IDLE_TIMEOUT_SECONDS:
