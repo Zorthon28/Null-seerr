@@ -16,16 +16,38 @@ $repoDir = Split-Path -Parent $scriptDir
 # 1. Pre-flight Check: Docker
 Write-Host "[1/6] Checking Docker Engine..." -ForegroundColor White
 try {
-    $dockerCheck = docker info 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host " [!] Docker Desktop is not running or not responding." -ForegroundColor Red
-        Write-Host "     Please start Docker Desktop and run this setup script again." -ForegroundColor Yellow
-        Read-Host "Press Enter to exit..."
-        exit 1
+    $dockerVersion = docker version --format '{{.Server.Version}}' 2>$null
+    if (-not $dockerVersion) {
+        Write-Host " [!] Docker Desktop is not running. Attempting to start Docker Desktop..." -ForegroundColor Yellow
+        $dockerPath = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
+        if (Test-Path $dockerPath) {
+            Start-Process -FilePath $dockerPath
+        } else {
+            Start-Process "Docker Desktop" -ErrorAction SilentlyContinue
+        }
+        $timeout = 90
+        $started = $false
+        Write-Host "     Waiting for Docker Engine to initialize (up to 90 seconds)..." -ForegroundColor Cyan
+        while ($timeout -gt 0) {
+            Write-Host -NoNewline "."
+            Start-Sleep -Seconds 3
+            $timeout -= 3
+            $dockerVersion = docker version --format '{{.Server.Version}}' 2>$null
+            if ($dockerVersion) {
+                $started = $true
+                Write-Host ""
+                break
+            }
+        }
+        if (-not $started) {
+            Write-Host "`n [!] Docker Desktop failed to start within 90s. Please open Docker Desktop manually and run setup again." -ForegroundColor Red
+            Read-Host "Press Enter to exit..."
+            exit 1
+        }
     }
-    Write-Host " [+] Docker Desktop is active and ready." -ForegroundColor Green
+    Write-Host " [+] Docker Desktop is active and ready (v$dockerVersion)." -ForegroundColor Green
 } catch {
-    Write-Host " [!] Docker executable not found in PATH." -ForegroundColor Red
+    Write-Host " [!] Docker executable not found in PATH. Please install Docker Desktop from https://www.docker.com/products/docker-desktop/" -ForegroundColor Red
     Read-Host "Press Enter to exit..."
     exit 1
 }
@@ -95,14 +117,68 @@ if (Test-Path -Path $srcBoxarr) {
     Copy-Item -Path $srcBoxarr -Destination (Join-Path $customRoot "boxarr.py") -Force
 }
 
-# Copy .env.example & create .env if not present
+# Master Authentication & .env configuration
 $envFile = "$customRoot\.env"
+$userMasterPass = $null
+if (Test-Path -Path $envFile) {
+    Get-Content $envFile | ForEach-Object {
+        if ($_ -match "^MASTER_PASSWORD=(.+)") { $userMasterPass = $matches[1].Trim() }
+    }
+}
+
+if (-not $userMasterPass) {
+    $userMasterPass = Read-Host " Enter Master Password for admin account (Press Enter for auto-generated)"
+    if ([string]::IsNullOrWhiteSpace($userMasterPass)) {
+        $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$"
+        $rng = New-Object System.Random
+        $userMasterPass = -join ((1..16) | ForEach-Object { $chars[$rng.Next(0, $chars.Length)] })
+        Write-Host " [+] Auto-generated secure Master Password: $userMasterPass" -ForegroundColor Yellow
+    } else {
+        Write-Host " [+] Using provided Master Password for all stack services." -ForegroundColor Green
+    }
+}
+$env:MASTER_PASSWORD = $userMasterPass
+
 if (!(Test-Path -Path $envFile)) {
     $envExample = Join-Path $repoDir ".env.example"
     if (Test-Path -Path $envExample) {
-        Copy-Item -Path $envExample -Destination $envFile -Force
+        $exampleContent = Get-Content $envExample -Raw
+        $newContent = "MASTER_PASSWORD=$userMasterPass`r`n" + $exampleContent
+        Set-Content -Path $envFile -Value $newContent -Force
         Copy-Item -Path $envExample -Destination (Join-Path $customRoot ".env.example") -Force
-        Write-Host " [+] Created .env configuration from template." -ForegroundColor Green
+        Write-Host " [+] Created .env configuration from template with Master Password." -ForegroundColor Green
+    }
+} else {
+    $existingEnv = Get-Content $envFile -Raw
+    if ($existingEnv -notmatch "MASTER_PASSWORD=") {
+        Set-Content -Path $envFile -Value ("MASTER_PASSWORD=$userMasterPass`r`n" + $existingEnv) -Force
+    }
+}
+
+# Configure Windows Power Settings & Background Watcher
+Write-Host "`n Configuring Windows Power Settings for 24/7 Media Server..." -ForegroundColor White
+try {
+    powercfg /change standby-timeout-ac 0 2>$null
+    powercfg /change standby-timeout-dc 0 2>$null
+    Write-Host " [+] Standby idle sleep disabled (Continuous media playback enabled)" -ForegroundColor Green
+} catch {
+    Write-Host " [!] Could not configure power settings automatically: $_" -ForegroundColor Yellow
+}
+
+$powerGuardScript = Join-Path $repoDir "scripts\power_guard.pyw"
+if (Test-Path $powerGuardScript) {
+    try {
+        $regKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+        $regName = "NullSeerrPowerGuard"
+        $pywExe = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source
+        if ($pywExe) {
+            $regCmd = "`"$pywExe`" `"$powerGuardScript`""
+            Set-ItemProperty -Path $regKey -Name $regName -Value $regCmd -Force
+            Start-Process -FilePath $pywExe -ArgumentList "`"$powerGuardScript`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
+            Write-Host " [+] Background Power & Subtitle Guard daemon registered for auto-start" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host " [!] Could not register Power Guard: $_" -ForegroundColor Yellow
     }
 }
 
@@ -176,7 +252,7 @@ Pop-Location
 $credFile = "$customRoot\CREDENTIALS.txt"
 $adminUser = "admin"
 $adminEmail = "admin@nullseerr.local"
-$adminPass = "See $customRoot\CREDENTIALS.txt"
+$adminPass = $userMasterPass
 if (Test-Path -Path $credFile) {
     Get-Content $credFile | ForEach-Object {
         if ($_ -match "^USER:\s*(.+)") { $adminUser = $matches[1].Trim() }
