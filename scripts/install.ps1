@@ -52,8 +52,34 @@ try {
     exit 1
 }
 
+# 1.5 Pre-flight Port Conflict Check
+Write-Host "`n Verifying network port availability..." -ForegroundColor White
+$criticalPorts = @(5055, 8096, 8089, 7878, 8989, 9696)
+$portConflicts = @()
+foreach ($p in $criticalPorts) {
+    try {
+        $tcp = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue
+        if ($tcp) {
+            $proc = Get-Process -Id $tcp[0].OwningProcess -ErrorAction SilentlyContinue
+            $procName = if ($proc) { $proc.Name } else { "System" }
+            if ($procName -notmatch "com.docker|wslhost|vmmem") {
+                $portConflicts += "Port $p in use by '$procName'"
+            }
+        }
+    } catch { }
+}
+if ($portConflicts.Count -gt 0) {
+    Write-Host " [!] Note: The following local ports are currently in use:" -ForegroundColor Yellow
+    foreach ($conflict in $portConflicts) {
+        Write-Host "     - $conflict" -ForegroundColor Yellow
+    }
+    Write-Host "     If Docker fails to bind, please close the conflicting application." -ForegroundColor Yellow
+} else {
+    Write-Host " [+] All core media stack ports are available." -ForegroundColor Green
+}
+
 # 2. Pre-flight Check: Python
-Write-Host "[2/6] Checking Python 3..." -ForegroundColor White
+Write-Host "`n[2/6] Checking Python 3..." -ForegroundColor White
 try {
     $pyVer = python --version 2>&1
     Write-Host " [+] Python detected: $pyVer" -ForegroundColor Green
@@ -68,6 +94,16 @@ $customRoot = Read-Host " Enter installation directory (Press Enter for default:
 if ([string]::IsNullOrWhiteSpace($customRoot)) {
     $customRoot = $defaultRoot
 }
+
+try {
+    $driveLetter = [System.IO.Path]::GetPathRoot($customRoot).TrimEnd('\')
+    $psDrive = Get-PSDrive -Name ($driveLetter.TrimEnd(':')) -ErrorAction SilentlyContinue
+    if ($psDrive -and ($psDrive.Free / 1GB) -lt 20) {
+        $freeGb = [Math]::Round($psDrive.Free / 1GB, 1)
+        Write-Host " [!] WARNING: Drive $driveLetter has less than 20 GB free space ($freeGb GB free)." -ForegroundColor Yellow
+        Write-Host "     Media downloads will fill up this disk quickly." -ForegroundColor Yellow
+    }
+} catch { }
 
 $dirs = @(
     "$customRoot\config\overseerr",
@@ -182,6 +218,26 @@ if (Test-Path $powerGuardScript) {
     }
 }
 
+# Desktop Quick-Access Shortcut Prompt
+Write-Host "`n Desktop Quick-Access:" -ForegroundColor White
+$createShortcuts = Read-Host " Create Desktop shortcuts for 1-click access to Null-seerr & Jellyfin? [Y/n]"
+if ([string]::IsNullOrWhiteSpace($createShortcuts) -or $createShortcuts.Trim().ToLower() -eq "y" -or $createShortcuts.Trim().ToLower() -eq "yes") {
+    try {
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        if (Test-Path $desktopPath) {
+            $portalUrl = "[InternetShortcut]`r`nURL=http://localhost:5055`r`n"
+            Set-Content -Path (Join-Path $desktopPath "Null-seerr Media Portal.url") -Value $portalUrl -Force
+            
+            $jellyfinUrl = "[InternetShortcut]`r`nURL=http://localhost:8096`r`n"
+            Set-Content -Path (Join-Path $desktopPath "Jellyfin Streaming.url") -Value $jellyfinUrl -Force
+            
+            Write-Host " [+] Created Desktop shortcuts: 'Null-seerr Media Portal' and 'Jellyfin Streaming'" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host " [!] Could not create desktop shortcuts: $_" -ForegroundColor Yellow
+    }
+}
+
 # Create batch helpers in target folder
 $startBatContent = @"
 @echo off
@@ -232,8 +288,27 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host " [+] Containers launched successfully!" -ForegroundColor Green
 
 # 5. Service Liveness Check & Auto-Wiring
-Write-Host "`n[5/6] Waiting for Services to initialize (15s)..." -ForegroundColor White
-Start-Sleep -Seconds 15
+Write-Host "`n[5/6] Waiting for Null-seerr Portal and media engine to be ready..." -ForegroundColor White
+$readyTimeout = 45
+$isReady = $false
+while ($readyTimeout -gt 0) {
+    Write-Host -NoNewline "."
+    try {
+        $response = Invoke-WebRequest -Uri "http://localhost:5055/api/v1/status" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
+        if ($response -and $response.StatusCode -eq 200) {
+            $isReady = $true
+            Write-Host ""
+            break
+        }
+    } catch { }
+    Start-Sleep -Seconds 2
+    $readyTimeout -= 2
+}
+if ($isReady) {
+    Write-Host " [+] Null-seerr portal is live and ready!" -ForegroundColor Green
+} else {
+    Write-Host "`n [!] Services are still booting in background..." -ForegroundColor Yellow
+}
 
 Write-Host " Running Auto-Wiring CLI..." -ForegroundColor Yellow
 if (Test-Path -Path "$customRoot\wire_stack.py") {
@@ -247,6 +322,18 @@ if (Test-Path -Path "$customRoot\boxarr.py") {
 }
 
 Pop-Location
+
+# Detect LAN IP
+$lanIp = "127.0.0.1"
+try {
+    $activeAdapter = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { 
+        $_.InterfaceAlias -notmatch "vEthernet|Loopback|WSL|Docker" -and 
+        $_.IPAddress -notmatch "^127\.|^169\.254\." 
+    } | Select-Object -First 1
+    if ($activeAdapter) {
+        $lanIp = $activeAdapter.IPAddress
+    }
+} catch { }
 
 # Read generated credentials if present
 $credFile = "$customRoot\CREDENTIALS.txt"
@@ -269,18 +356,25 @@ Write-Host "          NULL-SEERR MEDIA STACK IS ONLINE & READY!              " -
 Write-Host "=================================================================" -ForegroundColor Cyan
 Write-Host "  🔑 ADMIN USERNAME:          $adminUser" -ForegroundColor Yellow
 Write-Host "  📧 ADMIN EMAIL:             $adminEmail" -ForegroundColor Yellow
-Write-Host "  🔒 GENERATED TEMP PASSWORD:  $adminPass" -ForegroundColor Yellow
+Write-Host "  🔒 MASTER PASSWORD:         $adminPass" -ForegroundColor Yellow
 Write-Host "  📁 Saved in:                $credFile" -ForegroundColor Cyan
 Write-Host "-----------------------------------------------------------------" -ForegroundColor DarkGray
-Write-Host "  * Null-seerr Portal:   http://localhost:5055" -ForegroundColor Yellow
-Write-Host "  * Radarr (Movies):     http://localhost:7878" -ForegroundColor White
-Write-Host "  * Sonarr (TV):         http://localhost:8989" -ForegroundColor White
-Write-Host "  * Prowlarr (Indexers): http://localhost:9696" -ForegroundColor White
-Write-Host "  * qBittorrent:         http://localhost:8089" -ForegroundColor White
-Write-Host "  * Plex Media Server:   http://localhost:32400/web" -ForegroundColor White
-Write-Host "  * Jellyfin Server:     http://localhost:8096" -ForegroundColor White
-Write-Host "  * Tdarr Transcoder:    http://localhost:8265" -ForegroundColor White
-Write-Host "  * Shoko Anime DB:      http://localhost:8111" -ForegroundColor White
+Write-Host "  Local PC Access:" -ForegroundColor Yellow
+Write-Host "    * Null-seerr Portal:   http://localhost:5055" -ForegroundColor White
+Write-Host "    * Jellyfin Streaming:  http://localhost:8096" -ForegroundColor White
+Write-Host "    * Plex Media Server:   http://localhost:32400/web" -ForegroundColor White
+Write-Host "    * Radarr (Movies):     http://localhost:7878" -ForegroundColor White
+Write-Host "    * Sonarr (TV):         http://localhost:8989" -ForegroundColor White
+Write-Host "    * Prowlarr (Indexers): http://localhost:9696" -ForegroundColor White
+Write-Host "    * qBittorrent:         http://localhost:8089" -ForegroundColor White
+Write-Host "    * Tdarr Transcoder:    http://localhost:8265" -ForegroundColor White
+Write-Host "    * Shoko Anime DB:      http://localhost:8111" -ForegroundColor White
+if ($lanIp -and $lanIp -ne "127.0.0.1") {
+    Write-Host "`n  TV & Mobile Access (Connect devices on the same Wi-Fi):" -ForegroundColor Yellow
+    Write-Host "    * Streaming Server:    http://$($lanIp):8096" -ForegroundColor Cyan
+    Write-Host "    * Null-seerr Portal:   http://$($lanIp):5055" -ForegroundColor Cyan
+    Write-Host "    * Living Room Guide:   See TV_SETUP_GUIDE.md" -ForegroundColor Gray
+}
 Write-Host "=================================================================" -ForegroundColor Cyan
 Write-Host ""
 Read-Host "Press Enter to close setup wizard..."

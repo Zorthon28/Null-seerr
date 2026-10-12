@@ -48,6 +48,32 @@ try {
     Exit 1
 }
 
+# 1.5 Pre-flight Port Conflict Check
+Write-Host "`n[*] Verifying network port availability..." -ForegroundColor Cyan
+$criticalPorts = @(5055, 8096, 8089, 7878, 8989, 9696)
+$portConflicts = @()
+foreach ($p in $criticalPorts) {
+    try {
+        $tcp = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue
+        if ($tcp) {
+            $proc = Get-Process -Id $tcp[0].OwningProcess -ErrorAction SilentlyContinue
+            $procName = if ($proc) { $proc.Name } else { "System" }
+            if ($procName -notmatch "com.docker|wslhost|vmmem") {
+                $portConflicts += "Port $p in use by '$procName'"
+            }
+        }
+    } catch { }
+}
+if ($portConflicts.Count -gt 0) {
+    Write-Host "[!] Note: The following local ports are currently in use:" -ForegroundColor Yellow
+    foreach ($conflict in $portConflicts) {
+        Write-Host "    - $conflict" -ForegroundColor Yellow
+    }
+    Write-Host "    If Docker fails to bind, please close the conflicting application." -ForegroundColor Yellow
+} else {
+    Write-Host "[OK] All core media stack ports are available" -ForegroundColor Green
+}
+
 # 2. Smart Drive & Storage Auto-Detection
 Write-Host "`n[*] Scanning local storage drives for media library..." -ForegroundColor Cyan
 $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Free -gt 0 } | Sort-Object Free -Descending
@@ -67,6 +93,11 @@ if (-not $drives -or $drives.Count -eq 0) {
 
     Write-Host "`nAuto-selecting Drive $($bestDrive.Name): ($bestFreeGb GB free)..." -ForegroundColor Green
     $selectedDrive = "$($bestDrive.Name):"
+
+    if ($bestFreeGb -lt 20) {
+        Write-Host "[!] WARNING: Drive $($bestDrive.Name): has less than 20 GB free space ($bestFreeGb GB free)." -ForegroundColor Yellow
+        Write-Host "    Media downloads will fill up this disk quickly." -ForegroundColor Yellow
+    }
 }
 
 $stackRoot = "$selectedDrive\arr-stack"
@@ -186,6 +217,26 @@ FLARESOLVERR_PORT=8191
 Set-Content -Path $envPath -Value $envContent -Encoding UTF8
 Write-Host "[OK] .env configuration file generated with unified authentication" -ForegroundColor Green
 
+# 5.5. Desktop Quick-Access Shortcut Prompt
+Write-Host "`n[*] Desktop Quick-Access:" -ForegroundColor Cyan
+$createShortcuts = Read-Host "  Create Desktop shortcuts for 1-click access to Null-seerr & Jellyfin? [Y/n]"
+if ([string]::IsNullOrWhiteSpace($createShortcuts) -or $createShortcuts.Trim().ToLower() -eq "y" -or $createShortcuts.Trim().ToLower() -eq "yes") {
+    try {
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        if (Test-Path $desktopPath) {
+            $portalUrl = "[InternetShortcut]`r`nURL=http://localhost:5055`r`n"
+            Set-Content -Path (Join-Path $desktopPath "Null-seerr Media Portal.url") -Value $portalUrl -Force
+            
+            $jellyfinUrl = "[InternetShortcut]`r`nURL=http://localhost:8096`r`n"
+            Set-Content -Path (Join-Path $desktopPath "Jellyfin Streaming.url") -Value $jellyfinUrl -Force
+            
+            Write-Host "  [OK] Created Desktop shortcuts: 'Null-seerr Media Portal' and 'Jellyfin Streaming'" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  [!] Could not create desktop shortcuts: $_" -ForegroundColor Yellow
+    }
+}
+
 # 6. Configure Windows Power Settings & Background Watcher
 Write-Host "`n[*] Configuring Windows Power Settings for 24/7 Media Server..." -ForegroundColor Cyan
 try {
@@ -218,10 +269,40 @@ Write-Host "`n[*] Starting Null-seerr Media Stack..." -ForegroundColor Cyan
 Set-Location $repoDir
 docker compose up -d
 
-Write-Host "`n[*] Waiting for background auto-wiring engine..." -ForegroundColor Cyan
-Start-Sleep -Seconds 15
+Write-Host "`n[*] Waiting for Null-seerr Portal and media engine to be ready..." -ForegroundColor Cyan
+$readyTimeout = 45
+$isReady = $false
+while ($readyTimeout -gt 0) {
+    Write-Host -NoNewline "."
+    try {
+        $response = Invoke-WebRequest -Uri "http://localhost:5055/api/v1/status" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
+        if ($response -and $response.StatusCode -eq 200) {
+            $isReady = $true
+            Write-Host ""
+            break
+        }
+    } catch { }
+    Start-Sleep -Seconds 2
+    $readyTimeout -= 2
+}
+if ($isReady) {
+    Write-Host "[OK] Null-seerr portal is live and ready!" -ForegroundColor Green
+} else {
+    Write-Host "`n[!] Services are still booting in background..." -ForegroundColor Yellow
+}
 
-# 8. Display Final Credentials & Open Browser
+# 8. Detect LAN IP & Display Final Credentials
+$lanIp = "127.0.0.1"
+try {
+    $activeAdapter = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { 
+        $_.InterfaceAlias -notmatch "vEthernet|Loopback|WSL|Docker" -and 
+        $_.IPAddress -notmatch "^127\.|^169\.254\." 
+    } | Select-Object -First 1
+    if ($activeAdapter) {
+        $lanIp = $activeAdapter.IPAddress
+    }
+} catch { }
+
 $credPath = "$stackRoot\CREDENTIALS.txt"
 $password = $userMasterPass
 if (Test-Path $credPath) {
@@ -241,10 +322,17 @@ Write-Host "  Admin Email:    admin@nullseerr.local" -ForegroundColor White
 Write-Host "  Stack Password: $password" -ForegroundColor Yellow
 Write-Host "  Saved in:       $credPath" -ForegroundColor Gray
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host "  * Null-seerr Portal:   http://localhost:5055" -ForegroundColor White
-Write-Host "  * Jellyfin Streaming:  http://localhost:8096" -ForegroundColor White
-Write-Host "  * Plex Media Server:   http://localhost:32400/web" -ForegroundColor White
-Write-Host "  * qBittorrent:         http://localhost:8089" -ForegroundColor White
+Write-Host "  Local PC Access:" -ForegroundColor Yellow
+Write-Host "    * Null-seerr Portal:   http://localhost:5055" -ForegroundColor White
+Write-Host "    * Jellyfin Streaming:  http://localhost:8096" -ForegroundColor White
+Write-Host "    * Plex Media Server:   http://localhost:32400/web" -ForegroundColor White
+Write-Host "    * qBittorrent:         http://localhost:8089" -ForegroundColor White
+if ($lanIp -and $lanIp -ne "127.0.0.1") {
+    Write-Host "`n  TV & Mobile Access (From Smart TVs, phones, tablets on same Wi-Fi):" -ForegroundColor Yellow
+    Write-Host "    * Streaming Server:    http://$($lanIp):8096" -ForegroundColor Cyan
+    Write-Host "    * Null-seerr Portal:   http://$($lanIp):5055" -ForegroundColor Cyan
+    Write-Host "    * Living Room Guide:   See TV_SETUP_GUIDE.md" -ForegroundColor Gray
+}
 Write-Host "=================================================================" -ForegroundColor Cyan
 
 Start-Process "http://localhost:5055"
