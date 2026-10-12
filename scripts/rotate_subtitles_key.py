@@ -22,10 +22,35 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 
-CONFIG_DIR = os.environ.get("JELLYFIN_CONFIG", r"C:\arr-stack\config\jellyfin")
+def get_config_dir():
+    if os.environ.get("JELLYFIN_CONFIG"):
+        return os.environ.get("JELLYFIN_CONFIG")
+    stack_root = os.environ.get("STACK_ROOT")
+    if stack_root:
+        cand = os.path.join(stack_root, "config", "jellyfin")
+        if os.path.exists(cand):
+            return cand
+    candidates = [
+        r"C:\arr-stack\config\jellyfin",
+        "/config/jellyfin",
+        "/opt/arr-stack/config/jellyfin",
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return candidates[0]
+
+CONFIG_DIR = get_config_dir()
 POOL_FILE = os.path.join(CONFIG_DIR, "subtitles_key_pool.json")
 SUBBUZZ_XML = os.path.join(CONFIG_DIR, "data", "plugins", "configurations", "subbuzz.xml")
 LOGS_DIR = os.path.join(CONFIG_DIR, "log")
+
+def mask_key(k: str) -> str:
+    if not k:
+        return ""
+    if len(k) <= 8:
+        return "***"
+    return f"{k[:4]}...{k[-4:]}"
 
 # Track file read offset for on-demand log tailing
 _last_log_file = None
@@ -114,7 +139,7 @@ def rotate_key(reason="Manual"):
     active_key["last_rotation_reason"] = reason
     save_pool(pool)
 
-    print(f"[OpenSub Rotator] Rotated key to [{next_idx}] {active_key.get('name', 'Key')}: {active_key['api_key']} (Reason: {reason})")
+    print(f"[OpenSub Rotator] Rotated key to [{next_idx}] {active_key.get('name', 'Key')}: {mask_key(active_key['api_key'])} (Reason: {reason})")
     update_subbuzz_xml(active_key["api_key"])
     return active_key
 
@@ -139,7 +164,7 @@ def list_keys():
     print(f"\n--- OpenSubtitles API Key Pool (Active Index: {idx}) ---")
     for i, k in enumerate(pool.get("keys", [])):
         marker = "-> [ACTIVE]" if i == idx else "   "
-        print(f"{marker} [{i}] {k.get('name')}: {k['api_key']} (status: {k.get('status', 'active')})")
+        print(f"{marker} [{i}] {k.get('name')}: {mask_key(k['api_key'])} (status: {k.get('status', 'active')})")
 
 def check_and_rotate_on_demand():
     """

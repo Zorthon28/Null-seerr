@@ -19,7 +19,21 @@ param(
 
 $ErrorActionPreference = "Continue"
 
-$vhdxPath = "$env:LOCALAPPDATA\Docker\wsl\disk\docker_data.vhdx"
+$candidateVhdx = @(
+    "$env:LOCALAPPDATA\Docker\wsl\disk\docker_data.vhdx",
+    "$env:LOCALAPPDATA\Docker\wsl\data\ext4.vhdx",
+    "$env:LOCALAPPDATA\Docker\wsl\distro\ext4.vhdx"
+)
+$vhdxPath = $null
+foreach ($p in $candidateVhdx) {
+    if (Test-Path $p) {
+        $vhdxPath = $p
+        break
+    }
+}
+if (-not $vhdxPath) {
+    $vhdxPath = $candidateVhdx[0]
+}
 $dockerExe = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
 function Get-VhdxSizeGB {
@@ -35,7 +49,8 @@ Write-Host "   Docker Desktop Storage Self-Heal" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $initialSize = Get-VhdxSizeGB
-Write-Host "Current docker_data.vhdx size on C: drive: $initialSize GB" -ForegroundColor Yellow
+$diskName = [System.IO.Path]::GetFileName($vhdxPath)
+Write-Host "Current $diskName size on C: drive: $initialSize GB" -ForegroundColor Yellow
 
 # Handle Compaction
 if ($Compact) {

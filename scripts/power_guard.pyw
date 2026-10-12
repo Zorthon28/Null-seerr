@@ -94,8 +94,21 @@ def get_qbittorrent_url():
     url = os.environ.get("QBITTORRENT_URL")
     if url:
         return url.rstrip("/")
-    port = os.environ.get("QBIT_WEBUI_PORT", "8089")
-    return f"http://localhost:{port}"
+    port = os.environ.get("QBITTORRENT_PORT") or os.environ.get("QBIT_WEBUI_PORT")
+    if port:
+        return f"http://localhost:{port}"
+
+    for test_port in (8089, 8080):
+        try:
+            cand = f"http://localhost:{test_port}"
+            req = urllib.request.Request(f"{cand}/api/v2/app/version")
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                if resp.status == 200:
+                    return cand
+        except Exception:
+            continue
+
+    return "http://localhost:8089"
 
 def get_jellyfin_url():
     url = os.environ.get("JELLYFIN_URL")

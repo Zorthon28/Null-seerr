@@ -12,6 +12,7 @@ import logger from '@server/logger';
 import { getHostname } from '@server/utils/getHostname';
 import axios from 'axios';
 import fs from 'fs';
+import path from 'path';
 
 export interface StorageDiskInfo {
   path: string;
@@ -85,11 +86,16 @@ class StorageTracker {
   public async getStorageStatus(): Promise<StorageStatusResponse> {
     const settings = getSettings();
     const candidatePaths = [
+      process.env.MEDIA_DIRECTORY,
+      process.env.STACK_ROOT
+        ? path.join(process.env.STACK_ROOT, 'data', 'media')
+        : null,
       '/data/media',
       'C:\\arr-stack\\data\\media',
+      process.env.STACK_ROOT,
       '/',
       'C:\\',
-    ];
+    ].filter(Boolean) as string[];
 
     const diskMap = new Map<string, StorageDiskInfo>();
     for (const p of candidatePaths) {
