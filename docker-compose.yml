@@ -131,6 +131,7 @@ services:
       - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
     ports:
       - ${JELLYFIN_PORT:-8096}:8096
+      - 7359:7359/udp
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8096/health || exit 1"]
       interval: 10s
@@ -189,6 +190,10 @@ services:
       - ${MEDIA_ROOT:-./arr-stack/data/media}:/data/media
     ports:
       - ${PLEX_PORT:-32400}:32400
+      - 32410:32410/udp
+      - 32412:32412/udp
+      - 32413:32413/udp
+      - 32414:32414/udp
     restart: unless-stopped
 
   shoko:
@@ -281,6 +286,7 @@ services:
     environment:
       - RUNNING_IN_DOCKER=true
       - STACK_ROOT=/app
+      - MASTER_PASSWORD=${MASTER_PASSWORD:-}
     working_dir: /app
     entrypoint: ["sh", "-c", "pip install pyyaml requests bcrypt >/dev/null 2>&1 && python -u /app/wire_stack.py"]
     restart: on-failure:5
