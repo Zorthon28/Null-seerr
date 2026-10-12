@@ -786,23 +786,83 @@ authRoutes.post('/local', async (req, res, next) => {
     });
   }
   try {
-    const identifier = (body.email || '').trim().toLowerCase();
+    const rawIdentifier = (body.email || '').trim();
+    const identifier = rawIdentifier.toLowerCase();
     const cleanPassword = (body.password || '').trim();
 
-    const user = await userRepository
+    logger.info('Local sign-in attempt initiated', {
+      label: 'Auth',
+      ip: req.ip,
+      identifier,
+    });
+
+    const candidateUsers = await userRepository
       .createQueryBuilder('user')
       .addSelect('user.password')
       .where('LOWER(user.email) = :identifier', { identifier })
       .orWhere('LOWER(user.username) = :identifier', { identifier })
       .orWhere('LOWER(user.jellyfinUsername) = :identifier', { identifier })
-      .getOne();
+      .getMany();
 
-    if (!user || !(await user.passwordMatch(cleanPassword))) {
+    let authenticatedUser: User | undefined | null;
+
+    // 1. Try local password match across candidate users
+    for (const cand of candidateUsers) {
+      if (await cand.passwordMatch(cleanPassword)) {
+        authenticatedUser = cand;
+        break;
+      }
+    }
+
+    // 2. If no local match, check if Jellyfin is configured and try Jellyfin login fallback
+    if (
+      !authenticatedUser &&
+      (settings.main.mediaServerType === MediaServerType.JELLYFIN ||
+        settings.main.mediaServerType === MediaServerType.EMBY) &&
+      settings.jellyfin.ip !== ''
+    ) {
+      try {
+        const hostname = getHostname();
+        const jfUsername =
+          candidateUsers.find((u) => u.jellyfinUsername)?.jellyfinUsername ||
+          rawIdentifier;
+
+        const deviceId = Buffer.from(`BOT_seerr_${jfUsername}`).toString('base64');
+        const jellyfinserver = new JellyfinAPI(hostname ?? '', undefined, deviceId);
+
+        const account = await jellyfinserver.login(jfUsername, cleanPassword);
+        if (account?.User?.Id) {
+          authenticatedUser = await userRepository.findOne({
+            where: { jellyfinUserId: account.User.Id },
+          });
+
+          if (!authenticatedUser) {
+            authenticatedUser = candidateUsers[0];
+          }
+
+          if (authenticatedUser) {
+            logger.info('Local sign-in authenticated via Jellyfin fallback', {
+              label: 'Auth',
+              ip: req.ip,
+              userId: authenticatedUser.id,
+              username: authenticatedUser.username,
+            });
+          }
+        }
+      } catch (jfErr) {
+        logger.debug('Jellyfin fallback authentication unsuccessful', {
+          label: 'Auth',
+          error: (jfErr as Error)?.message,
+        });
+      }
+    }
+
+    if (!authenticatedUser) {
       logger.warn('Failed sign-in attempt using invalid Seerr password', {
         label: 'API',
         ip: req.ip,
         email: body.email,
-        userId: user?.id,
+        candidateCount: candidateUsers.length,
       });
       return next({
         status: 403,
@@ -811,11 +871,19 @@ authRoutes.post('/local', async (req, res, next) => {
     }
 
     // Set logged in session
-    if (user && req.session) {
-      req.session.userId = user.id;
+    if (req.session) {
+      req.session.userId = authenticatedUser.id;
     }
 
-    return res.status(200).json(user?.filter() ?? {});
+    logger.info('Local sign-in successful', {
+      label: 'Auth',
+      ip: req.ip,
+      userId: authenticatedUser.id,
+      email: authenticatedUser.email,
+      username: authenticatedUser.username,
+    });
+
+    return res.status(200).json(authenticatedUser.filter());
   } catch (e) {
     logger.error('Something went wrong authenticating with Seerr password', {
       label: 'API',

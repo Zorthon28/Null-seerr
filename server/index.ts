@@ -235,6 +235,15 @@ app
         next();
       }
     });
+    server.use('/api/v1/auth', (req, _res, next) => {
+      logger.info(`Auth Route Request: ${req.method} ${req.originalUrl}`, {
+        label: 'AuthRoute',
+        ip: req.ip,
+        origin: req.headers['origin'],
+        referer: req.headers['referer'],
+      });
+      next();
+    });
     if (settings.network.csrfProtection) {
       server.use(
         csurf({
