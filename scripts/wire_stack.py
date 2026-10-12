@@ -234,7 +234,29 @@ def get_or_create_stack_credentials():
     """Generates or loads a secure temporary password for the admin account across the stack"""
     user = "admin"
     email = "admin@nullseerr.local"
-    password = None
+    password = os.environ.get("MASTER_PASSWORD", "").strip() or None
+
+    # Check .env candidate locations if MASTER_PASSWORD not passed in process env
+    if not password:
+        env_candidates = [
+            ".env",
+            os.path.join(ARR_DIR, ".env"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+        ]
+        for env_cand in env_candidates:
+            if os.path.exists(env_cand):
+                try:
+                    with open(env_cand, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip().startswith("MASTER_PASSWORD="):
+                                env_val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                                if env_val:
+                                    password = env_val
+                                    break
+                except Exception:
+                    pass
+            if password:
+                break
 
     candidates = [
         CREDENTIALS_FILE,
@@ -249,7 +271,7 @@ def get_or_create_stack_credentials():
             try:
                 with open(candidate, "r", encoding="utf-8") as f:
                     for line in f:
-                        if line.startswith("PASSWORD:"):
+                        if line.startswith("PASSWORD:") and not password:
                             password = line.split(":", 1)[1].strip()
                         elif line.startswith("USER:"):
                             user = line.split(":", 1)[1].strip()
@@ -263,21 +285,22 @@ def get_or_create_stack_credentials():
     if not password:
         alphabet = string.ascii_letters + string.digits + "!@#$"
         password = "".join(secrets.choice(alphabet) for _ in range(16))
-        content = f"USER: {user}\nEMAIL: {email}\nPASSWORD: {password}\nGENERATED: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        
-        target_files = [CREDENTIALS_FILE]
-        if IN_DOCKER:
-            target_files.extend(["/CREDENTIALS.txt", "/config/CREDENTIALS.txt"])
-        else:
-            target_files.append(os.path.join(CONFIG_ROOT, "CREDENTIALS.txt"))
 
-        for tf in target_files:
-            try:
-                os.makedirs(os.path.dirname(os.path.abspath(tf)), exist_ok=True)
-                with open(tf, "w", encoding="utf-8") as f:
-                    f.write(content)
-            except Exception as e:
-                log(f"Warning: Could not save credentials file ({tf}): {e}", "!")
+    content = f"USER: {user}\nEMAIL: {email}\nPASSWORD: {password}\nGENERATED: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    
+    target_files = [CREDENTIALS_FILE]
+    if IN_DOCKER:
+        target_files.extend(["/CREDENTIALS.txt", "/config/CREDENTIALS.txt"])
+    else:
+        target_files.append(os.path.join(CONFIG_ROOT, "CREDENTIALS.txt"))
+
+    for tf in target_files:
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(tf)), exist_ok=True)
+            with open(tf, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            log(f"Warning: Could not save credentials file ({tf}): {e}", "!")
 
     return user, email, password
 
@@ -447,6 +470,23 @@ def auto_initialize_jellyfin(admin_user, admin_password):
             return None
 
         auth_headers = {"X-Emby-Token": token, "Content-Type": "application/json"}
+
+        # 3.5. Pre-enable Subtitle & Collection Management on User Policies
+        try:
+            u_st, users_list = http_request(f"{base}/Users", headers=auth_headers)
+            if u_st == 200 and isinstance(users_list, list):
+                for u in users_list:
+                    uid = u.get("Id")
+                    policy = u.get("Policy", {})
+                    if uid and policy:
+                        policy["EnableSubtitleManagement"] = True
+                        policy["EnableSubtitleDownloading"] = True
+                        policy["EnableCollectionManagement"] = True
+                        p_st, _ = http_request(f"{base}/Users/{uid}/Policy", method="POST", data=policy, headers=auth_headers)
+                        if p_st in (200, 204):
+                            log(f"Pre-enabled subtitle & collection management for Jellyfin user: {u.get('Name')}", "+")
+        except Exception as e:
+            log(f"Warning: Could not update Jellyfin user subtitle policies: {e}", "!")
 
         # 4. Check / Provision Virtual Folders (Libraries)
         lst, libs = http_request(f"{base}/Library/VirtualFolders", headers=auth_headers)
@@ -782,6 +822,9 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
         try:
             hashed_pwd = hash_password(admin_password)
             if hashed_pwd:
+                if not IN_DOCKER:
+                    subprocess.run(["docker", "stop", "null-seerr"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    time.sleep(1)
                 conn = sqlite3.connect(db_file)
                 cur = conn.cursor()
                 cur.execute("SELECT COUNT(*) FROM user;")
@@ -805,8 +848,14 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
                     cur.execute("UPDATE user SET permissions = permissions | 928 WHERE permissions < 928 AND permissions != 2;")
                     conn.commit()
                 conn.close()
+                if not IN_DOCKER:
+                    subprocess.run(["docker", "start", "null-seerr"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    time.sleep(3)
+                    needs_restart = False
         except Exception as e:
             log(f"Error seeding admin user into database: {e}", "!")
+            if not IN_DOCKER:
+                subprocess.run(["docker", "start", "null-seerr"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     if needs_restart and not IN_DOCKER:
         try:

@@ -235,3 +235,10 @@ To perform a complete clean reset of configuration databases while preserving yo
    ```
 2. Delete specific service configuration folders inside `config/` (e.g. `config/jellyfin` or `config/overseerr`).
 3. Re-run `./setup.sh` (Linux) or `setup.bat` (Windows) to re-seed from templates and re-initialize.
+
+---
+
+## 8. Living Room TV Streaming Setup
+
+For connecting Smart TVs, streaming sticks, and home theater boxes (Onn TV 4K, Google TV, Android TV, FireStick, Apple TV, Roku, Kodi) with subtitle synchronization, consult **[TV_SETUP_GUIDE.md](./TV_SETUP_GUIDE.md)**.
+

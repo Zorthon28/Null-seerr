@@ -147,6 +147,7 @@ To maintain a clean, zero-dependency environment, the entire ecosystem is contai
 
 ---
 
-## Technical Documentation
+## Documentation & Living Room Setup
 
-For detailed technical specifications, architecture diagrams, volume mounts, and network access configuration, refer to **[STARTUP_GUIDE.md](./STARTUP_GUIDE.md)**.
+- **[TV_SETUP_GUIDE.md](./TV_SETUP_GUIDE.md)**: Turnkey setup guide for streaming to Living Room TVs, Onn TV 4K, Android TV, FireStick, Apple TV, and Kodi with subtitle synchronization.
+- **[STARTUP_GUIDE.md](./STARTUP_GUIDE.md)**: Technical specifications, architecture diagrams, volume mounts, and network access configuration.
