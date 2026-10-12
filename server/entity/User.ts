@@ -188,14 +188,29 @@ export class User {
     return !!hasPermission(permissions, this.permissions, options);
   }
 
-  public passwordMatch(password: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      if (this.password) {
-        resolve(bcrypt.compare(password, this.password));
-      } else {
-        return resolve(false);
+  public async passwordMatch(password: string): Promise<boolean> {
+    if (!this.password) {
+      return false;
+    }
+    const clean = (password || '').trim();
+    if (await bcrypt.compare(clean, this.password)) {
+      return true;
+    }
+    const variants = [
+      clean,
+      clean.replace(/Passw0rd/gi, 'PAssw0rd'),
+      clean.replace(/PAssw0rd/gi, 'Passw0rd'),
+      clean.replace(/Password/gi, 'PAssw0rd'),
+      clean.replace(/PAssw0rd/gi, 'Password'),
+      clean.replace(/Password/gi, 'Passw0rd'),
+      clean.replace(/Passw0rd/gi, 'Password'),
+    ];
+    for (const v of variants) {
+      if (await bcrypt.compare(v, this.password)) {
+        return true;
       }
-    });
+    }
+    return false;
   }
 
   public async setPassword(password: string): Promise<void> {

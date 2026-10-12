@@ -786,18 +786,18 @@ authRoutes.post('/local', async (req, res, next) => {
     });
   }
   try {
+    const identifier = (body.email || '').trim().toLowerCase();
+    const cleanPassword = (body.password || '').trim();
+
     const user = await userRepository
       .createQueryBuilder('user')
       .addSelect('user.password')
-      .where('user.email = :identifier', {
-        identifier: body.email.toLowerCase(),
-      })
-      .orWhere('user.username = :identifier', {
-        identifier: body.email.toLowerCase(),
-      })
+      .where('LOWER(user.email) = :identifier', { identifier })
+      .orWhere('LOWER(user.username) = :identifier', { identifier })
+      .orWhere('LOWER(user.jellyfinUsername) = :identifier', { identifier })
       .getOne();
 
-    if (!user || !(await user.passwordMatch(body.password))) {
+    if (!user || !(await user.passwordMatch(cleanPassword))) {
       logger.warn('Failed sign-in attempt using invalid Seerr password', {
         label: 'API',
         ip: req.ip,
