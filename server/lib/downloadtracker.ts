@@ -28,6 +28,7 @@ export interface DownloadingItem {
 class DownloadTracker {
   private radarrServers: Record<number, DownloadingItem[]> = {};
   private sonarrServers: Record<number, DownloadingItem[]> = {};
+  private isUpdating = false;
 
   public getMovieProgress(
     serverId: number,
@@ -60,10 +61,22 @@ class DownloadTracker {
     this.sonarrServers = {};
   }
 
-  public updateDownloads() {
-    this.updateRadarrDownloads();
-    this.updateSonarrDownloads();
-    stalledDownloadAutomation.checkAndCleanStalled().catch(() => {});
+  public async updateDownloads(): Promise<void> {
+    if (this.isUpdating) {
+      return;
+    }
+    this.isUpdating = true;
+    try {
+      await Promise.allSettled([
+        this.updateRadarrDownloads(),
+        this.updateSonarrDownloads(),
+      ]);
+      await stalledDownloadAutomation.checkAndCleanStalled().catch(() => {});
+    } catch (e: any) {
+      logger.debug(`[Download Tracker] Error during updateDownloads: ${e.message}`);
+    } finally {
+      this.isUpdating = false;
+    }
   }
 
   private async updateRadarrDownloads() {
@@ -79,7 +92,7 @@ class DownloadTracker {
     });
 
     // Load downloads from Radarr servers
-    Promise.all(
+    await Promise.all(
       filteredServers.map(async (server) => {
         if (server.syncEnabled) {
           const radarr = new RadarrAPI({
@@ -157,7 +170,7 @@ class DownloadTracker {
     });
 
     // Load downloads from Sonarr servers
-    Promise.all(
+    await Promise.all(
       filteredServers.map(async (server) => {
         if (server.syncEnabled) {
           const sonarr = new SonarrAPI({

@@ -50,13 +50,11 @@ export class Watched {
   public userId: number;
 
   @ManyToOne(() => User, (user) => user.watched, {
-    eager: true,
     onDelete: 'CASCADE',
   })
   public user: User;
 
   @ManyToOne(() => Media, {
-    eager: true,
     nullable: true,
     onDelete: 'SET NULL',
   })

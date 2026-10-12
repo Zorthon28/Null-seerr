@@ -80,6 +80,32 @@ def get_radarr_movies():
         logging.error(f"Failed to fetch Radarr movies: {e}")
         return {}
 
+_cached_quality_profile_id = None
+
+def get_default_quality_profile_id():
+    """Dynamically resolves the best 1080p/HD profile ID from Radarr, falling back safely."""
+    global _cached_quality_profile_id
+    if _cached_quality_profile_id is not None:
+        return _cached_quality_profile_id
+
+    url = f"{RADARR_URL}/api/v3/qualityprofile"
+    req = urllib.request.Request(url, headers={"X-Api-Key": RADARR_API_KEY})
+    try:
+        profiles = json.loads(urllib.request.urlopen(req, timeout=5).read())
+        for p in profiles:
+            name = p.get("name", "").lower()
+            if "1080" in name or "hd" in name:
+                _cached_quality_profile_id = p.get("id")
+                return _cached_quality_profile_id
+        if profiles:
+            _cached_quality_profile_id = profiles[0].get("id")
+            return _cached_quality_profile_id
+    except Exception as e:
+        logging.debug(f"Could not fetch quality profiles: {e}")
+
+    _cached_quality_profile_id = 1
+    return _cached_quality_profile_id
+
 def add_movie_to_radarr(movie):
     """Add a discovered box-office movie to Radarr"""
     tmdb_id = movie.get("id")
@@ -101,7 +127,7 @@ def add_movie_to_radarr(movie):
             "images": []
         }
         
-    details["qualityProfileId"] = 4 # HD-1080p
+    details["qualityProfileId"] = get_default_quality_profile_id()
     details["rootFolderPath"] = "/data/media/movies"
     details["monitored"] = True
     details["minimumAvailability"] = "released"

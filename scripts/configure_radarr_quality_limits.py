@@ -6,16 +6,42 @@ and balances Custom Format scores (Multi/Dual Audio from +1000 down to +200)
 so that healthy swarms with hundreds of seeds are not bypassed for dying 3-seed swarms.
 """
 
+import os
 import json
 import urllib.request
 import urllib.parse
 import sys
+import xml.etree.ElementTree as ET
 
-RADARR_URL = "http://localhost:7878"
-API_KEY = "c51db4e7cdd948b4bb7fd112082e7db8"
+RADARR_URL = os.environ.get("RADARR_URL", "http://localhost:7878")
+
+def get_radarr_api_key():
+    if os.environ.get("RADARR_API_KEY"):
+        return os.environ.get("RADARR_API_KEY").strip()
+    
+    config_candidates = [
+        os.path.join(os.environ.get("STACK_ROOT", r"C:\arr-stack"), "config", "radarr", "config.xml"),
+        r"C:\arr-stack\config\radarr\config.xml",
+        "/config/radarr/config.xml",
+        "/data/config/radarr/config.xml",
+    ]
+    for c in config_candidates:
+        if os.path.exists(c):
+            try:
+                tree = ET.parse(c)
+                elem = tree.getroot().find("ApiKey")
+                if elem is not None and elem.text:
+                    return elem.text.strip()
+            except Exception:
+                pass
+    return ""
+
+API_KEY = get_radarr_api_key()
 
 
 def api_request(endpoint: str, data=None, method=None):
+    if not API_KEY:
+        raise ValueError("Radarr API key could not be found. Please set RADARR_API_KEY environment variable or ensure config/radarr/config.xml exists.")
     url = f"{RADARR_URL.rstrip('/')}{endpoint}"
     encoded_data = json.dumps(data).encode("utf-8") if data is not None else None
     headers = {"X-Api-Key": API_KEY}

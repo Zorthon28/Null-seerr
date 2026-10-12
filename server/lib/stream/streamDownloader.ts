@@ -70,38 +70,36 @@ class StreamDownloader {
     const folderName = year ? `${cleanTitle} (${year})` : cleanTitle;
     const fileName = `${folderName} [WEB-DL Stream Latino].mp4`;
 
-    // Local host media directory
-    const hostMediaDir = 'C:\\arr-stack\\data\\media\\movies';
-    const hostMovieDir = path.join(hostMediaDir, folderName);
-    const hostFilePath = path.join(hostMovieDir, fileName);
+    // Dynamically resolve movies directory across container or host environments
+    const candidates = [
+      process.env.MEDIA_DIRECTORY
+        ? path.join(process.env.MEDIA_DIRECTORY, 'movies')
+        : null,
+      process.env.STACK_ROOT
+        ? path.join(process.env.STACK_ROOT, 'data', 'media', 'movies')
+        : null,
+      '/data/media/movies',
+      'C:\\arr-stack\\data\\media\\movies',
+    ].filter(Boolean) as string[];
 
-    // Ensure directory exists
+    let baseMediaDir = '/data/media/movies';
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) {
+        baseMediaDir = cand;
+        break;
+      }
+    }
+
+    const movieDir = path.join(baseMediaDir, folderName);
+    const destFile = path.join(movieDir, fileName);
+
     try {
-      if (!fs.existsSync(hostMovieDir)) {
-        fs.mkdirSync(hostMovieDir, { recursive: true });
+      if (!fs.existsSync(movieDir)) {
+        fs.mkdirSync(movieDir, { recursive: true });
       }
     } catch (e: any) {
-      logger.warn(
-        `[StreamDownloader] Failed to create dir locally: ${e.message}`
-      );
+      logger.warn(`[StreamDownloader] Failed to create movie dir: ${e.message}`);
     }
-
-    // Inside container path
-    const containerMediaDir = '/data/media/movies';
-    const containerMovieDir = path.join(containerMediaDir, folderName);
-    const containerFilePath = path.join(containerMovieDir, fileName);
-
-    try {
-      if (fs.existsSync(containerMediaDir) && !fs.existsSync(containerMovieDir)) {
-        fs.mkdirSync(containerMovieDir, { recursive: true });
-      }
-    } catch {
-      // ignore
-    }
-
-    const destFile = fs.existsSync(containerMediaDir)
-      ? containerFilePath
-      : hostFilePath;
 
     const job: StreamDownloadJob = {
       id: jobId,
