@@ -451,121 +451,111 @@ mediaRoutes.get('/queue', async (req, res, next) => {
       .map(i => i.downloadId as string);
 
     if (qbitHashes.length > 0) {
-      // Try common qBittorrent hostnames (Docker service name or localhost)
-      const qbitHosts = ['qbittorrent', 'localhost', 'host.docker.internal'];
-      const qbitPort = 8080;
+      try {
+        const torrents = await torrentManager.getTorrents();
+        if (Array.isArray(torrents) && torrents.length > 0) {
+          logger.debug(`[Queue API] Enriched queue with direct data from qBittorrent (${torrents.length} torrents)`);
 
-      for (const qbitHost of qbitHosts) {
-        try {
-          const qbitUrl = `http://${qbitHost}:${qbitPort}/api/v2/torrents/info?hashes=${qbitHashes.join('|')}`;
-          const axios = (await import('axios')).default;
-          const qbitRes = await axios.get(qbitUrl, { timeout: 3000 });
-          const torrents: any[] = qbitRes.data;
-
-          if (Array.isArray(torrents) && torrents.length > 0) {
-            logger.debug(`[Queue API] qBittorrent (${qbitHost}): enriched ${torrents.length} torrents with direct data`);
-
-            // Build a map of hash -> torrent data
-            const qbitMap = new Map<string, any>();
-            for (const t of torrents) {
+          // Build a map of hash -> torrent data
+          const qbitMap = new Map<string, any>();
+          for (const t of torrents) {
+            if (t.hash) {
               qbitMap.set(t.hash.toLowerCase(), t);
             }
-
-            // Update our queue items with qBit's more accurate data
-            for (const item of rawQueueItems) {
-              if (!item.downloadId) continue;
-              const qbt = qbitMap.get(item.downloadId.toLowerCase());
-              if (!qbt) continue;
-
-              const dlSpeed = qbt.dlspeed || 0; // bytes/sec
-              const eta = qbt.eta; // seconds, 8640000 = no eta
-              const progress = Math.round((qbt.progress || 0) * 100);
-              const totalSize = qbt.total_size || qbt.size || 0;
-              const downloaded = qbt.downloaded || 0;
-              const remaining = Math.max(0, totalSize - downloaded);
-
-              const seedsConnected = qbt.num_seeds ?? 0;
-              const seedsTotal = qbt.num_complete ?? 0;
-              const peersConnected = qbt.num_leechs ?? 0;
-              const peersTotal = qbt.num_incomplete ?? 0;
-              const torrentState = qbt.state || 'downloading';
-
-              // Determine swarm health
-              let swarmHealth: 'healthy' | 'slow' | 'stalled' | 'idle' = 'slow';
-              if (torrentState.includes('UP') || progress >= 100) {
-                swarmHealth = 'idle';
-              } else if (
-                torrentState === 'stalledDL' ||
-                torrentState === 'metaDL' ||
-                (seedsConnected === 0 && dlSpeed === 0)
-              ) {
-                swarmHealth = 'stalled';
-              } else if (seedsConnected >= 5 || dlSpeed >= 1048576) {
-                swarmHealth = 'healthy';
-              } else {
-                swarmHealth = 'slow';
-              }
-
-              // Format ETA from qBit's seconds value
-              let etaFormatted = '';
-              if (swarmHealth === 'stalled') {
-                etaFormatted =
-                  torrentState === 'metaDL'
-                    ? 'Stalled (fetching metadata)'
-                    : 'Stalled (0 seeds)';
-              } else if (eta && eta < 8640000) {
-                const h = Math.floor(eta / 3600);
-                const m = Math.floor((eta % 3600) / 60);
-                etaFormatted = h > 0 ? `~${h}h ${m}m` : `~${m}m`;
-              } else if (seedsConnected === 0 && !torrentState.includes('UP')) {
-                etaFormatted = 'Waiting for seeds';
-              }
-
-              // Format speed
-              const speedFormatted = dlSpeed > 0 ? `${formatBytes(dlSpeed)}/s` : '';
-
-              // Map qBit state to our status
-              let qbitStatus = item.status;
-              if (
-                ['downloading', 'stalledDL', 'metaDL', 'checkingDL', 'forcedDL'].includes(
-                  qbt.state
-                )
-              ) {
-                qbitStatus = 'downloading';
-              } else if (['uploading', 'stalledUP', 'forcedUP', 'checkingUP'].includes(qbt.state)) {
-                qbitStatus = 'processing';
-              } else if (['pausedDL', 'pausedUP'].includes(qbt.state)) {
-                qbitStatus = 'paused';
-              } else if (qbt.state === 'error' || qbt.state === 'missingFiles') {
-                qbitStatus = 'failed';
-              } else if (qbt.state === 'queuedDL' || qbt.state === 'queuedUP') {
-                qbitStatus = 'queued';
-              }
-
-              item.progress = progress;
-              item.timeLeft = etaFormatted;
-              item.status = qbitStatus;
-              item.size = formatBytes(totalSize);
-              item.sizeLeft = formatBytes(remaining);
-              item.downloadSpeed = speedFormatted;
-              item.downloadClient = `qBittorrent (${qbt.state})`;
-              item.seedsConnected = seedsConnected;
-              item.seedsTotal = seedsTotal;
-              item.peersConnected = peersConnected;
-              item.peersTotal = peersTotal;
-              item.torrentState = torrentState;
-              item.swarmHealth = swarmHealth;
-
-              logger.debug(
-                `[Queue API] qBit enriched ${item.tmdbId}: state=${qbt.state}, seeds=${seedsConnected}/${seedsTotal}, peers=${peersConnected}/${peersTotal}, progress=${progress}%, eta=${etaFormatted}, speed=${speedFormatted}, health=${swarmHealth}`
-              );
-            }
-            break; // Stop trying hosts once we get a response
           }
-        } catch (e) {
-          // qBittorrent not reachable on this host, try next
-          logger.debug(`[Queue API] qBittorrent not reachable at ${qbitHost}:${qbitPort}: ${e.message}`);
+
+          // Update our queue items with qBit's more accurate data
+          for (const item of rawQueueItems) {
+            if (!item.downloadId) continue;
+            const qbt = qbitMap.get(item.downloadId.toLowerCase());
+            if (!qbt) continue;
+
+            const dlSpeed = qbt.dlspeed || 0; // bytes/sec
+            const eta = qbt.eta; // seconds, 8640000 = no eta
+            const progress = Math.round((qbt.progress || 0) * 100);
+            const totalSize = qbt.total_size || qbt.size || 0;
+            const downloaded = qbt.downloaded || 0;
+            const remaining = Math.max(0, totalSize - downloaded);
+
+            const seedsConnected = qbt.num_seeds ?? 0;
+            const seedsTotal = qbt.num_complete ?? 0;
+            const peersConnected = qbt.num_leechs ?? 0;
+            const peersTotal = qbt.num_incomplete ?? 0;
+            const torrentState = qbt.state || 'downloading';
+
+            // Determine swarm health
+            let swarmHealth: 'healthy' | 'slow' | 'stalled' | 'idle' = 'slow';
+            if (torrentState.includes('UP') || progress >= 100) {
+              swarmHealth = 'idle';
+            } else if (
+              torrentState === 'stalledDL' ||
+              torrentState === 'metaDL' ||
+              (seedsConnected === 0 && dlSpeed === 0)
+            ) {
+              swarmHealth = 'stalled';
+            } else if (seedsConnected >= 5 || dlSpeed >= 1048576) {
+              swarmHealth = 'healthy';
+            } else {
+              swarmHealth = 'slow';
+            }
+
+            // Format ETA from qBit's seconds value
+            let etaFormatted = '';
+            if (swarmHealth === 'stalled') {
+              etaFormatted =
+                torrentState === 'metaDL'
+                  ? 'Stalled (fetching metadata)'
+                  : 'Stalled (0 seeds)';
+            } else if (eta && eta < 8640000) {
+              const h = Math.floor(eta / 3600);
+              const m = Math.floor((eta % 3600) / 60);
+              etaFormatted = h > 0 ? `~${h}h ${m}m` : `~${m}m`;
+            } else if (seedsConnected === 0 && !torrentState.includes('UP')) {
+              etaFormatted = 'Waiting for seeds';
+            }
+
+            // Format speed
+            const speedFormatted = dlSpeed > 0 ? `${formatBytes(dlSpeed)}/s` : '';
+
+            // Map qBit state to our status
+            let qbitStatus = item.status;
+            if (
+              ['downloading', 'stalledDL', 'metaDL', 'checkingDL', 'forcedDL'].includes(
+                qbt.state
+              )
+            ) {
+              qbitStatus = 'downloading';
+            } else if (['uploading', 'stalledUP', 'forcedUP', 'checkingUP'].includes(qbt.state)) {
+              qbitStatus = 'processing';
+            } else if (['pausedDL', 'pausedUP'].includes(qbt.state)) {
+              qbitStatus = 'paused';
+            } else if (qbt.state === 'error' || qbt.state === 'missingFiles') {
+              qbitStatus = 'failed';
+            } else if (qbt.state === 'queuedDL' || qbt.state === 'queuedUP') {
+              qbitStatus = 'queued';
+            }
+
+            item.progress = progress;
+            item.timeLeft = etaFormatted;
+            item.status = qbitStatus;
+            item.size = formatBytes(totalSize);
+            item.sizeLeft = formatBytes(remaining);
+            item.downloadSpeed = speedFormatted;
+            item.downloadClient = `qBittorrent (${qbt.state})`;
+            item.seedsConnected = seedsConnected;
+            item.seedsTotal = seedsTotal;
+            item.peersConnected = peersConnected;
+            item.peersTotal = peersTotal;
+            item.torrentState = torrentState;
+            item.swarmHealth = swarmHealth;
+
+            logger.debug(
+              `[Queue API] qBit enriched ${item.tmdbId}: state=${qbt.state}, seeds=${seedsConnected}/${seedsTotal}, peers=${peersConnected}/${peersTotal}, progress=${progress}%, eta=${etaFormatted}, speed=${speedFormatted}, health=${swarmHealth}`
+            );
+          }
         }
+      } catch (e: any) {
+        logger.debug(`[Queue API] qBittorrent queue enrichment skipped: ${e.message}`);
       }
     }
 

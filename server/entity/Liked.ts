@@ -50,13 +50,11 @@ export class Liked {
   public userId: number;
 
   @ManyToOne(() => User, (user) => user.liked, {
-    eager: true,
     onDelete: 'CASCADE',
   })
   public user: User;
 
   @ManyToOne(() => Media, {
-    eager: true,
     nullable: true,
     onDelete: 'SET NULL',
   })

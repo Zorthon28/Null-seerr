@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import axios from 'axios';
 import logger from '@server/logger';
 import { hackstoreScraper } from '../stream/hackstoreScraper';
@@ -30,8 +32,35 @@ export interface MovieAvailabilityResult {
 }
 
 export class SmartResolver {
-  private prowlarrUrl = process.env.PROWLARR_URL || 'http://prowlarr:9696';
-  private prowlarrApiKey = '2093032a323244b4987f33f5387fcee5';
+  private getProwlarrUrl(): string {
+    return process.env.PROWLARR_URL || 'http://prowlarr:9696';
+  }
+
+  private getProwlarrApiKey(): string {
+    if (process.env.PROWLARR_API_KEY) {
+      return process.env.PROWLARR_API_KEY;
+    }
+    const configDirs = [
+      process.env.CONFIG_DIRECTORY ? path.join(process.env.CONFIG_DIRECTORY, 'prowlarr') : null,
+      '/config/prowlarr',
+      '/data/config/prowlarr',
+      'C:\\arr-stack\\config\\prowlarr',
+    ].filter(Boolean) as string[];
+
+    for (const dir of configDirs) {
+      const xmlPath = path.join(dir, 'config.xml');
+      try {
+        if (fs.existsSync(xmlPath)) {
+          const content = fs.readFileSync(xmlPath, 'utf-8');
+          const match = content.match(/<ApiKey>(.*?)<\/ApiKey>/i);
+          if (match && match[1]) {
+            return match[1].trim();
+          }
+        }
+      } catch {}
+    }
+    return '';
+  }
 
   public async checkMovie(
     tmdbId: number,
@@ -51,18 +80,22 @@ export class SmartResolver {
 
     // 1. Search Prowlarr for torrent releases
     try {
+      const prowlarrApiKey = this.getProwlarrApiKey();
+      const prowlarrUrl = this.getProwlarrUrl();
       const query = year ? `${englishTitle} ${year}` : englishTitle;
       const prowlarrResponse = await axios.get(
-        `${this.prowlarrUrl}/api/v1/search`,
+        `${prowlarrUrl}/api/v1/search`,
         {
           params: {
             query,
             type: 'search',
             categories: 2000,
           },
-          headers: {
-            'X-Api-Key': this.prowlarrApiKey,
-          },
+          headers: prowlarrApiKey
+            ? {
+                'X-Api-Key': prowlarrApiKey,
+              }
+            : {},
           timeout: 25000,
         }
       );
