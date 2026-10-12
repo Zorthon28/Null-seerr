@@ -404,7 +404,9 @@ def configure_qbittorrent_auth(admin_user, admin_password):
             "Session\\MaxActiveDownloads=20\n",
             "Session\\MaxActiveTorrents=50\n",
             "Session\\MaxActiveUploads=20\n",
-            "Session\\IgnoreSlowTorrentsForQueueing=true\n"
+            "Session\\IgnoreSlowTorrentsForQueueing=true\n",
+            "BitTorrent\\MaxRatio=1.0\n",
+            "BitTorrent\\MaxRatioAction=1\n"
         ]
 
         if pref_idx != -1:
@@ -533,6 +535,10 @@ def auto_initialize_jellyfin(admin_user, admin_password):
                     "name": lib.get("Name"),
                     "enabled": True
                 })
+
+        # Trigger initial library scan
+        http_request(f"{base}/Library/Refresh", method="POST", headers=auth_headers)
+        log("Triggered initial Jellyfin media library scan", "+")
 
         return {
             "serverId": server_id,
@@ -818,7 +824,23 @@ def auto_initialize_nullseerr(admin_user, admin_email, admin_password, radarr_ke
         except Exception as e:
             log(f"Error initializing settings.json: {e}", "!")
 
-    if os.path.exists(db_file):
+    table_ready = False
+    for attempt in range(15):
+        if os.path.exists(db_file):
+            try:
+                conn = sqlite3.connect(db_file)
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user';")
+                if cur.fetchone():
+                    table_ready = True
+                    conn.close()
+                    break
+                conn.close()
+            except Exception:
+                pass
+        time.sleep(2)
+
+    if table_ready:
         try:
             hashed_pwd = hash_password(admin_password)
             if hashed_pwd:
@@ -1023,7 +1045,12 @@ def seed_prowlarr_indexers(prowlarr_key, flare_tag_id=1):
             log(f"Seeded indexer: {label}", "+")
             added_any = True
 
-    if added_any:
+    # Always trigger Prowlarr AppSync command to immediately push indexers to Radarr and Sonarr
+    cmd_url = f"{get_url('prowlarr')}/api/v1/command"
+    c_st, _ = http_request(cmd_url, method="POST", data={"name": "AppSync"}, headers=headers)
+    if c_st in (200, 201):
+        log("Triggered Prowlarr immediate indexer sync to Radarr and Sonarr (AppSync)", "+")
+    elif added_any:
         app_url = f"{get_url('prowlarr')}/api/v1/applications"
         ast, apps = http_request(app_url, headers=headers)
         if ast == 200 and isinstance(apps, list):
@@ -1199,6 +1226,38 @@ def wire_qbittorrent_to_arr(app_name, app_url, app_key, admin_user, admin_passwo
             }
             http_request(rpm_url, method="POST", data=rpm_data, headers=headers)
             log(f"Remote path mapping added for {app_name} (/downloads/ -> /data/torrents/)", "+")
+
+def wire_jellyfin_notification_to_arr(app_name, app_url, app_key, jellyfin_api_key):
+    """Wires Radarr / Sonarr to immediately notify Jellyfin upon media import"""
+    if not app_key or not jellyfin_api_key:
+        return
+    url = f"{app_url}/api/v3/notification"
+    headers = {"X-Api-Key": app_key}
+    st, current = http_request(url, headers=headers)
+    if st == 200 and isinstance(current, list):
+        if any(n.get("name") == "Jellyfin" or n.get("implementation") in ("Emby", "Jellyfin") for n in current):
+            log(f"Jellyfin media notification already wired in {app_name}", "OK")
+            return
+        
+        schema_url = f"{app_url}/api/v3/notification/schema"
+        sst, schemas = http_request(schema_url, headers=headers)
+        if sst == 200 and isinstance(schemas, list):
+            target_schema = next((s for s in schemas if s.get("implementation") in ("Emby", "Jellyfin")), None)
+            if target_schema:
+                payload = dict(target_schema)
+                payload["name"] = "Jellyfin"
+                payload["onDownload"] = True
+                payload["onUpgrade"] = True
+                payload["onRename"] = True
+                for f in payload.get("fields", []):
+                    fname = f.get("name")
+                    if fname == "host": f["value"] = "jellyfin"
+                    elif fname == "port": f["value"] = 8096
+                    elif fname == "apiKey": f["value"] = jellyfin_api_key
+                    elif fname == "updateLibrary": f["value"] = True
+                nst, _ = http_request(url, method="POST", data=payload, headers=headers)
+                if nst in (200, 201):
+                    log(f"Wired instant Jellyfin import notification in {app_name}", "+")
 
 def configure_servarr_auth(radarr_key, sonarr_key, prowlarr_key, admin_user, admin_password):
     """Configures unified admin credentials on Radarr, Sonarr, and Prowlarr with local address bypass"""
@@ -1433,6 +1492,14 @@ def check_and_wire_all():
 
     # 16. Configure Bazarr Subtitle Automation
     configure_bazarr(radarr_key, sonarr_key, jellyfin_info.get("apiKey") if jellyfin_info else None)
+
+    # 17. Configure Jellyfin Media Notification in Radarr & Sonarr
+    if jellyfin_info and jellyfin_info.get("apiKey"):
+        jf_key = jellyfin_info.get("apiKey")
+        if radarr_key:
+            wire_jellyfin_notification_to_arr("Radarr", get_url("radarr"), radarr_key, jf_key)
+        if sonarr_key:
+            wire_jellyfin_notification_to_arr("Sonarr", get_url("sonarr"), sonarr_key, jf_key)
 
     print("\n" + "=" * 65)
     print("✨ STACK WIRING COMPLETE & CREDENTIALS CONFIGURED!")

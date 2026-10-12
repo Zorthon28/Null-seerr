@@ -222,8 +222,24 @@ echo -e "\n${CYAN}[*] Starting Null-seerr Media Stack...${NC}"
 cd "$REPO_DIR"
 $DOCKER_COMPOSE up -d --build "$@"
 
-echo -e "\n${CYAN}[*] Waiting for Null-seerr Portal and media engine to be ready...${NC}"
-READY_TIMEOUT=45
+echo -e "\n${CYAN}[*] Waiting for automated stack wiring engine (nullseerr-init)...${NC}"
+INIT_TIMEOUT=60
+while [ $INIT_TIMEOUT -gt 0 ]; do
+    if ! docker ps --filter "name=nullseerr-init" --filter "status=running" -q 2>/dev/null | grep -q .; then
+        break
+    fi
+    echo -n "."
+    sleep 2
+    INIT_TIMEOUT=$(( INIT_TIMEOUT - 2 ))
+done
+echo ""
+
+# Gracefully restart Null-seerr to reload freshly wired settings and admin credentials into memory
+echo -e "${CYAN}[*] Reloading Null-seerr portal configuration...${NC}"
+docker restart null-seerr >/dev/null 2>&1 || true
+
+echo -e "\n${CYAN}[*] Waiting for Null-seerr Portal to be live...${NC}"
+READY_TIMEOUT=30
 IS_READY=0
 while [ $READY_TIMEOUT -gt 0 ]; do
     echo -n "."
