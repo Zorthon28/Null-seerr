@@ -499,7 +499,6 @@ class StorageTracker {
   ): Promise<{ freedBytes: number; deletedCount: number }> {
     const settings = getSettings();
     const tmdb = new TheMovieDb();
-    let freedBytes = 0;
     let deletedCount = 0;
 
     const mediaRepository = getRepository(Media);
@@ -523,7 +522,8 @@ class StorageTracker {
 
             if (radarrMovieId) {
               const movie: any = await radarr.getMovie({ id: radarrMovieId });
-              if (!movie || movie.tmdbId !== item.tmdbId || movie.path !== item.libraryPath) {
+              if (!movie || movie.tmdbId !== item.tmdbId || movie.path !== item.libraryPath ||
+                await fs.promises.realpath(movie.path) !== path.resolve(movie.path)) {
                 throw new Error('Radarr item changed after preview.');
               }
               if (!item.title && movie?.title) {
@@ -611,7 +611,8 @@ class StorageTracker {
 
             if (sonarrSeriesId) {
               const s = await sonarr.getSeriesById(sonarrSeriesId);
-              if (!s || s.path !== item.libraryPath || s.tvdbId !== item.tvdbId) {
+              if (!s || s.path !== item.libraryPath || s.tvdbId !== item.tvdbId ||
+                await fs.promises.realpath(s.path) !== path.resolve(s.path)) {
                 throw new Error('Sonarr item changed after preview.');
               }
               if (!item.title && s?.title) {
@@ -673,7 +674,7 @@ class StorageTracker {
       }
     }
 
-    return { freedBytes, deletedCount };
+    return { freedBytes: 0, deletedCount };
   }
 }
 
