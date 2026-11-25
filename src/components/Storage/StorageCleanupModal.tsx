@@ -39,6 +39,11 @@ const StorageCleanupModal: React.FC<StorageCleanupModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [preview, setPreview] = useState<{
+    items: CleanupCandidateItem[];
+    reclaimableBytesAfterPurge: number;
+  }>();
   const [isDeleting, setIsDeleting] = useState(false);
 
   const {
@@ -107,27 +112,42 @@ const StorageCleanupModal: React.FC<StorageCleanupModalProps> = ({
     setSelectedIds(new Set());
   };
 
+  const handlePreview = async () => {
+    setIsPreviewing(true);
+    try {
+      const { data } = await axios.post<NonNullable<typeof preview>>('/api/v1/storage/preview', {
+        items: selectedItems.map(({ mediaType, tmdbId, radarrId, sonarrId }) => ({
+          mediaType, tmdbId, radarrId, sonarrId,
+        })),
+      });
+      setPreview(data);
+      setIsConfirming(true);
+    } catch {
+      addToast('No se pudieron verificar las carpetas seleccionadas.', { appearance: 'error' });
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
   const handleDelete = async () => {
-    if (selectedItems.length === 0) return;
+    if (!preview?.items.length) return;
 
     setIsDeleting(true);
     try {
-      const payload = selectedItems.map((c) => ({
+      const payload = preview.items.map((c) => ({
         mediaType: c.mediaType,
         tmdbId: c.tmdbId,
         radarrId: c.radarrId,
         sonarrId: c.sonarrId,
+        libraryPath: c.libraryPath,
       }));
 
       const res = await axios.post('/api/v1/storage/cleanup', {
         items: payload,
       });
 
-      const freedFormatted = formatBytes(
-        res.data?.freedBytes || totalFreedBytes
-      );
       addToast(
-        `Se eliminaron ${res.data?.deletedCount || payload.length} títulos y se liberaron ${freedFormatted}.`,
+        `Se retiraron ${res.data?.deletedCount ?? 0} de ${payload.length} títulos de la biblioteca.`,
         {
           appearance: 'success',
           autoDismiss: true,
@@ -192,25 +212,23 @@ const StorageCleanupModal: React.FC<StorageCleanupModalProps> = ({
                   <p className="mt-1 text-sm text-gray-300">
                     Estás a punto de eliminar{' '}
                     <span className="font-bold text-white">
-                      {selectedItems.length}
+                      {preview?.items.length ?? 0}
                     </span>{' '}
-                    elemento(s), lo cual liberará aproximadamente{' '}
+                    elemento(s). Espacio estimado después de vaciar la papelera{' '}
                     <span className="font-bold text-emerald-400">
-                      {formatBytes(totalFreedBytes)}
+                      {formatBytes(preview?.reclaimableBytesAfterPurge ?? 0)}
                     </span>{' '}
                     en disco.
                   </p>
                   <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-gray-300">
                     <li>
-                      Los archivos serán eliminados permanentemente de tu
-                      almacenamiento.
+                      Radarr y Sonarr aplican la configuración de su papelera.
                     </li>
                     <li>
-                      Los títulos serán desmonitoreados en Radarr/Sonarr para
-                      que no se descarguen de nuevo.
+                      Los títulos se retirarán de Radarr o Sonarr.
                     </li>
                     <li>
-                      Las descargas asociadas en qBittorrent serán purgadas.
+                      Se conservan los archivos de descarga en qBittorrent.
                     </li>
                     <li>
                       Se refrescará la biblioteca de Jellyfin para reflejar los
@@ -222,14 +240,15 @@ const StorageCleanupModal: React.FC<StorageCleanupModalProps> = ({
             </div>
 
             <div className="max-h-48 divide-y divide-gray-700/50 overflow-y-auto rounded-md border border-gray-700 bg-gray-800/40 p-2 text-sm text-gray-300">
-              {selectedItems.map((item) => (
+              {preview?.items.map((item) => (
                 <div
                   key={item.id}
                   className="flex items-center justify-between px-2 py-1.5"
                 >
-                  <span className="truncate pr-2 font-medium text-white">
-                    {item.title} {item.year ? `(${item.year})` : ''}
-                  </span>
+                  <div className="min-w-0 pr-2">
+                    <div className="truncate font-medium text-white">{item.title} {item.year ? `(${item.year})` : ''}</div>
+                    <div className="truncate text-xs text-gray-400" title={item.libraryPath}>{item.libraryPath}</div>
+                  </div>
                   <span className="whitespace-nowrap text-xs font-semibold text-gray-400">
                     {formatBytes(item.sizeBytes)}
                   </span>
@@ -515,8 +534,8 @@ const StorageCleanupModal: React.FC<StorageCleanupModalProps> = ({
                 </Button>
                 <Button
                   buttonType="danger"
-                  disabled={selectedIds.size === 0}
-                  onClick={() => setIsConfirming(true)}
+                  disabled={selectedIds.size === 0 || isPreviewing}
+                  onClick={handlePreview}
                 >
                   <div className="flex items-center gap-1.5">
                     <ArchiveBoxXMarkIcon className="h-4 w-4" />

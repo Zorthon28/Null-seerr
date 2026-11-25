@@ -128,7 +128,7 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
   const handleSkipStalled = async () => {
     if (
       !confirm(
-        `Blocklist dead release "${item.title}" and search for an alternative release?`
+        `Search for an alternative to "${item.title}" while keeping the current download?`
       )
     ) {
       return;
@@ -144,7 +144,7 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
         externalId: item.externalId,
       });
       addToast(
-        res.data?.message || 'Release blocklisted. Searching for an alternative...',
+        res.data?.message || 'Replacement search requested.',
         { appearance: 'success', autoDismiss: true }
       );
       globalMutate('/api/v1/media/queue');
@@ -409,7 +409,7 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                         Swarm Stalled (0 Connected Seeds)
                       </div>
                       <div className="text-red-300/80 text-[11px]">
-                        No seeders sending data ({item.seedsTotal ?? 0} listed in tracker). Click to blocklist this dead release and find a working alternative.
+                        No seeders are sending data ({item.seedsTotal ?? 0} listed in the tracker). You can request a replacement search while leaving this release queued.
                       </div>
                     </div>
                   </div>
@@ -417,7 +417,7 @@ const DownloadCard = ({ item }: { item: QueueItem }) => {
                     onClick={handleSkipStalled}
                     disabled={isSkipping}
                     className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white shadow transition duration-200 disabled:opacity-50 cursor-pointer whitespace-nowrap"
-                    title="Remove dead torrent, blocklist it, and search indexers for an alternative release"
+                    title="Search for a replacement while keeping this release queued"
                   >
                     <ArrowPathIcon className={`w-3.5 h-3.5 ${isSkipping ? 'animate-spin' : ''}`} />
                     <span>{isSkipping ? 'Searching...' : 'Find Alternative Release'}</span>
@@ -944,25 +944,16 @@ const DownloadsPage: NextPage = () => {
 
       {activeTab === 'downloads' && (
         <>
-          {/* Tracker Rate-Limit Informational Banner */}
           {data?.trackerNotices && data.trackerNotices.length > 0 && (
             <div className="mb-6 bg-amber-950/20 border border-amber-800/40 rounded-xl p-3.5 flex items-start gap-3 text-amber-200">
               <InformationCircleIcon className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />
               <div className="text-xs space-y-1">
-                <div className="font-semibold text-amber-100 flex items-center gap-2">
-                  <span>Tracker Cooldown Notice</span>
-                  <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50">
-                    Normal Cooldown
-                  </span>
-                </div>
+                <div className="font-semibold text-amber-100">Indexer health</div>
                 {data.trackerNotices.map((notice, idx) => (
                   <div key={idx} className="text-amber-300/90 leading-relaxed">
                     • {notice}
                   </div>
                 ))}
-                <div className="text-[11px] text-amber-400/70 pt-0.5">
-                  Downloads and tracker searches continue operating normally across remaining healthy indexers.
-                </div>
               </div>
             </div>
           )}

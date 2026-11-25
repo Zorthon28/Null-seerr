@@ -2,7 +2,7 @@ import JellyfinAPI from '@server/api/jellyfin';
 import RadarrAPI from '@server/api/servarr/radarr';
 import SonarrAPI from '@server/api/servarr/sonarr';
 import TheMovieDb from '@server/api/themoviedb';
-import { MediaType } from '@server/constants/media';
+import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import { Watched } from '@server/entity/Watched';
@@ -47,6 +47,9 @@ export interface CleanupCandidateItem {
   tmdbId: number;
   radarrId?: number;
   sonarrId?: number;
+  tvdbId?: number;
+  libraryPath?: string;
+  libraryRoot?: string;
   title: string;
   year?: number;
   posterPath?: string;
@@ -55,6 +58,44 @@ export interface CleanupCandidateItem {
   daysInactive: number;
   isWatched: boolean;
   overview?: string;
+}
+
+export type CleanupSelection = Pick<
+  CleanupCandidateItem,
+  'mediaType' | 'tmdbId' | 'radarrId' | 'sonarrId' | 'libraryPath'
+>;
+
+function isInsideLibrary(target: string, root: string) {
+  const relative = path.relative(root, target);
+  return Boolean(relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function longestLibraryRoot(target: string, roots: string[]) {
+  return roots.filter((root) => isInsideLibrary(target, root)).sort((a, b) => b.length - a.length)[0];
+}
+
+async function estimateCleanup(paths: string[]) {
+  const files = new Map<string, { count: number; links: number; bytes: number }>();
+  const visited = new Set<string>();
+  while (paths.length) {
+    const name = paths.pop()!;
+    if (visited.has(name)) continue;
+    visited.add(name);
+    const info = await fs.promises.lstat(name);
+    if (info.isDirectory()) {
+      const directory = await fs.promises.opendir(name);
+      for await (const item of directory) paths.push(path.join(name, item.name));
+    } else if (info.isFile()) {
+      const id = info.ino ? `${info.dev}:${info.ino}` : name;
+      const same = files.get(id);
+      if (same) same.count++;
+      else files.set(id, { count: 1, links: info.nlink, bytes: info.size });
+    }
+  }
+  return [...files.values()].reduce(
+    (bytes, file) => bytes + (file.count >= file.links ? file.bytes : 0),
+    0
+  );
 }
 
 class StorageTracker {
@@ -273,6 +314,7 @@ class StorageTracker {
           url: RadarrAPI.buildUrl(defaultRadarr, '/api/v3'),
         });
         const movies = await radarr.getAllMovies();
+        const roots = await radarr.getRootFolders();
         for (const m of movies) {
           const size = m.sizeOnDisk || m.movieFile?.size || 0;
           if (!m.hasFile || size <= 0) continue;
@@ -311,6 +353,8 @@ class StorageTracker {
             mediaType: 'movie',
             tmdbId,
             radarrId: m.id,
+            libraryPath: m.path,
+            libraryRoot: longestLibraryRoot(m.path, roots.map((root) => root.path)),
             title: m.title,
             year: m.year,
             posterPath,
@@ -337,6 +381,7 @@ class StorageTracker {
           url: SonarrAPI.buildUrl(defaultSonarr, '/api/v3'),
         });
         const seriesList = await sonarr.getAllSeries();
+        const roots = await sonarr.getRootFolders();
         for (const s of seriesList) {
           const size = s.statistics?.sizeOnDisk || 0;
           if (size <= 0 || (s.statistics?.episodeFileCount || 0) === 0)
@@ -352,7 +397,8 @@ class StorageTracker {
             }
           }
 
-          const key = `tv-${tmdbId || s.tvdbId}`;
+          if (!tmdbId) continue;
+          const key = `tv-${tmdbId}`;
           const isWatched =
             (tmdbId ? watchedSet.has(key) : false) ||
             (jellyfinWatchedItems && tmdbId
@@ -384,8 +430,11 @@ class StorageTracker {
           candidates.push({
             id: `tv-${s.id}`,
             mediaType: 'tv',
-            tmdbId: tmdbId || s.tvdbId,
+            tmdbId,
             sonarrId: s.id,
+            tvdbId: s.tvdbId,
+            libraryPath: s.path,
+            libraryRoot: longestLibraryRoot(s.path, roots.map((root) => root.path)),
             title: s.title,
             year: s.year,
             posterPath,
@@ -409,12 +458,41 @@ class StorageTracker {
     return candidates;
   }
 
+  public async previewCleanup(items: CleanupSelection[]) {
+    const candidates = await this.getCleanupCandidates('all');
+    const selected = [];
+    const verifiedPaths = [];
+    for (const item of items) {
+      const candidate = candidates.find((entry) =>
+        entry.mediaType === item.mediaType &&
+        entry.tmdbId === item.tmdbId &&
+        (item.mediaType === 'movie' ? entry.radarrId === item.radarrId : entry.sonarrId === item.sonarrId)
+      );
+      if (!candidate?.libraryPath || !candidate.libraryRoot || (item.libraryPath && item.libraryPath !== candidate.libraryPath)) {
+        throw new Error('A selected Arr item or its library path changed.');
+      }
+      const root = await fs.promises.realpath(candidate.libraryRoot);
+      const target = await fs.promises.realpath(candidate.libraryPath);
+      if (!isInsideLibrary(target, root) || target !== path.resolve(candidate.libraryPath)) {
+        throw new Error('A selected path could not be verified inside its media library.');
+      }
+      selected.push(candidate);
+      verifiedPaths.push(target);
+    }
+    return {
+      items: selected,
+      reclaimableBytesAfterPurge: await estimateCleanup(verifiedPaths),
+    };
+  }
+
   public async deleteMediaItems(
     items: Array<{
       mediaType: 'movie' | 'tv';
       tmdbId: number;
       radarrId?: number;
       sonarrId?: number;
+      tvdbId?: number;
+      libraryPath?: string;
       title?: string;
       year?: number;
     }>
@@ -445,7 +523,9 @@ class StorageTracker {
 
             if (radarrMovieId) {
               const movie: any = await radarr.getMovie({ id: radarrMovieId });
-              const mSize = movie?.sizeOnDisk || movie?.movieFile?.size || 0;
+              if (!movie || movie.tmdbId !== item.tmdbId || movie.path !== item.libraryPath) {
+                throw new Error('Radarr item changed after preview.');
+              }
               if (!item.title && movie?.title) {
                 item.title = movie.title;
               }
@@ -453,7 +533,6 @@ class StorageTracker {
                 item.year = movie.year;
               }
               await radarr.deleteMovie(radarrMovieId, true);
-              freedBytes += mSize;
               deletedCount += 1;
             }
           }
@@ -465,13 +544,18 @@ class StorageTracker {
             category: 'radarr',
           });
 
-          // Delete or update Media in database
+          // Mark Media as DELETED in database so sync jobs don't immediately recreate it
           if (item.tmdbId) {
             const dbMedia = await mediaRepository.findOne({
               where: { tmdbId: item.tmdbId, mediaType: MediaType.MOVIE },
             });
             if (dbMedia) {
-              await mediaRepository.remove(dbMedia);
+              dbMedia.status = MediaStatus.DELETED;
+              dbMedia.mediaAddedAt = null;
+              dbMedia.resetServiceData();
+              dbMedia.ratingKey = null;
+              dbMedia.jellyfinMediaId = null;
+              await mediaRepository.save(dbMedia);
             }
           }
         } else if (item.mediaType === 'tv') {
@@ -527,7 +611,9 @@ class StorageTracker {
 
             if (sonarrSeriesId) {
               const s = await sonarr.getSeriesById(sonarrSeriesId);
-              const sSize = s?.statistics?.sizeOnDisk || 0;
+              if (!s || s.path !== item.libraryPath || s.tvdbId !== item.tvdbId) {
+                throw new Error('Sonarr item changed after preview.');
+              }
               if (!item.title && s?.title) {
                 item.title = s.title;
               }
@@ -535,7 +621,6 @@ class StorageTracker {
                 item.year = s.year;
               }
               await sonarr.deleteSeries(sonarrSeriesId, true);
-              freedBytes += sSize;
               deletedCount += 1;
             }
           }
@@ -547,13 +632,24 @@ class StorageTracker {
             category: 'sonarr',
           });
 
-          // Delete or update Media in database
+          // Mark Media as DELETED in database so sync jobs don't immediately recreate it
           if (item.tmdbId) {
             const dbMedia = await mediaRepository.findOne({
               where: { tmdbId: item.tmdbId, mediaType: MediaType.TV },
+              relations: { seasons: true },
             });
             if (dbMedia) {
-              await mediaRepository.remove(dbMedia);
+              dbMedia.status = MediaStatus.DELETED;
+              dbMedia.mediaAddedAt = null;
+              dbMedia.resetServiceData();
+              dbMedia.ratingKey = null;
+              dbMedia.jellyfinMediaId = null;
+              if (dbMedia.seasons) {
+                for (const season of dbMedia.seasons) {
+                  season.status = MediaStatus.DELETED;
+                }
+              }
+              await mediaRepository.save(dbMedia);
             }
           }
         }

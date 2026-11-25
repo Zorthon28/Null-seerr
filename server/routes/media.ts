@@ -116,6 +116,30 @@ mediaRoutes.get('/', async (req, res, next) => {
   }
 });
 
+function queueBlocker(item: {
+  status: string;
+  trackedDownloadState: string;
+  trackedDownloadStatus: string;
+  statusMessages?: { title?: string; messages?: string[] }[];
+}) {
+  const state = item.trackedDownloadState?.toLowerCase();
+  const health = item.trackedDownloadStatus?.toLowerCase();
+  const message = (item.statusMessages ?? [])
+    .flatMap(({ title, messages }) => [title, ...(messages ?? [])])
+    .join(' ');
+  if (/disk (?:space|full)|no space left|not enough (?:free )?space/i.test(message)) {
+    return 'storage';
+  }
+  if (state === 'importblocked' || (state === 'importpending' && health !== 'ok')) {
+    return 'import';
+  }
+  if (/block account is fully used|(?:usenet|nntp) (?:server|provider).*(?:reject|authentication|account)/i.test(message)) {
+    return 'provider';
+  }
+  if (item.status === 'paused') return 'paused';
+  if (item.status === 'failed' || health === 'error') return 'failed';
+}
+
 function formatBytes(bytes: number, decimals = 2) {
   if (!bytes || isNaN(bytes) || bytes <= 0) return '0 Bytes';
   const k = 1024;
@@ -302,6 +326,7 @@ mediaRoutes.get('/queue', async (req, res, next) => {
                 tmdbId,
                 mediaType: 'movie',
                 status: currentStatus,
+                blocker: queueBlocker(item),
                 progress,
                 timeLeft: formatTimeLeft(item.timeleft),
                 estimatedCompletionTime: item.estimatedCompletionTime,
@@ -414,6 +439,7 @@ mediaRoutes.get('/queue', async (req, res, next) => {
                 tmdbId,
                 mediaType: 'tv',
                 status: currentStatus,
+                blocker: queueBlocker(item),
                 progress,
                 timeLeft: formatTimeLeft(item.timeleft),
                 estimatedCompletionTime: item.estimatedCompletionTime,
@@ -548,6 +574,9 @@ mediaRoutes.get('/queue', async (req, res, next) => {
             item.peersTotal = peersTotal;
             item.torrentState = torrentState;
             item.swarmHealth = swarmHealth;
+            if (swarmHealth === 'stalled' && qbt.num_seeds === 0 && !item.blocker) {
+              item.blocker = 'no_seeds';
+            }
 
             logger.debug(
               `[Queue API] qBit enriched ${item.tmdbId}: state=${qbt.state}, seeds=${seedsConnected}/${seedsTotal}, peers=${peersConnected}/${peersTotal}, progress=${progress}%, eta=${etaFormatted}, speed=${speedFormatted}, health=${swarmHealth}`
@@ -781,27 +810,23 @@ mediaRoutes.get('/queue', async (req, res, next) => {
       }
     }
 
-    // Aggregate any indexer cooldown/rate-limit notices across all Radarr & Sonarr instances
+    // The Arr health message provides the cause and duration when they are known.
     const globalTrackerNotices: string[] = [];
-    for (const [serverId, healthList] of radarrHealthMap.entries()) {
-      const srv = filteredRadarr.find(s => s.id === serverId);
-      const serverName = srv?.name || 'Radarr';
-      for (const hw of healthList) {
-        if (hw.message?.includes('Indexers unavailable') || hw.message?.toLowerCase().includes('request limit')) {
-          const match = hw.message?.match(/Indexers unavailable due to failures:\s*([^.]+)/i);
-          const indexerName = match ? match[1].trim() : 'An indexer';
-          globalTrackerNotices.push(`[Radarr - ${serverName}] ${indexerName} is temporarily rate-limited (5-min cooldown) — searches continue across remaining trackers.`);
-        }
-      }
-    }
-    for (const [serverId, healthList] of sonarrHealthMap.entries()) {
-      const srv = filteredSonarr.find(s => s.id === serverId);
-      const serverName = srv?.name || 'Sonarr';
-      for (const hw of healthList) {
-        if (hw.message?.includes('Indexers unavailable') || hw.message?.toLowerCase().includes('request limit')) {
-          const match = hw.message?.match(/Indexers unavailable due to failures:\s*([^.]+)/i);
-          const indexerName = match ? match[1].trim() : 'An indexer';
-          globalTrackerNotices.push(`[Sonarr - ${serverName}] ${indexerName} is temporarily rate-limited (5-min cooldown) — searches continue across remaining trackers.`);
+    for (const [app, servers, healthMap] of [
+      ['Radarr', filteredRadarr, radarrHealthMap],
+      ['Sonarr', filteredSonarr, sonarrHealthMap],
+    ] as const) {
+      for (const [serverId, healthList] of healthMap) {
+        const name = servers.find((server) => server.id === serverId)?.name;
+        const label = name && name !== app ? `${app} - ${name}` : app;
+        for (const { source, message } of healthList) {
+          if (
+            message &&
+            (/(?:Indexer.*(?:Status|Failure|Rss|Search))Check/i.test(source ?? '') ||
+              /indexers?.*(?:unavailable|request limit|rate.limit)/i.test(message))
+          ) {
+            globalTrackerNotices.push(`[${label}] ${message}`);
+          }
         }
       }
     }
@@ -817,11 +842,11 @@ mediaRoutes.get('/queue', async (req, res, next) => {
   }
 });
 
-mediaRoutes.post('/queue/skip-stalled', isAuthenticated(), async (req, res, next) => {
+mediaRoutes.post('/queue/skip-stalled', isAuthenticated(Permission.MANAGE_REQUESTS), async (req, res, next) => {
   try {
     const { mediaType, tmdbId, downloadId, queueId, serverId, externalId } = req.body;
-    if (!mediaType) {
-      return next({ status: 400, message: 'mediaType is required.' });
+    if (mediaType !== 'movie' && mediaType !== 'tv') {
+      return next({ status: 400, message: 'Choose a movie or TV release.' });
     }
 
     const result = await stalledDownloadAutomation.skipStalledTorrent({
@@ -829,11 +854,11 @@ mediaRoutes.post('/queue/skip-stalled', isAuthenticated(), async (req, res, next
       tmdbId: tmdbId ? Number(tmdbId) : undefined,
       downloadId: downloadId ? String(downloadId) : undefined,
       queueId: queueId ? Number(queueId) : undefined,
-      serverId: serverId ? Number(serverId) : undefined,
+      serverId: serverId == null ? undefined : Number(serverId),
       externalId: externalId ? Number(externalId) : undefined,
     });
 
-    return res.status(200).json(result);
+    return res.status(result.success ? 200 : 409).json(result);
   } catch (e: any) {
     logger.error(`[Queue API] Failed to skip stalled torrent: ${e.message}`);
     return next({ status: 500, message: e.message || 'Failed to skip stalled torrent.' });

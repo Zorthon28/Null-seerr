@@ -9,6 +9,7 @@ export interface QbittorrentItem {
   dlspeed: number;
   upspeed: number;
   eta: number;
+  num_seeds?: number;
   state: string;
   category: string;
   tags: string;
@@ -19,10 +20,73 @@ export interface QbittorrentItem {
 export class TorrentManager {
   private workingBaseUrl: string | null = null;
   private lastUrlCheck = 0;
+  private session?: Promise<string>;
+  private readonly client = axios.create({ maxRedirects: 0 });
+
+  private async login(baseUrl: string, username: string, password: string) {
+    const response = await this.client.post<string>(
+      baseUrl + '/api/v2/auth/login',
+      new URLSearchParams({ username, password }).toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Origin: baseUrl,
+          Referer: baseUrl + '/',
+        },
+        timeout: 5000,
+      }
+    );
+    const sid = response.headers['set-cookie']
+      ?.map((cookie) => cookie.split(';', 1)[0])
+      .find((cookie) => cookie.startsWith('SID=') && cookie.length > 4);
+    if (response.data.trim() !== 'Ok.' || !sid) {
+      throw new Error('qBittorrent rejected the configured credentials');
+    }
+    return sid;
+  }
+
+  private async request<T>(
+    baseUrl: string,
+    path: string,
+    options: { params?: Record<string, string>; body?: string; timeout: number }
+  ): Promise<T> {
+    const { QBITTORRENT_USERNAME: username, QBITTORRENT_PASSWORD: password } = process.env;
+    if (Boolean(username) !== Boolean(password)) {
+      throw new Error('qBittorrent needs both a username and a password');
+    }
+
+    const session = username && password
+      ? (this.session ??= this.login(baseUrl, username, password))
+      : undefined;
+    try {
+      const cookie = await session;
+      const response = await this.client.request<T>({
+        url: baseUrl + '/api/v2/' + path,
+        method: options.body ? 'POST' : 'GET',
+        params: options.params,
+        data: options.body,
+        timeout: options.timeout,
+        headers: {
+          Origin: baseUrl,
+          Referer: baseUrl + '/',
+          ...(cookie ? { Cookie: cookie } : {}),
+          ...(options.body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+        },
+      });
+      return response.data;
+    } catch (error) {
+      if (this.session === session) this.session = undefined;
+      throw error;
+    }
+  }
 
   private getQbitBaseUrls(): string[] {
     const customHost = process.env.QBITTORRENT_HOST;
     const customPort = process.env.QBITTORRENT_PORT || '8080';
+    if (process.env.QBITTORRENT_USERNAME || process.env.QBITTORRENT_PASSWORD) {
+      // Only send credentials to an explicitly configured host.
+      return customHost ? ['http://' + customHost + ':' + customPort] : [];
+    }
     const hosts = [
       customHost ? `${customHost}:${customPort}` : null,
       'qbittorrent:8080',
@@ -54,8 +118,8 @@ export class TorrentManager {
 
     for (const url of urlsToTest) {
       try {
-        const res = await axios.get(`${url}/api/v2/app/version`, { timeout: 1500 });
-        if (res.status === 200) {
+        const version = await this.request<string>(url, 'app/version', { timeout: 1500 });
+        if (typeof version === 'string' && /^v?\d+\./.test(version)) {
           this.workingBaseUrl = url;
           this.lastUrlCheck = now;
           return url;
@@ -83,12 +147,12 @@ export class TorrentManager {
       if (filter) params.filter = filter;
       if (category) params.category = category;
 
-      const res = await axios.get<QbittorrentItem[]>(`${baseUrl}/api/v2/torrents/info`, {
+      const torrents = await this.request<QbittorrentItem[]>(baseUrl, 'torrents/info', {
         params,
         timeout: 5000,
       });
 
-      return res.data || [];
+      return Array.isArray(torrents) ? torrents : [];
     } catch (e: any) {
       this.workingBaseUrl = null;
       logger.warn(`[TorrentManager] Error fetching torrents: ${e.message}`);
@@ -118,16 +182,12 @@ export class TorrentManager {
       params.append('hashes', hashes.join('|'));
       params.append('deleteFiles', String(deleteFiles));
 
-      await axios.post(
-        `${baseUrl}/api/v2/torrents/delete`,
-        params.toString(),
-        {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          timeout: 5000,
-        }
-      );
+      await this.request(baseUrl, 'torrents/delete', {
+        body: params.toString(),
+        timeout: 5000,
+      });
 
-      logger.info(`[TorrentManager] Successfully deleted torrent(s) and data from disk`);
+      logger.info('[TorrentManager] Successfully removed torrent entries');
       return true;
     } catch (e: any) {
       this.workingBaseUrl = null;
@@ -148,7 +208,9 @@ export class TorrentManager {
     year?: number;
     category?: 'radarr' | 'sonarr';
   }): Promise<QbittorrentItem[]> {
-    const torrents = await this.getTorrents(undefined, category);
+    // Fetch all torrents without filtering on qBittorrent endpoint since user category names
+    // vary (e.g. 'movies', 'radarr', 'tv', 'sonarr')
+    const torrents = await this.getTorrents();
     if (torrents.length === 0) return [];
 
     const cleanTitle = title
@@ -169,14 +231,33 @@ export class TorrentManager {
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-z0-9\s]/g, ' ');
 
-      // If category specified, ensure it matches or has no category
-      if (category && t.category && t.category.toLowerCase() !== category) {
-        return false;
+      // Check category compatibility:
+      // radarr: matches 'movies', 'movie', 'radarr', or non-TV categories
+      // sonarr: matches 'tv', 'series', 'sonarr', 'anime', or non-movie categories
+      if (category && t.category) {
+        const cat = t.category.toLowerCase().trim();
+        const isMovieCategory = cat === 'radarr' || cat.startsWith('radarr') || cat === 'movies' || cat === 'movie';
+        const isTvCategory = cat === 'sonarr' || cat.startsWith('sonarr') || cat === 'tv' || cat === 'series' || cat === 'anime';
+
+        if (category === 'radarr' && isTvCategory && !isMovieCategory) {
+          return false;
+        }
+        if (category === 'sonarr' && isMovieCategory && !isTvCategory) {
+          return false;
+        }
       }
 
-      // If year specified, check if year is present in torrent name
-      if (year && !name.includes(year.toString())) {
-        return false;
+      // If year specified, check if year (or year +/- 1 for release discrepancies) matches.
+      // If the torrent has an explicit 4-digit year, it must match within 1 year.
+      if (year) {
+        const yearMatch =
+          name.includes(year.toString()) ||
+          name.includes((year - 1).toString()) ||
+          name.includes((year + 1).toString());
+        const extractedYears = name.match(/\b(19\d\d|20\d\d)\b/g);
+        if (extractedYears && extractedYears.length > 0 && !yearMatch) {
+          return false;
+        }
       }
 
       // Check if all or most significant title words are present
@@ -186,13 +267,9 @@ export class TorrentManager {
     });
   }
 
-  /**
-   * Delete all torrents associated with a media item (by known hashes and/or title match)
-   */
+  /** Remove torrent entries identified by Arr download hashes while retaining payloads. */
   public async deleteMediaTorrents({
     title,
-    year,
-    category,
     knownHashes = [],
   }: {
     title?: string;
@@ -200,33 +277,22 @@ export class TorrentManager {
     category?: 'radarr' | 'sonarr';
     knownHashes?: string[];
   }): Promise<{ deletedCount: number; hashes: string[] }> {
-    const hashesToDelete = new Set<string>(
-      knownHashes.map((h) => h.toLowerCase()).filter((h) => h.length >= 10)
+    const hashesToDelete = new Set(
+      knownHashes
+        .map((hash) => hash.toLowerCase())
+        .filter((hash) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(hash))
     );
-
-    if (title) {
-      try {
-        const matchingTorrents = await this.findTorrentsForMedia({
-          title,
-          year,
-          category,
-        });
-
-        for (const t of matchingTorrents) {
-          hashesToDelete.add(t.hash.toLowerCase());
-        }
-      } catch (e: any) {
-        logger.warn(`[TorrentManager] Error finding torrents for "${title}": ${e.message}`);
-      }
-    }
-
-    const hashesList = Array.from(hashesToDelete);
+    const hashesList = hashesToDelete.size
+      ? (await this.getTorrents())
+          .map(({ hash }) => hash.toLowerCase())
+          .filter((hash) => hashesToDelete.has(hash))
+      : [];
     if (hashesList.length === 0) {
       logger.info(`[TorrentManager] No matching torrents found in qBittorrent for "${title || 'unknown'}"`);
       return { deletedCount: 0, hashes: [] };
     }
 
-    const success = await this.deleteTorrents(hashesList, true);
+    const success = await this.deleteTorrents(hashesList, false);
     return {
       deletedCount: success ? hashesList.length : 0,
       hashes: hashesList,
